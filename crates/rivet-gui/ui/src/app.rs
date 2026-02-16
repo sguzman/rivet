@@ -503,7 +503,6 @@ pub fn app() -> Html {
             {
                 if let Some(state) = (*modal_state).clone() {
                     let state_for_submit = state.clone();
-                    let can_save = !state.draft_desc.trim().is_empty();
                     html! {
                         <div class="modal-backdrop" onclick={on_modal_close.clone()}>
                             <div class="modal" onclick={|e: web_sys::MouseEvent| e.stop_propagation()}>
@@ -595,7 +594,7 @@ pub fn app() -> Html {
                                 </div>
                                 <div class="footer">
                                     <button class="btn" onclick={on_modal_close.clone()}>{ "Cancel" }</button>
-                                    <button class="btn" disabled={!can_save} onclick={{
+                                    <button class="btn" onclick={{
                                         let on_modal_submit = on_modal_submit.clone();
                                         Callback::from(move |_| on_modal_submit.emit(state_for_submit.clone()))
                                     }}>{ "Save" }</button>
