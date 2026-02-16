@@ -1,0 +1,25 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Rivet",
+  "version": "0.1.0",
+  "identifier": "io.rivet.desktop",
+  "build": {
+    "beforeDevCommand": "trunk serve --config ../ui/Trunk.toml --port 1420",
+    "beforeBuildCommand": "trunk build --config ../ui/Trunk.toml",
+    "devUrl": "http://localhost:1420",
+    "frontendDist": "../ui/dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Rivet",
+        "width": 1280,
+        "height": 820,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  }
+}

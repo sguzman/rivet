@@ -1,6 +1,25 @@
-[package]
-name = "rivet"
-version = "0.1.0"
-edition = "2024"
+[workspace]
+resolver = "2"
+members = [
+  "crates/rivet-core",
+  "crates/rivet-cli",
+  "crates/rivet-parity",
+  "crates/rivet-gui-shared",
+  "crates/rivet-gui/src-tauri",
+  "crates/rivet-gui/ui",
+]
+default-members = [
+  "crates/rivet-core",
+  "crates/rivet-cli",
+  "crates/rivet-parity",
+]
 
-[dependencies]
+[workspace.package]
+edition = "2024"
+license = "MIT"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+unwrap_used = "deny"

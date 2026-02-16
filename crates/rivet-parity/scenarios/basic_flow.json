@@ -1,0 +1,10 @@
+{
+  "name": "basic-flow",
+  "steps": [
+    { "args": ["add", "Implement", "parity", "harness", "project:rivet", "+core"] },
+    { "args": ["add", "Design", "GUI", "shell", "project:rivet", "+gui", "due:tomorrow"] },
+    { "args": ["1", "modify", "+urgent", "priority:H"] },
+    { "args": ["2", "done"] },
+    { "args": ["+urgent", "list"] }
+  ]
+}
