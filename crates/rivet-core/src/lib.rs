@@ -4,6 +4,7 @@ pub mod config;
 pub mod datastore;
 pub mod datetime;
 pub mod filter;
+pub mod hooks;
 pub mod render;
 pub mod task;
 

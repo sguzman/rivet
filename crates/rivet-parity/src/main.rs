@@ -35,6 +35,8 @@ struct Args {
 #[derive(Debug, Deserialize)]
 struct Scenario {
     name: String,
+    #[serde(default)]
+    hooks: Vec<HookSpec>,
     steps: Vec<Step>,
 }
 
@@ -43,6 +45,12 @@ struct Step {
     args: Vec<String>,
     #[serde(default)]
     stdin: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct HookSpec {
+    name: String,
+    body: String,
 }
 
 #[derive(Debug)]
@@ -69,7 +77,7 @@ struct CanonicalTask {
     due: Option<String>,
     scheduled: Option<String>,
     wait: Option<String>,
-    start: Option<String>,
+    started: bool,
     annotations: Vec<String>,
 }
 
@@ -178,7 +186,8 @@ fn is_reference_available(reference_bin: &Path) -> bool {
 
 fn run_engine(binary: &Path, scenario: &Scenario) -> anyhow::Result<EngineResult> {
     let temp_dir = TempDir::new().context("failed to create temp scenario dir")?;
-    let taskrc = write_taskrc(temp_dir.path())?;
+    let (taskrc, data_dir) = write_taskrc(temp_dir.path())?;
+    install_hooks(&data_dir, &scenario.hooks)?;
 
     for (idx, step) in scenario.steps.iter().enumerate() {
         let result = run_command(binary, &taskrc, &step.args, step.stdin.as_deref())?;
@@ -208,7 +217,7 @@ fn run_engine(binary: &Path, scenario: &Scenario) -> anyhow::Result<EngineResult
     })
 }
 
-fn write_taskrc(base: &Path) -> anyhow::Result<PathBuf> {
+fn write_taskrc(base: &Path) -> anyhow::Result<(PathBuf, PathBuf)> {
     let data_dir = base.join("data");
     fs::create_dir_all(&data_dir)
         .with_context(|| format!("failed to create data dir {}", data_dir.display()))?;
@@ -221,7 +230,38 @@ fn write_taskrc(base: &Path) -> anyhow::Result<PathBuf> {
     fs::write(&taskrc, content)
         .with_context(|| format!("failed to write taskrc {}", taskrc.display()))?;
 
-    Ok(taskrc)
+    Ok((taskrc, data_dir))
+}
+
+fn install_hooks(data_dir: &Path, hooks: &[HookSpec]) -> anyhow::Result<()> {
+    if hooks.is_empty() {
+        return Ok(());
+    }
+
+    let hooks_dir = data_dir.join("hooks");
+    fs::create_dir_all(&hooks_dir)
+        .with_context(|| format!("failed to create hooks dir {}", hooks_dir.display()))?;
+
+    for hook in hooks {
+        if hook.name.contains('/') || hook.name.contains('\\') {
+            return Err(anyhow!("invalid hook filename: {}", hook.name));
+        }
+
+        let path = hooks_dir.join(&hook.name);
+        fs::write(&path, &hook.body)
+            .with_context(|| format!("failed to write hook {}", path.display()))?;
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+
+            let mut perms = fs::metadata(&path)?.permissions();
+            perms.set_mode(0o755);
+            fs::set_permissions(&path, perms)?;
+        }
+    }
+
+    Ok(())
 }
 
 fn run_command(
@@ -365,10 +405,7 @@ fn canonicalize(value: Value) -> anyhow::Result<CanonicalTask> {
         .get("wait")
         .and_then(Value::as_str)
         .map(ToString::to_string);
-    let start = obj
-        .get("start")
-        .and_then(Value::as_str)
-        .map(ToString::to_string);
+    let started = obj.get("start").and_then(Value::as_str).is_some();
 
     let mut annotations = obj
         .get("annotations")
@@ -392,7 +429,7 @@ fn canonicalize(value: Value) -> anyhow::Result<CanonicalTask> {
         due,
         scheduled,
         wait,
-        start,
+        started,
         annotations,
     })
 }
@@ -478,7 +515,7 @@ mod tests {
             due: None,
             scheduled: None,
             wait: None,
-            start: None,
+            started: false,
             annotations: vec![],
         }];
         let b = vec![CanonicalTask {
@@ -490,7 +527,7 @@ mod tests {
             due: None,
             scheduled: None,
             wait: None,
-            start: None,
+            started: false,
             annotations: vec![],
         }];
 

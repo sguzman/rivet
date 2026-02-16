@@ -1,0 +1,22 @@
+{
+  "name": "hooks-lifecycle",
+  "hooks": [
+    {
+      "name": "on-launch.00-check",
+      "body": "#!/bin/sh\nexit 0\n"
+    },
+    {
+      "name": "on-add.00-tag",
+      "body": "#!/usr/bin/env python3\nimport json\nimport sys\nline = sys.stdin.readline()\ntask = json.loads(line)\ntags = list(task.get(\"tags\", []))\nif \"hook-add\" not in tags:\n    tags.append(\"hook-add\")\ntask[\"tags\"] = sorted(tags)\nprint(json.dumps(task, separators=(\",\", \":\")))\n"
+    },
+    {
+      "name": "on-modify.00-project",
+      "body": "#!/usr/bin/env python3\nimport json\nimport sys\n_ = json.loads(sys.stdin.readline() or \"{}\")\ntask = json.loads(sys.stdin.readline())\ntask[\"project\"] = \"hooked\"\ntags = list(task.get(\"tags\", []))\nif \"hook-mod\" not in tags:\n    tags.append(\"hook-mod\")\ntask[\"tags\"] = sorted(tags)\nprint(json.dumps(task, separators=(\",\", \":\")))\n"
+    }
+  ],
+  "steps": [
+    { "args": ["add", "hook", "baseline"] },
+    { "args": ["1", "modify", "+x"] },
+    { "args": ["1", "done"] }
+  ]
+}

@@ -1,9 +1,11 @@
 use std::cmp::Ordering;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::{self, Read};
 
 use anyhow::{Context, anyhow};
 use chrono::{Local, Utc};
+use serde::Deserialize;
+use serde_json::Value;
 use tracing::{debug, info, instrument, warn};
 
 use crate::cli::Invocation;
@@ -11,6 +13,7 @@ use crate::config::Config;
 use crate::datastore::DataStore;
 use crate::datetime::parse_date_expr;
 use crate::filter::Filter;
+use crate::hooks::HookRunner;
 use crate::render::Renderer;
 use crate::task::{Annotation, Status, Task};
 
@@ -68,6 +71,8 @@ pub fn dispatch(
     inv: Invocation,
 ) -> anyhow::Result<()> {
     let now = Utc::now();
+    let hooks = HookRunner::new(cfg, &store.data_dir);
+    hooks.run_on_launch()?;
     let command = inv.command.as_str();
     let effective_filters = resolve_effective_filter_terms(store, cfg, command, &inv.filter_terms)?;
 
@@ -79,23 +84,23 @@ pub fn dispatch(
     );
 
     match command {
-        "add" => cmd_add(store, cfg, renderer, &inv.command_args, now),
-        "append" => cmd_append(store, &effective_filters, &inv.command_args, now),
-        "prepend" => cmd_prepend(store, &effective_filters, &inv.command_args, now),
+        "add" => cmd_add(store, &hooks, cfg, renderer, &inv.command_args, now),
+        "append" => cmd_append(store, &hooks, &effective_filters, &inv.command_args, now),
+        "prepend" => cmd_prepend(store, &hooks, &effective_filters, &inv.command_args, now),
         "list" | "next" => cmd_list(store, cfg, renderer, command, &effective_filters, now),
         "info" => cmd_info(store, renderer, &effective_filters, now),
-        "modify" => cmd_modify(store, &effective_filters, &inv.command_args, now),
-        "start" => cmd_start(store, &effective_filters, now),
-        "stop" => cmd_stop(store, &effective_filters, now),
-        "annotate" => cmd_annotate(store, &effective_filters, &inv.command_args, now),
-        "denotate" => cmd_denotate(store, &effective_filters, &inv.command_args, now),
-        "duplicate" => cmd_duplicate(store, &effective_filters, now),
-        "log" => cmd_log(store, &inv.command_args, now),
-        "done" => cmd_done(store, &effective_filters, now),
-        "delete" => cmd_delete(store, &effective_filters, now),
+        "modify" => cmd_modify(store, &hooks, &effective_filters, &inv.command_args, now),
+        "start" => cmd_start(store, &hooks, &effective_filters, now),
+        "stop" => cmd_stop(store, &hooks, &effective_filters, now),
+        "annotate" => cmd_annotate(store, &hooks, &effective_filters, &inv.command_args, now),
+        "denotate" => cmd_denotate(store, &hooks, &effective_filters, &inv.command_args, now),
+        "duplicate" => cmd_duplicate(store, &hooks, &effective_filters, now),
+        "log" => cmd_log(store, &hooks, &inv.command_args, now),
+        "done" => cmd_done(store, &hooks, &effective_filters, now),
+        "delete" => cmd_delete(store, &hooks, &effective_filters, now),
         "undo" => cmd_undo(store),
         "export" => cmd_export(store, &effective_filters, now),
-        "import" => cmd_import(store),
+        "import" => cmd_import(store, &hooks),
         "projects" => cmd_projects(store),
         "tags" => cmd_tags(store),
         "context" | "contexts" => cmd_context(store, cfg, &inv.command_args),
@@ -117,9 +122,10 @@ pub fn dispatch(
     }
 }
 
-#[instrument(skip(store, _cfg, _renderer, args, now))]
+#[instrument(skip(store, hooks, _cfg, _renderer, args, now))]
 fn cmd_add(
     store: &mut DataStore,
+    hooks: &HookRunner,
     _cfg: &Config,
     _renderer: &mut Renderer,
     args: &[String],
@@ -135,6 +141,10 @@ fn cmd_add(
     let (description, mods) = parse_desc_and_mods(args, now)?;
     let mut task = Task::new_pending(description, now, next_id);
     apply_mods(&mut task, &mods, now)?;
+    task = hooks.apply_on_add(&task)?;
+    if task.id.is_none() {
+        task.id = Some(next_id);
+    }
 
     pending = store.add_task(pending, task.clone())?;
     store.push_undo_snapshot(&pending_before, &completed)?;
@@ -144,9 +154,10 @@ fn cmd_add(
     Ok(())
 }
 
-#[instrument(skip(store, filter_terms, args, now))]
+#[instrument(skip(store, hooks, filter_terms, args, now))]
 fn cmd_append(
     store: &mut DataStore,
+    hooks: &HookRunner,
     filter_terms: &[String],
     args: &[String],
     now: chrono::DateTime<Utc>,
@@ -172,10 +183,12 @@ fn cmd_append(
             continue;
         }
         if filter.matches(task, now) {
+            let old = task.clone();
             task.description = format!("{} {}", task.description, suffix)
                 .trim()
                 .to_string();
             task.modified = now;
+            *task = hooks.apply_on_modify(&old, task)?;
             changed += 1;
         }
     }
@@ -183,10 +196,12 @@ fn cmd_append(
     if include_non_pending {
         for task in &mut completed {
             if filter.matches(task, now) {
+                let old = task.clone();
                 task.description = format!("{} {}", task.description, suffix)
                     .trim()
                     .to_string();
                 task.modified = now;
+                *task = hooks.apply_on_modify(&old, task)?;
                 changed += 1;
             }
         }
@@ -204,9 +219,10 @@ fn cmd_append(
     Ok(())
 }
 
-#[instrument(skip(store, filter_terms, args, now))]
+#[instrument(skip(store, hooks, filter_terms, args, now))]
 fn cmd_prepend(
     store: &mut DataStore,
+    hooks: &HookRunner,
     filter_terms: &[String],
     args: &[String],
     now: chrono::DateTime<Utc>,
@@ -232,10 +248,12 @@ fn cmd_prepend(
             continue;
         }
         if filter.matches(task, now) {
+            let old = task.clone();
             task.description = format!("{} {}", prefix, task.description)
                 .trim()
                 .to_string();
             task.modified = now;
+            *task = hooks.apply_on_modify(&old, task)?;
             changed += 1;
         }
     }
@@ -243,10 +261,12 @@ fn cmd_prepend(
     if include_non_pending {
         for task in &mut completed {
             if filter.matches(task, now) {
+                let old = task.clone();
                 task.description = format!("{} {}", prefix, task.description)
                     .trim()
                     .to_string();
                 task.modified = now;
+                *task = hooks.apply_on_modify(&old, task)?;
                 changed += 1;
             }
         }
@@ -388,9 +408,10 @@ fn cmd_info(
     Ok(())
 }
 
-#[instrument(skip(store, filter_terms, args, now))]
+#[instrument(skip(store, hooks, filter_terms, args, now))]
 fn cmd_modify(
     store: &mut DataStore,
+    hooks: &HookRunner,
     filter_terms: &[String],
     args: &[String],
     now: chrono::DateTime<Utc>,
@@ -413,8 +434,10 @@ fn cmd_modify(
             continue;
         }
         if filter.matches(task, now) {
+            let old = task.clone();
             apply_mods(task, &mods, now)?;
             task.modified = now;
+            *task = hooks.apply_on_modify(&old, task)?;
             changed += 1;
         }
     }
@@ -422,8 +445,10 @@ fn cmd_modify(
     if include_non_pending {
         for task in &mut completed {
             if filter.matches(task, now) {
+                let old = task.clone();
                 apply_mods(task, &mods, now)?;
                 task.modified = now;
+                *task = hooks.apply_on_modify(&old, task)?;
                 changed += 1;
             }
         }
@@ -441,9 +466,10 @@ fn cmd_modify(
     Ok(())
 }
 
-#[instrument(skip(store, filter_terms, now))]
+#[instrument(skip(store, hooks, filter_terms, now))]
 fn cmd_start(
     store: &mut DataStore,
+    hooks: &HookRunner,
     filter_terms: &[String],
     now: chrono::DateTime<Utc>,
 ) -> anyhow::Result<()> {
@@ -459,8 +485,10 @@ fn cmd_start(
             continue;
         }
         if filter.matches(task, now) && task.start.is_none() {
+            let old = task.clone();
             task.start = Some(now);
             task.modified = now;
+            *task = hooks.apply_on_modify(&old, task)?;
             started += 1;
         }
     }
@@ -475,9 +503,10 @@ fn cmd_start(
     Ok(())
 }
 
-#[instrument(skip(store, filter_terms, now))]
+#[instrument(skip(store, hooks, filter_terms, now))]
 fn cmd_stop(
     store: &mut DataStore,
+    hooks: &HookRunner,
     filter_terms: &[String],
     now: chrono::DateTime<Utc>,
 ) -> anyhow::Result<()> {
@@ -493,8 +522,10 @@ fn cmd_stop(
             continue;
         }
         if filter.matches(task, now) && task.start.is_some() {
+            let old = task.clone();
             task.start = None;
             task.modified = now;
+            *task = hooks.apply_on_modify(&old, task)?;
             stopped += 1;
         }
     }
@@ -509,9 +540,10 @@ fn cmd_stop(
     Ok(())
 }
 
-#[instrument(skip(store, filter_terms, args, now))]
+#[instrument(skip(store, hooks, filter_terms, args, now))]
 fn cmd_annotate(
     store: &mut DataStore,
+    hooks: &HookRunner,
     filter_terms: &[String],
     args: &[String],
     now: chrono::DateTime<Utc>,
@@ -533,22 +565,26 @@ fn cmd_annotate(
 
     for task in &mut pending {
         if filter.matches(task, now) {
+            let old = task.clone();
             task.annotations.push(Annotation {
                 entry: now,
                 description: note.clone(),
             });
             task.modified = now;
+            *task = hooks.apply_on_modify(&old, task)?;
             touched += 1;
         }
     }
 
     for task in &mut completed {
         if filter.matches(task, now) {
+            let old = task.clone();
             task.annotations.push(Annotation {
                 entry: now,
                 description: note.clone(),
             });
             task.modified = now;
+            *task = hooks.apply_on_modify(&old, task)?;
             touched += 1;
         }
     }
@@ -563,9 +599,10 @@ fn cmd_annotate(
     Ok(())
 }
 
-#[instrument(skip(store, filter_terms, args, now))]
+#[instrument(skip(store, hooks, filter_terms, args, now))]
 fn cmd_denotate(
     store: &mut DataStore,
+    hooks: &HookRunner,
     filter_terms: &[String],
     args: &[String],
     now: chrono::DateTime<Utc>,
@@ -596,18 +633,20 @@ fn cmd_denotate(
 
     let (tasks_touched_p, removed_p) = denotate_tasks(
         &mut pending,
+        hooks,
         &filter,
         selector_idx,
         selector_text.as_deref(),
         now,
-    );
+    )?;
     let (tasks_touched_c, removed_c) = denotate_tasks(
         &mut completed,
+        hooks,
         &filter,
         selector_idx,
         selector_text.as_deref(),
         now,
-    );
+    )?;
 
     let tasks_touched = tasks_touched_p + tasks_touched_c;
     let removed = removed_p + removed_c;
@@ -624,11 +663,12 @@ fn cmd_denotate(
 
 fn denotate_tasks(
     tasks: &mut [Task],
+    hooks: &HookRunner,
     filter: &Filter,
     selector_idx: Option<usize>,
     selector_text: Option<&str>,
     now: chrono::DateTime<Utc>,
-) -> (u64, u64) {
+) -> anyhow::Result<(u64, u64)> {
     let mut touched = 0_u64;
     let mut removed = 0_u64;
 
@@ -637,6 +677,7 @@ fn denotate_tasks(
             continue;
         }
 
+        let old = task.clone();
         let before = task.annotations.len();
         if let Some(idx) = selector_idx {
             if idx <= task.annotations.len() {
@@ -652,15 +693,17 @@ fn denotate_tasks(
             touched += 1;
             removed += (before - after) as u64;
             task.modified = now;
+            *task = hooks.apply_on_modify(&old, task)?;
         }
     }
 
-    (touched, removed)
+    Ok((touched, removed))
 }
 
-#[instrument(skip(store, filter_terms, now))]
+#[instrument(skip(store, hooks, filter_terms, now))]
 fn cmd_duplicate(
     store: &mut DataStore,
+    hooks: &HookRunner,
     filter_terms: &[String],
     now: chrono::DateTime<Utc>,
 ) -> anyhow::Result<()> {
@@ -687,6 +730,10 @@ fn cmd_duplicate(
             duplicate.modified = now;
             duplicate.end = None;
             duplicate.start = None;
+            duplicate = hooks.apply_on_add(&duplicate)?;
+            if duplicate.id.is_none() {
+                duplicate.id = Some(next_id);
+            }
             next_id += 1;
             clones.push(duplicate);
         }
@@ -704,9 +751,10 @@ fn cmd_duplicate(
     Ok(())
 }
 
-#[instrument(skip(store, args, now))]
+#[instrument(skip(store, hooks, args, now))]
 fn cmd_log(
     store: &mut DataStore,
+    hooks: &HookRunner,
     args: &[String],
     now: chrono::DateTime<Utc>,
 ) -> anyhow::Result<()> {
@@ -726,6 +774,10 @@ fn cmd_log(
     task.end = Some(now);
     task.start = None;
     task.modified = now;
+    task = hooks.apply_on_add(&task)?;
+    if task.id.is_none() {
+        task.id = Some(next_id);
+    }
 
     let mut completed_new = completed;
     completed_new.push(task.clone());
@@ -738,9 +790,10 @@ fn cmd_log(
     Ok(())
 }
 
-#[instrument(skip(store, filter_terms, now))]
+#[instrument(skip(store, hooks, filter_terms, now))]
 fn cmd_done(
     store: &mut DataStore,
+    hooks: &HookRunner,
     filter_terms: &[String],
     now: chrono::DateTime<Utc>,
 ) -> anyhow::Result<()> {
@@ -760,11 +813,17 @@ fn cmd_done(
         if (task.status == Status::Pending || task.status == Status::Waiting)
             && filter.matches(&task, now)
         {
+            let old = task.clone();
             task.status = Status::Completed;
             task.end = Some(now);
             task.start = None;
             task.modified = now;
-            completed.push(task);
+            task = hooks.apply_on_modify(&old, &task)?;
+
+            match task.status {
+                Status::Completed => completed.push(task),
+                Status::Deleted | Status::Pending | Status::Waiting => keep.push(task),
+            }
             moved += 1;
         } else {
             keep.push(task);
@@ -781,9 +840,10 @@ fn cmd_done(
     Ok(())
 }
 
-#[instrument(skip(store, filter_terms, now))]
+#[instrument(skip(store, hooks, filter_terms, now))]
 fn cmd_delete(
     store: &mut DataStore,
+    hooks: &HookRunner,
     filter_terms: &[String],
     now: chrono::DateTime<Utc>,
 ) -> anyhow::Result<()> {
@@ -798,9 +858,12 @@ fn cmd_delete(
         if (task.status == Status::Pending || task.status == Status::Waiting)
             && filter.matches(task, now)
         {
+            let old = task.clone();
             task.status = Status::Deleted;
             task.start = None;
+            task.end = Some(now);
             task.modified = now;
+            *task = hooks.apply_on_modify(&old, task)?;
             deleted += 1;
         }
     }
@@ -854,9 +917,46 @@ fn cmd_export(
     Ok(())
 }
 
-#[instrument(skip(store))]
-fn cmd_import(store: &mut DataStore) -> anyhow::Result<()> {
+#[derive(Debug, Clone, Deserialize)]
+struct ImportTask {
+    #[serde(default)]
+    uuid: Option<uuid::Uuid>,
+    #[serde(default)]
+    description: Option<String>,
+    #[serde(default)]
+    status: Option<Status>,
+    #[serde(default, with = "crate::datetime::taskwarrior_date_serde::option")]
+    entry: Option<chrono::DateTime<Utc>>,
+    #[serde(default, with = "crate::datetime::taskwarrior_date_serde::option")]
+    modified: Option<chrono::DateTime<Utc>>,
+    #[serde(default, with = "crate::datetime::taskwarrior_date_serde::option")]
+    end: Option<chrono::DateTime<Utc>>,
+    #[serde(default, with = "crate::datetime::taskwarrior_date_serde::option")]
+    start: Option<chrono::DateTime<Utc>>,
+    #[serde(default)]
+    project: Option<String>,
+    #[serde(default)]
+    priority: Option<String>,
+    #[serde(default)]
+    tags: Vec<String>,
+    #[serde(default, with = "crate::datetime::taskwarrior_date_serde::option")]
+    due: Option<chrono::DateTime<Utc>>,
+    #[serde(default, with = "crate::datetime::taskwarrior_date_serde::option")]
+    scheduled: Option<chrono::DateTime<Utc>>,
+    #[serde(default, with = "crate::datetime::taskwarrior_date_serde::option")]
+    wait: Option<chrono::DateTime<Utc>>,
+    #[serde(default)]
+    depends: Vec<uuid::Uuid>,
+    #[serde(default)]
+    annotations: Vec<Annotation>,
+    #[serde(flatten)]
+    extra: BTreeMap<String, Value>,
+}
+
+#[instrument(skip(store, hooks))]
+fn cmd_import(store: &mut DataStore, hooks: &HookRunner) -> anyhow::Result<()> {
     info!("command import");
+    let now = Utc::now();
 
     let mut stdin = String::new();
     io::stdin()
@@ -873,51 +973,159 @@ fn cmd_import(store: &mut DataStore) -> anyhow::Result<()> {
     let pending_before = pending.clone();
     let completed_before = completed.clone();
 
-    let mut imported = 0_u64;
-    if trimmed.starts_with('[') {
-        let tasks: Vec<Task> =
-            serde_json::from_str(trimmed).context("failed parsing JSON array")?;
-        for task in tasks {
-            imported += 1;
-            match task.status {
-                Status::Completed => completed.push(task),
-                Status::Pending | Status::Deleted => pending.push(task),
-                Status::Waiting => {
-                    let mut task = task;
-                    task.status = Status::Pending;
-                    pending.push(task);
-                }
-            }
+    let imported = parse_import_items(trimmed)?;
+    let mut adds = 0_u64;
+    let mut mods = 0_u64;
+
+    for row in imported {
+        let existing = row
+            .uuid
+            .and_then(|uuid| find_task_by_uuid(&pending, &completed, uuid));
+        let mut task = normalize_import_item(row, now);
+        normalize_import_identity_and_status(&mut task, existing.as_ref(), store.next_id(&pending));
+
+        if let Some(old) = existing.as_ref() {
+            task = hooks.apply_on_modify(old, &task)?;
+            mods += 1;
+        } else {
+            task = hooks.apply_on_add(&task)?;
+            adds += 1;
         }
-    } else {
-        for (idx, line) in trimmed.lines().enumerate() {
-            let token = line.trim();
-            if token.is_empty() {
-                continue;
-            }
-            let task: Task = serde_json::from_str(token)
-                .with_context(|| format!("failed parsing import line {}", idx + 1))?;
-            imported += 1;
-            match task.status {
-                Status::Completed => completed.push(task),
-                Status::Pending | Status::Deleted => pending.push(task),
-                Status::Waiting => {
-                    let mut task = task;
-                    task.status = Status::Pending;
-                    pending.push(task);
-                }
-            }
-        }
+        normalize_import_identity_and_status(&mut task, existing.as_ref(), store.next_id(&pending));
+        upsert_imported_task(
+            &mut pending,
+            &mut completed,
+            task,
+            existing.as_ref().map(|t| t.uuid),
+        );
     }
 
-    if imported > 0 {
+    let imported_count = adds + mods;
+    if imported_count > 0 {
         store.push_undo_snapshot(&pending_before, &completed_before)?;
         store.save_pending(&pending)?;
         store.save_completed(&completed)?;
     }
 
-    println!("Imported {imported} task(s).");
+    println!("Imported {imported_count} task(s).");
     Ok(())
+}
+
+fn parse_import_items(trimmed: &str) -> anyhow::Result<Vec<ImportTask>> {
+    if trimmed.starts_with('[') {
+        return serde_json::from_str(trimmed).context("failed parsing JSON array");
+    }
+
+    if trimmed.starts_with('{') {
+        if let Ok(item) = serde_json::from_str::<ImportTask>(trimmed) {
+            return Ok(vec![item]);
+        }
+    }
+
+    let mut out = Vec::new();
+    for (idx, line) in trimmed.lines().enumerate() {
+        let token = line.trim();
+        if token.is_empty() {
+            continue;
+        }
+        let item: ImportTask = serde_json::from_str(token)
+            .with_context(|| format!("failed parsing import line {}", idx + 1))?;
+        out.push(item);
+    }
+
+    if out.is_empty() {
+        return Err(anyhow!("import: empty input"));
+    }
+
+    Ok(out)
+}
+
+fn normalize_import_item(item: ImportTask, now: chrono::DateTime<Utc>) -> Task {
+    let status = item.status.unwrap_or(Status::Pending);
+    let entry = item.entry.unwrap_or(now);
+    let modified = item.modified.unwrap_or(now);
+    let mut task = Task {
+        uuid: item.uuid.unwrap_or_else(uuid::Uuid::new_v4),
+        id: None,
+        description: item.description.unwrap_or_default(),
+        status,
+        entry,
+        modified,
+        end: item.end,
+        start: item.start,
+        project: item.project,
+        priority: item.priority,
+        tags: item.tags,
+        due: item.due,
+        scheduled: item.scheduled,
+        wait: item.wait,
+        depends: item.depends,
+        annotations: item.annotations,
+        extra: item.extra,
+    };
+    normalize_import_status(&mut task);
+    task
+}
+
+fn normalize_import_status(task: &mut Task) {
+    if task.status == Status::Waiting {
+        task.status = Status::Pending;
+    }
+
+    match task.status {
+        Status::Pending => {
+            task.end = None;
+        }
+        Status::Completed | Status::Deleted => {
+            if task.end.is_none() {
+                task.end = Some(task.modified);
+            }
+        }
+        Status::Waiting => {}
+    }
+}
+
+fn normalize_import_identity_and_status(task: &mut Task, old: Option<&Task>, next_id: u64) {
+    normalize_import_status(task);
+    match task.status {
+        Status::Pending => {
+            task.id = old
+                .filter(|prev| prev.status == Status::Pending || prev.status == Status::Waiting)
+                .and_then(|prev| prev.id)
+                .or(Some(next_id));
+        }
+        Status::Completed | Status::Deleted => {
+            task.id = None;
+        }
+        Status::Waiting => {}
+    }
+}
+
+fn find_task_by_uuid(pending: &[Task], completed: &[Task], uuid: uuid::Uuid) -> Option<Task> {
+    pending
+        .iter()
+        .find(|task| task.uuid == uuid)
+        .cloned()
+        .or_else(|| completed.iter().find(|task| task.uuid == uuid).cloned())
+}
+
+fn upsert_imported_task(
+    pending: &mut Vec<Task>,
+    completed: &mut Vec<Task>,
+    task: Task,
+    old_uuid: Option<uuid::Uuid>,
+) {
+    let old_uuid = old_uuid.unwrap_or(task.uuid);
+    pending.retain(|row| row.uuid != old_uuid && row.uuid != task.uuid);
+    completed.retain(|row| row.uuid != old_uuid && row.uuid != task.uuid);
+
+    match task.status {
+        Status::Completed => completed.push(task),
+        Status::Pending | Status::Deleted | Status::Waiting => pending.push(task),
+    }
+
+    pending.sort_by_key(|row| row.id.unwrap_or(u64::MAX));
+    completed.sort_by_key(|row| (row.end, row.id));
 }
 
 #[instrument(skip(store))]
