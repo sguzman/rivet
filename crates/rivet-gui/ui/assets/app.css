@@ -45,6 +45,7 @@ body {
   display: grid;
   grid-template-rows: 62px 1fr;
   background: var(--bg-grad);
+  color: var(--text);
 }
 
 .app.theme-night {
@@ -101,6 +102,12 @@ body {
   font-family: var(--body);
   color: var(--text);
   outline: none;
+}
+
+.search input::placeholder,
+.field input::placeholder {
+  color: var(--muted);
+  opacity: 1;
 }
 
 .search input:focus,
