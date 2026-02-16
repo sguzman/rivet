@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use gloo::console::log;
+use gloo::timers::future::TimeoutFuture;
 use rivet_gui_shared::{
     TaskCreate, TaskDto, TaskIdArg, TaskPatch, TaskStatus, TaskUpdateArgs, TasksListArgs,
 };
@@ -80,6 +81,7 @@ pub fn app() -> Html {
     let active_tag = use_state(|| None::<String>);
     let modal_state = use_state(|| None::<ModalState>);
     let modal_busy = use_state(|| false);
+    let modal_submit_seq = use_state(|| 0_u64);
 
     {
         use_effect_with((), move |_| {
@@ -202,8 +204,10 @@ pub fn app() -> Html {
     let on_add_click = {
         let modal_state = modal_state.clone();
         let modal_busy = modal_busy.clone();
+        let modal_submit_seq = modal_submit_seq.clone();
         Callback::from(move |_| {
             modal_busy.set(false);
+            modal_submit_seq.set((*modal_submit_seq).wrapping_add(1));
             modal_state.set(Some(ModalState {
                 mode: ModalMode::Add,
                 draft_desc: String::new(),
@@ -332,8 +336,10 @@ pub fn app() -> Html {
     let on_edit = {
         let modal_state = modal_state.clone();
         let modal_busy = modal_busy.clone();
+        let modal_submit_seq = modal_submit_seq.clone();
         Callback::from(move |task: TaskDto| {
             modal_busy.set(false);
+            modal_submit_seq.set((*modal_submit_seq).wrapping_add(1));
             modal_state.set(Some(ModalState {
                 mode: ModalMode::Edit(task.uuid),
                 draft_desc: task.description,
@@ -348,8 +354,10 @@ pub fn app() -> Html {
     let close_modal = {
         let modal_state = modal_state.clone();
         let modal_busy = modal_busy.clone();
+        let modal_submit_seq = modal_submit_seq.clone();
         Callback::from(move |_| {
             modal_busy.set(false);
+            modal_submit_seq.set((*modal_submit_seq).wrapping_add(1));
             modal_state.set(None);
             ui_debug("action.modal.cancel", "Cancel clicked, closing modal");
         })
@@ -364,12 +372,15 @@ pub fn app() -> Html {
         let modal_state = modal_state.clone();
         let refresh_tick = refresh_tick.clone();
         let modal_busy = modal_busy.clone();
+        let modal_submit_seq = modal_submit_seq.clone();
         Callback::from(move |state: ModalState| {
             if *modal_busy {
                 ui_debug("action.modal.submit.skip", "ignored duplicate while busy");
                 return;
             }
             modal_busy.set(true);
+            let submit_seq = (*modal_submit_seq).wrapping_add(1);
+            modal_submit_seq.set(submit_seq);
             ui_debug(
                 "action.modal.submit",
                 &format!(
@@ -384,6 +395,27 @@ pub fn app() -> Html {
             let modal_state = modal_state.clone();
             let refresh_tick = refresh_tick.clone();
             let modal_busy = modal_busy.clone();
+            let modal_submit_seq = modal_submit_seq.clone();
+
+            {
+                let modal_state = modal_state.clone();
+                let modal_busy = modal_busy.clone();
+                let modal_submit_seq = modal_submit_seq.clone();
+                let timeout_state = state.clone();
+                wasm_bindgen_futures::spawn_local(async move {
+                    TimeoutFuture::new(8_000).await;
+                    if *modal_busy && *modal_submit_seq == submit_seq {
+                        let mut next = timeout_state;
+                        next.error = Some(
+                            "Save timed out waiting for backend response. Check Tauri IPC/capability configuration."
+                                .to_string(),
+                        );
+                        modal_state.set(Some(next));
+                        modal_busy.set(false);
+                        ui_debug("action.modal.submit.timeout", "save invoke timed out");
+                    }
+                });
+            }
 
             wasm_bindgen_futures::spawn_local(async move {
                 if state.draft_desc.trim().is_empty() {
@@ -414,6 +446,7 @@ pub fn app() -> Html {
                             next.error = Some(format!("Save failed: {err}"));
                             modal_state.set(Some(next));
                             modal_busy.set(false);
+                            modal_submit_seq.set(submit_seq.wrapping_add(1));
                             return;
                         }
                         ui_debug("invoke.task_add.ok", "task_add succeeded");
@@ -441,6 +474,7 @@ pub fn app() -> Html {
                             next.error = Some(format!("Save failed: {err}"));
                             modal_state.set(Some(next));
                             modal_busy.set(false);
+                            modal_submit_seq.set(submit_seq.wrapping_add(1));
                             return;
                         }
                         ui_debug("invoke.task_update.ok", "task_update succeeded");
@@ -451,6 +485,7 @@ pub fn app() -> Html {
                 modal_state.set(None);
                 refresh_tick.set((*refresh_tick).saturating_add(1));
                 modal_busy.set(false);
+                modal_submit_seq.set(submit_seq.wrapping_add(1));
             });
         })
     };

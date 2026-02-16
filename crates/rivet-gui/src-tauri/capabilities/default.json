@@ -4,10 +4,10 @@
   "local": true,
   "remote": {
     "urls": [
-      "http://localhost:1420",
-      "http://127.0.0.1:1420",
-      "http://localhost.:1420",
-      "http://kubernetes.docker.internal.:1420"
+      "http://localhost:1420/*",
+      "http://127.0.0.1:1420/*",
+      "http://localhost:*/*",
+      "http://127.0.0.1:*/*"
     ]
   },
   "windows": ["main"],
