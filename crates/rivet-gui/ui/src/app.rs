@@ -5,6 +5,7 @@ use gloo::events::EventListener;
 use rivet_gui_shared::{
     TaskCreate, TaskDto, TaskIdArg, TaskPatch, TaskStatus, TaskUpdateArgs, TasksListArgs,
 };
+use serde::Serialize;
 use uuid::Uuid;
 use wasm_bindgen::JsCast;
 use yew::{
@@ -833,4 +834,20 @@ fn describe_event_target(event: &web_sys::Event) -> String {
 fn ui_debug(event: &str, detail: &str) {
     tracing::info!(event, detail, "ui-debug");
     log!(format!("[ui-debug] {event}: {detail}"));
+
+    let payload = UiLogPayload {
+        event: event.to_string(),
+        detail: detail.to_string(),
+    };
+    wasm_bindgen_futures::spawn_local(async move {
+        if let Err(err) = invoke_tauri::<(), _>("ui_log", &payload).await {
+            log!(format!("[ui-debug] ui_log invoke failed: {err}"));
+        }
+    });
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct UiLogPayload {
+    event: String,
+    detail: String,
 }

@@ -74,6 +74,7 @@ fn main() {
             commands::task_update,
             commands::task_done,
             commands::task_delete,
+            commands::ui_log,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Rivet GUI backend");

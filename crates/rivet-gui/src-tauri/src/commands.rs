@@ -1,6 +1,7 @@
 use rivet_gui_shared::{TaskCreate, TaskDto, TaskIdArg, TaskUpdateArgs, TasksListArgs};
+use serde::Deserialize;
 use tauri::State;
-use tracing::instrument;
+use tracing::{info, instrument};
 
 use crate::state::AppState;
 
@@ -42,4 +43,17 @@ pub async fn task_done(state: State<'_, AppState>, arg: TaskIdArg) -> Result<Tas
 #[instrument(skip(state), fields(uuid = %arg.uuid))]
 pub async fn task_delete(state: State<'_, AppState>, arg: TaskIdArg) -> Result<(), String> {
     state.delete(arg.uuid).map_err(err_to_string)
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UiLogArg {
+    pub event: String,
+    pub detail: String,
+}
+
+#[tauri::command]
+#[instrument(fields(event = %arg.event))]
+pub async fn ui_log(arg: UiLogArg) -> Result<(), String> {
+    info!(event = %arg.event, detail = %arg.detail, "ui interaction");
+    Ok(())
 }
