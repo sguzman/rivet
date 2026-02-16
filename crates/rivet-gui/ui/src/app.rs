@@ -502,7 +502,16 @@ pub fn app() -> Html {
 
             {
                 if let Some(state) = (*modal_state).clone() {
-                    let state_for_submit = state.clone();
+                    let on_submit_form = {
+                        let modal_state = modal_state.clone();
+                        let on_modal_submit = on_modal_submit.clone();
+                        Callback::from(move |e: web_sys::SubmitEvent| {
+                            e.prevent_default();
+                            if let Some(current) = (*modal_state).clone() {
+                                on_modal_submit.emit(current);
+                            }
+                        })
+                    };
                     html! {
                         <div class="modal-backdrop" onclick={on_modal_close.clone()}>
                             <div class="modal" onclick={|e: web_sys::MouseEvent| e.stop_propagation()}>
@@ -514,7 +523,7 @@ pub fn app() -> Html {
                                         }
                                     }
                                 </div>
-                                <div class="content">
+                                <form class="content" onsubmit={on_submit_form}>
                                     {
                                         if let Some(err) = state.error.clone() {
                                             html! { <div class="form-error">{ err }</div> }
@@ -591,14 +600,11 @@ pub fn app() -> Html {
                                             }}
                                         />
                                     </div>
-                                </div>
-                                <div class="footer">
-                                    <button class="btn" onclick={on_modal_close.clone()}>{ "Cancel" }</button>
-                                    <button class="btn" onclick={{
-                                        let on_modal_submit = on_modal_submit.clone();
-                                        Callback::from(move |_| on_modal_submit.emit(state_for_submit.clone()))
-                                    }}>{ "Save" }</button>
-                                </div>
+                                    <div class="footer">
+                                        <button type="button" class="btn" onclick={on_modal_close.clone()}>{ "Cancel" }</button>
+                                        <button type="submit" class="btn">{ "Save" }</button>
+                                    </div>
+                                </form>
                             </div>
                         </div>
                     }
