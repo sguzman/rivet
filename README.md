@@ -5,6 +5,14 @@ Rivet is a Rust-first Taskwarrior port with two layers:
 - A CLI-compatible core (`task`) focused on Taskwarrior-style workflows.
 - A desktop GUI layer built with Rust + Yew + CSS + Tauri on top of the same core data model.
 
+## Mascot
+
+![Rivet Mascot](branding/mascot.png)
+
+Branding assets live under `branding/`. The app, taskbar, and platform icons are generated from
+`branding/mascot-square.png` into `crates/rivet-gui/src-tauri/icons/`, and web favicons are in
+`crates/rivet-gui/ui/assets/icons/`.
+
 See `ROADMAP.md` for the full milestone plan toward comprehensive parity.
 See `PARITY_MATRIX.md` for the current command/feature parity status against Taskwarrior `3.4.2`.
 Machine-readable parity data is tracked in `tests/parity_map.json` for CI/reporting tooling.
