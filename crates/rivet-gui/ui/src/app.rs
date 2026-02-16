@@ -1,13 +1,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use gloo::console::log;
-use gloo::events::EventListener;
 use rivet_gui_shared::{
     TaskCreate, TaskDto, TaskIdArg, TaskPatch, TaskStatus, TaskUpdateArgs, TasksListArgs,
 };
-use serde::Serialize;
 use uuid::Uuid;
-use wasm_bindgen::JsCast;
 use yew::{
     Callback, Html, TargetCast, classes, function_component, html, use_effect_with, use_state,
 };
@@ -87,72 +84,6 @@ pub fn app() -> Html {
         use_effect_with((), move |_| {
             ui_debug("app.mounted", "frontend mounted and hooks initialized");
             || ()
-        });
-    }
-
-    {
-        use_effect_with((), move |_| {
-            let document = web_sys::window().and_then(|window| window.document());
-
-            let click_listener = document.as_ref().map(|document| {
-                EventListener::new(document, "click", move |event| {
-                    ui_debug(
-                        "dom.click",
-                        &format!("target={}", describe_event_target(event)),
-                    );
-                })
-            });
-
-            let input_listener = document.as_ref().map(|document| {
-                EventListener::new(document, "input", move |event| {
-                    ui_debug(
-                        "dom.input",
-                        &format!("target={}", describe_event_target(event)),
-                    );
-                })
-            });
-
-            let submit_listener = document.as_ref().map(|document| {
-                EventListener::new(document, "submit", move |event| {
-                    ui_debug(
-                        "dom.submit",
-                        &format!("target={}", describe_event_target(event)),
-                    );
-                })
-            });
-
-            let keydown_listener = document.as_ref().map(|document| {
-                EventListener::new(document, "keydown", move |event| {
-                    if let Some(key) = event
-                        .dyn_ref::<web_sys::KeyboardEvent>()
-                        .map(|keyboard| keyboard.key())
-                    {
-                        ui_debug(
-                            "dom.keydown",
-                            &format!("key={key}, target={}", describe_event_target(event)),
-                        );
-                    } else {
-                        ui_debug(
-                            "dom.keydown",
-                            &format!("target={}", describe_event_target(event)),
-                        );
-                    }
-                })
-            });
-
-            if document.is_none() {
-                ui_debug(
-                    "dom.listeners",
-                    "window/document unavailable; interaction listeners not attached",
-                );
-            }
-
-            move || {
-                drop(click_listener);
-                drop(input_listener);
-                drop(submit_listener);
-                drop(keydown_listener);
-            }
         });
     }
 
@@ -270,7 +201,6 @@ pub fn app() -> Html {
     let on_add_click = {
         let modal_state = modal_state.clone();
         Callback::from(move |_| {
-            ui_debug("action.add_modal.open", "clicked Add Task");
             modal_state.set(Some(ModalState {
                 mode: ModalMode::Add,
                 draft_desc: String::new(),
@@ -278,7 +208,8 @@ pub fn app() -> Html {
                 draft_tags: String::new(),
                 draft_due: String::new(),
                 error: None,
-            }))
+            }));
+            ui_debug("action.add_modal.open", "clicked Add Task");
         })
     };
 
@@ -412,24 +343,15 @@ pub fn app() -> Html {
     let close_modal = {
         let modal_state = modal_state.clone();
         Callback::from(move |_| {
-            ui_debug("action.modal.cancel", "Cancel clicked, closing modal");
             modal_state.set(None);
+            ui_debug("action.modal.cancel", "Cancel clicked, closing modal");
         })
     };
 
     let on_modal_close_click = {
         let close_modal = close_modal.clone();
-        Callback::from(move |_| {
-            ui_debug("button.cancel.click", "Cancel clicked");
-            close_modal.emit(());
-        })
+        Callback::from(move |_| close_modal.emit(()))
     };
-    let on_cancel_mousedown = Callback::from(move |_| {
-        ui_debug("button.cancel.mousedown", "Cancel mousedown");
-    });
-    let on_cancel_mouseup = Callback::from(move |_| {
-        ui_debug("button.cancel.mouseup", "Cancel mouseup");
-    });
 
     let on_modal_submit = {
         let modal_state = modal_state.clone();
@@ -623,7 +545,6 @@ pub fn app() -> Html {
                         let on_modal_submit = on_modal_submit.clone();
                         Callback::from(move |e: web_sys::SubmitEvent| {
                             e.prevent_default();
-                            ui_debug("form.submit.handler", "onsubmit fired");
                             if let Some(current) = (*modal_state).clone() {
                                 on_modal_submit.emit(current);
                             } else {
@@ -631,15 +552,6 @@ pub fn app() -> Html {
                             }
                         })
                     };
-                    let on_save_click = Callback::from(move |_| {
-                        ui_debug("button.save.click", "Save clicked (submit button)");
-                    });
-                    let on_save_mousedown = Callback::from(move |_| {
-                        ui_debug("button.save.mousedown", "Save mousedown");
-                    });
-                    let on_save_mouseup = Callback::from(move |_| {
-                        ui_debug("button.save.mouseup", "Save mouseup");
-                    });
                     html! {
                         <div class="modal-backdrop">
                             <div class="modal">
@@ -734,8 +646,6 @@ pub fn app() -> Html {
                                             type="button"
                                             class="btn"
                                             onclick={on_modal_close_click.clone()}
-                                            onmousedown={on_cancel_mousedown}
-                                            onmouseup={on_cancel_mouseup}
                                         >
                                             { "Cancel" }
                                         </button>
@@ -743,9 +653,6 @@ pub fn app() -> Html {
                                             id="modal-save-btn"
                                             type="submit"
                                             class="btn"
-                                            onclick={on_save_click}
-                                            onmousedown={on_save_mousedown}
-                                            onmouseup={on_save_mouseup}
                                         >
                                             { "Save" }
                                         </button>
@@ -852,38 +759,7 @@ fn build_tag_facets(tasks: &[TaskDto]) -> Vec<(String, usize)> {
     counts.into_iter().collect()
 }
 
-fn describe_event_target(event: &web_sys::Event) -> String {
-    let Some(target) = event.target() else {
-        return "none".to_string();
-    };
-
-    let Some(element) = target.dyn_ref::<web_sys::Element>() else {
-        return "non-element".to_string();
-    };
-
-    let tag = element.tag_name();
-    let id = element.id();
-    let class_name = element.class_name();
-    format!("tag={tag}, id={id}, class={class_name}")
-}
-
 fn ui_debug(event: &str, detail: &str) {
-    tracing::info!(event, detail, "ui-debug");
+    tracing::debug!(event, detail, "ui-debug");
     log!(format!("[ui-debug] {event}: {detail}"));
-
-    let payload = UiLogPayload {
-        event: event.to_string(),
-        detail: detail.to_string(),
-    };
-    wasm_bindgen_futures::spawn_local(async move {
-        if let Err(err) = invoke_tauri::<(), _>("ui_log", &payload).await {
-            log!(format!("[ui-debug] ui_log invoke failed: {err}"));
-        }
-    });
-}
-
-#[derive(Debug, Clone, Serialize)]
-struct UiLogPayload {
-    event: String,
-    detail: String,
 }
