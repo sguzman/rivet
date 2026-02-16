@@ -5,6 +5,8 @@ Rivet is a Rust-first Taskwarrior port with two layers:
 - A CLI-compatible core (`task`) focused on Taskwarrior-style workflows.
 - A desktop GUI layer built with Rust + Yew + CSS + Tauri on top of the same core data model.
 
+See `ROADMAP.md` for the full milestone plan toward comprehensive parity.
+
 ## Workspace Layout
 
 - `crates/rivet-core`: task engine, parsing, datastore, filters, renderer, command dispatch.
