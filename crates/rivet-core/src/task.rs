@@ -42,6 +42,9 @@ pub struct Task {
     #[serde(default, with = "taskwarrior_date_serde::option")]
     pub end: Option<DateTime<Utc>>,
 
+    #[serde(default, with = "taskwarrior_date_serde::option")]
+    pub start: Option<DateTime<Utc>>,
+
     #[serde(default)]
     pub project: Option<String>,
 
@@ -80,6 +83,7 @@ impl Task {
             entry: now,
             modified: now,
             end: None,
+            start: None,
             project: None,
             priority: None,
             tags: vec![],

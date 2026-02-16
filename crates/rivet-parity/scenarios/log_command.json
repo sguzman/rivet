@@ -1,0 +1,6 @@
+{
+  "name": "log-command",
+  "steps": [
+    { "args": ["log", "incident", "closed", "project:ops", "+done", "priority:H"] }
+  ]
+}

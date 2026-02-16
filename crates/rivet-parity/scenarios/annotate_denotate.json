@@ -1,0 +1,9 @@
+{
+  "name": "annotate-denotate",
+  "steps": [
+    { "args": ["add", "annotate", "target", "+notes"] },
+    { "args": ["1", "annotate", "first", "note"] },
+    { "args": ["1", "annotate", "second", "note"] },
+    { "args": ["1", "denotate", "first", "note"] }
+  ]
+}

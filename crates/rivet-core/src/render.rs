@@ -106,6 +106,9 @@ impl Renderer {
         if let Some(end) = task.end {
             writeln!(out, "end       {}", end.format("%Y%m%dT%H%M%SZ"))?;
         }
+        if let Some(start) = task.start {
+            writeln!(out, "start     {}", start.format("%Y%m%dT%H%M%SZ"))?;
+        }
         if let Some(due) = task.due {
             writeln!(out, "due       {}", due.format("%Y%m%dT%H%M%SZ"))?;
         }

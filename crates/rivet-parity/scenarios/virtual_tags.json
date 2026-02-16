@@ -1,0 +1,17 @@
+{
+  "name": "virtual-tags",
+  "steps": [
+    { "args": ["add", "active", "one", "+a"] },
+    { "args": ["add", "waiting", "one", "+b", "wait:tomorrow"] },
+    { "args": ["add", "done", "one", "+c"] },
+    { "args": ["+c", "done"] },
+    { "args": ["add", "deleted", "one", "+dtag"] },
+    { "args": ["+dtag", "delete"] },
+    { "args": ["1", "start"] },
+    { "args": ["+PENDING", "modify", "+vpending"] },
+    { "args": ["+WAITING", "modify", "+vwaiting"] },
+    { "args": ["+ACTIVE", "modify", "+vactive"] },
+    { "args": ["+COMPLETED", "modify", "+vcompleted"] },
+    { "args": ["+DELETED", "modify", "+vdeleted"] }
+  ]
+}

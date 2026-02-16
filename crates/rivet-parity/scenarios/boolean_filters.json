@@ -1,0 +1,9 @@
+{
+  "name": "boolean-filters",
+  "steps": [
+    { "args": ["add", "bool", "one", "+x", "project:one"] },
+    { "args": ["add", "bool", "two", "+y", "project:two"] },
+    { "args": ["add", "bool", "three", "+x", "+y", "project:two"] },
+    { "args": ["(", "+x", "or", "+y", ")", "and", "+y", "modify", "+sel"] }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "name": "start-stop",
+  "steps": [
+    { "args": ["add", "active", "work", "+track", "project:rivet"] },
+    { "args": ["1", "start"] },
+    { "args": ["1", "stop"] },
+    { "args": ["1", "start"] }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "name": "duplicate-undo",
+  "steps": [
+    { "args": ["add", "base", "task", "+dup", "project:rivet"] },
+    { "args": ["1", "duplicate"] },
+    { "args": ["2", "modify", "project:rivet.copy", "+copy"] },
+    { "args": ["2", "delete"] },
+    { "args": ["undo"] }
+  ]
+}

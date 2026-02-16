@@ -1,0 +1,14 @@
+{
+  "name": "cross-status-modify",
+  "steps": [
+    { "args": ["add", "pending", "one", "+p"] },
+    { "args": ["add", "waiting", "one", "+w", "wait:tomorrow"] },
+    { "args": ["add", "done", "one", "+c"] },
+    { "args": ["+c", "done"] },
+    { "args": ["add", "deleted", "one", "+dtag"] },
+    { "args": ["+dtag", "delete"] },
+    { "args": ["status:completed", "modify", "+done_mod"] },
+    { "args": ["status:deleted", "modify", "+deleted_mod"] },
+    { "args": ["2", "modify", "+wait_mod"] }
+  ]
+}

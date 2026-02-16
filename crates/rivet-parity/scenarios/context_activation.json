@@ -1,0 +1,8 @@
+{
+  "name": "context-activation",
+  "steps": [
+    { "args": ["add", "ctx", "one", "+rivet"] },
+    { "args": ["add", "ctx", "two", "+other"] },
+    { "args": ["context", "rivet"] }
+  ]
+}

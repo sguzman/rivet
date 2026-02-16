@@ -69,6 +69,8 @@ struct CanonicalTask {
     due: Option<String>,
     scheduled: Option<String>,
     wait: Option<String>,
+    start: Option<String>,
+    annotations: Vec<String>,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -213,7 +215,7 @@ fn write_taskrc(base: &Path) -> anyhow::Result<PathBuf> {
 
     let taskrc = base.join("taskrc");
     let content = format!(
-        "data.location={}\nconfirmation=no\nverbose=nothing\n",
+        "data.location={}\nconfirmation=no\nverbose=nothing\ncontext.rivet=+rivet\ncontext.ops=project:ops\n",
         data_dir.display()
     );
     fs::write(&taskrc, content)
@@ -363,6 +365,23 @@ fn canonicalize(value: Value) -> anyhow::Result<CanonicalTask> {
         .get("wait")
         .and_then(Value::as_str)
         .map(ToString::to_string);
+    let start = obj
+        .get("start")
+        .and_then(Value::as_str)
+        .map(ToString::to_string);
+
+    let mut annotations = obj
+        .get("annotations")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.get("description").and_then(Value::as_str))
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    annotations.sort();
 
     Ok(CanonicalTask {
         description,
@@ -373,6 +392,8 @@ fn canonicalize(value: Value) -> anyhow::Result<CanonicalTask> {
         due,
         scheduled,
         wait,
+        start,
+        annotations,
     })
 }
 
@@ -457,6 +478,8 @@ mod tests {
             due: None,
             scheduled: None,
             wait: None,
+            start: None,
+            annotations: vec![],
         }];
         let b = vec![CanonicalTask {
             description: "A".to_string(),
@@ -467,6 +490,8 @@ mod tests {
             due: None,
             scheduled: None,
             wait: None,
+            start: None,
+            annotations: vec![],
         }];
 
         assert!((score_bucket(&a, &b) - 1.0).abs() < f64::EPSILON);
