@@ -1,3 +1,5 @@
+use std::collections::{BTreeMap, BTreeSet};
+
 use rivet_gui_shared::{
     TaskCreate, TaskDto, TaskIdArg, TaskPatch, TaskStatus, TaskUpdateArgs, TasksListArgs,
 };
@@ -5,7 +7,7 @@ use uuid::Uuid;
 use yew::{Callback, Html, TargetCast, function_component, html, use_effect_with, use_state};
 
 use crate::api::invoke_tauri;
-use crate::components::{Details, Sidebar, TaskList};
+use crate::components::{Details, FacetPanel, Sidebar, TaskList};
 
 #[derive(Clone, PartialEq)]
 struct ModalState {
@@ -26,39 +28,41 @@ enum ModalMode {
 pub fn app() -> Html {
     let active_view = use_state(|| "inbox".to_string());
     let search = use_state(String::new);
+    let refresh_tick = use_state(|| 0_u64);
 
     let tasks = use_state(Vec::<TaskDto>::new);
     let selected = use_state(|| None::<Uuid>);
+    let bulk_selected = use_state(BTreeSet::<Uuid>::new);
+    let active_project = use_state(|| None::<String>);
+    let active_tag = use_state(|| None::<String>);
     let modal_state = use_state(|| None::<ModalState>);
 
     {
         let active_view = active_view.clone();
-        let search = search.clone();
+        let refresh_tick = refresh_tick.clone();
         let tasks = tasks.clone();
 
         use_effect_with(
-            ((*active_view).clone(), (*search).clone()),
-            move |(view, query)| {
+            ((*active_view).clone(), *refresh_tick),
+            move |(view, tick)| {
                 let tasks = tasks.clone();
                 let view = view.clone();
-                let query = query.clone();
+                let tick = *tick;
 
                 wasm_bindgen_futures::spawn_local(async move {
-                    tracing::info!(view = %view, query = %query, "refreshing task list");
+                    tracing::info!(view = %view, tick, "refreshing task list");
 
-                    let args = match view.as_str() {
-                        "completed" => TasksListArgs {
-                            query: if query.is_empty() { None } else { Some(query) },
-                            status: Some(TaskStatus::Completed),
-                            project: None,
-                            tag: None,
-                        },
-                        _ => TasksListArgs {
-                            query: if query.is_empty() { None } else { Some(query) },
-                            status: Some(TaskStatus::Pending),
-                            project: None,
-                            tag: None,
-                        },
+                    let status = if view == "completed" {
+                        TaskStatus::Completed
+                    } else {
+                        TaskStatus::Pending
+                    };
+
+                    let args = TasksListArgs {
+                        query: None,
+                        status: Some(status),
+                        project: None,
+                        tag: None,
                     };
 
                     match invoke_tauri::<Vec<TaskDto>, _>("tasks_list", &args).await {
@@ -72,21 +76,76 @@ pub fn app() -> Html {
         );
     }
 
+    let visible_tasks = {
+        let query = (*search).clone();
+        filter_visible_tasks(
+            &tasks,
+            &active_view,
+            &query,
+            active_project.as_deref(),
+            active_tag.as_deref(),
+        )
+    };
+
     let selected_task =
-        (*selected).and_then(|id| tasks.iter().find(|task| task.uuid == id).cloned());
+        (*selected).and_then(|id| visible_tasks.iter().find(|task| task.uuid == id).cloned());
+
+    let project_facets = build_project_facets(&tasks);
+    let tag_facets = build_tag_facets(&tasks);
 
     let on_nav = {
         let active_view = active_view.clone();
         let selected = selected.clone();
+        let bulk_selected = bulk_selected.clone();
+        let active_project = active_project.clone();
+        let active_tag = active_tag.clone();
         Callback::from(move |view: String| {
             active_view.set(view);
             selected.set(None);
+            bulk_selected.set(BTreeSet::new());
+            active_project.set(None);
+            active_tag.set(None);
         })
     };
 
     let on_select = {
         let selected = selected.clone();
         Callback::from(move |id: Uuid| selected.set(Some(id)))
+    };
+
+    let on_toggle_select = {
+        let bulk_selected = bulk_selected.clone();
+        Callback::from(move |id: Uuid| {
+            let mut next = (*bulk_selected).clone();
+            if next.contains(&id) {
+                next.remove(&id);
+            } else {
+                next.insert(id);
+            }
+            bulk_selected.set(next);
+        })
+    };
+
+    let on_choose_project = {
+        let active_project = active_project.clone();
+        let selected = selected.clone();
+        let bulk_selected = bulk_selected.clone();
+        Callback::from(move |project: Option<String>| {
+            active_project.set(project);
+            selected.set(None);
+            bulk_selected.set(BTreeSet::new());
+        })
+    };
+
+    let on_choose_tag = {
+        let active_tag = active_tag.clone();
+        let selected = selected.clone();
+        let bulk_selected = bulk_selected.clone();
+        Callback::from(move |tag: Option<String>| {
+            active_tag.set(tag);
+            selected.set(None);
+            bulk_selected.set(BTreeSet::new());
+        })
     };
 
     let on_add_click = {
@@ -103,18 +162,21 @@ pub fn app() -> Html {
     };
 
     let on_done = {
-        let tasks = tasks.clone();
+        let refresh_tick = refresh_tick.clone();
+        let selected = selected.clone();
+        let bulk_selected = bulk_selected.clone();
         Callback::from(move |uuid: Uuid| {
-            let tasks = tasks.clone();
+            let refresh_tick = refresh_tick.clone();
+            let selected = selected.clone();
+            let bulk_selected = bulk_selected.clone();
+
             wasm_bindgen_futures::spawn_local(async move {
                 let arg = TaskIdArg { uuid };
                 match invoke_tauri::<TaskDto, _>("task_done", &arg).await {
-                    Ok(updated) => {
-                        let mut next = (*tasks).clone();
-                        if let Some(task) = next.iter_mut().find(|task| task.uuid == uuid) {
-                            *task = updated;
-                        }
-                        tasks.set(next);
+                    Ok(_) => {
+                        selected.set(None);
+                        bulk_selected.set(BTreeSet::new());
+                        refresh_tick.set((*refresh_tick).saturating_add(1));
                     }
                     Err(err) => tracing::error!(error = %err, "task_done failed"),
                 }
@@ -123,22 +185,82 @@ pub fn app() -> Html {
     };
 
     let on_delete = {
-        let tasks = tasks.clone();
+        let refresh_tick = refresh_tick.clone();
         let selected = selected.clone();
+        let bulk_selected = bulk_selected.clone();
         Callback::from(move |uuid: Uuid| {
-            let tasks = tasks.clone();
+            let refresh_tick = refresh_tick.clone();
             let selected = selected.clone();
+            let bulk_selected = bulk_selected.clone();
+
             wasm_bindgen_futures::spawn_local(async move {
                 let arg = TaskIdArg { uuid };
                 match invoke_tauri::<(), _>("task_delete", &arg).await {
                     Ok(()) => {
-                        let mut next = (*tasks).clone();
-                        next.retain(|task| task.uuid != uuid);
-                        tasks.set(next);
                         selected.set(None);
+                        bulk_selected.set(BTreeSet::new());
+                        refresh_tick.set((*refresh_tick).saturating_add(1));
                     }
                     Err(err) => tracing::error!(error = %err, "task_delete failed"),
                 }
+            });
+        })
+    };
+
+    let on_bulk_done = {
+        let bulk_selected = bulk_selected.clone();
+        let refresh_tick = refresh_tick.clone();
+        let selected = selected.clone();
+        Callback::from(move |_| {
+            let ids: Vec<Uuid> = (*bulk_selected).iter().copied().collect();
+            if ids.is_empty() {
+                return;
+            }
+
+            let bulk_selected = bulk_selected.clone();
+            let refresh_tick = refresh_tick.clone();
+            let selected = selected.clone();
+
+            wasm_bindgen_futures::spawn_local(async move {
+                for uuid in ids {
+                    let arg = TaskIdArg { uuid };
+                    if let Err(err) = invoke_tauri::<TaskDto, _>("task_done", &arg).await {
+                        tracing::error!(error = %err, %uuid, "bulk task_done failed");
+                    }
+                }
+
+                selected.set(None);
+                bulk_selected.set(BTreeSet::new());
+                refresh_tick.set((*refresh_tick).saturating_add(1));
+            });
+        })
+    };
+
+    let on_bulk_delete = {
+        let bulk_selected = bulk_selected.clone();
+        let refresh_tick = refresh_tick.clone();
+        let selected = selected.clone();
+        Callback::from(move |_| {
+            let ids: Vec<Uuid> = (*bulk_selected).iter().copied().collect();
+            if ids.is_empty() {
+                return;
+            }
+
+            let bulk_selected = bulk_selected.clone();
+            let refresh_tick = refresh_tick.clone();
+            let selected = selected.clone();
+
+            wasm_bindgen_futures::spawn_local(async move {
+                for uuid in ids {
+                    let arg = TaskIdArg { uuid };
+                    if let Err(err) = invoke_tauri::<(), _>("task_delete", &arg).await {
+                        tracing::error!(error = %err, %uuid, "bulk task_delete failed");
+                    }
+                }
+
+                selected.set(None);
+                bulk_selected.set(BTreeSet::new());
+                refresh_tick.set((*refresh_tick).saturating_add(1));
             });
         })
     };
@@ -163,10 +285,10 @@ pub fn app() -> Html {
 
     let on_modal_submit = {
         let modal_state = modal_state.clone();
-        let tasks = tasks.clone();
+        let refresh_tick = refresh_tick.clone();
         Callback::from(move |state: ModalState| {
-            let tasks = tasks.clone();
             let modal_state = modal_state.clone();
+            let refresh_tick = refresh_tick.clone();
 
             wasm_bindgen_futures::spawn_local(async move {
                 match state.mode {
@@ -181,13 +303,8 @@ pub fn app() -> Html {
                             scheduled: None,
                         };
 
-                        match invoke_tauri::<TaskDto, _>("task_add", &create).await {
-                            Ok(task) => {
-                                let mut next = (*tasks).clone();
-                                next.push(task);
-                                tasks.set(next);
-                            }
-                            Err(err) => tracing::error!(error = %err, "task_add failed"),
+                        if let Err(err) = invoke_tauri::<TaskDto, _>("task_add", &create).await {
+                            tracing::error!(error = %err, "task_add failed");
                         }
                     }
                     ModalMode::Edit(uuid) => {
@@ -202,23 +319,19 @@ pub fn app() -> Html {
                             },
                         };
 
-                        match invoke_tauri::<TaskDto, _>("task_update", &update).await {
-                            Ok(updated) => {
-                                let mut next = (*tasks).clone();
-                                if let Some(task) = next.iter_mut().find(|task| task.uuid == uuid) {
-                                    *task = updated;
-                                }
-                                tasks.set(next);
-                            }
-                            Err(err) => tracing::error!(error = %err, "task_update failed"),
+                        if let Err(err) = invoke_tauri::<TaskDto, _>("task_update", &update).await {
+                            tracing::error!(error = %err, "task_update failed");
                         }
                     }
                 }
 
                 modal_state.set(None);
+                refresh_tick.set((*refresh_tick).saturating_add(1));
             });
         })
     };
+
+    let bulk_count = (*bulk_selected).len();
 
     html! {
         <div class="app">
@@ -237,13 +350,85 @@ pub fn app() -> Html {
                         }}
                     />
                 </div>
+                {
+                    if bulk_count > 0 {
+                        html! {
+                            <>
+                                <button class="btn ok" onclick={on_bulk_done.clone()}>{ format!("Done {bulk_count}") }</button>
+                                <button class="btn danger" onclick={on_bulk_delete.clone()}>{ format!("Delete {bulk_count}") }</button>
+                            </>
+                        }
+                    } else {
+                        html! {}
+                    }
+                }
                 <button class="btn" onclick={on_add_click}>{ "Add Task" }</button>
             </div>
 
             <div class="main">
                 <Sidebar active={(*active_view).clone()} on_nav={on_nav} />
-                <TaskList tasks={(*tasks).clone()} selected={*selected} on_select={on_select} />
-                <Details task={selected_task} on_done={on_done} on_delete={on_delete} on_edit={on_edit} />
+
+                {
+                    if *active_view == "settings" {
+                        html! {
+                            <>
+                                <div class="panel list">
+                                    <div class="header">{ "Settings" }</div>
+                                    <div class="details">
+                                        <div>{ "The desktop UI is a thin client over the core Rivet datastore." }</div>
+                                        <div class="kv"><strong>{ "view" }</strong><div>{ "settings" }</div></div>
+                                        <div class="kv"><strong>{ "status" }</strong><div>{ "core + tauri bridge active" }</div></div>
+                                        <div class="kv"><strong>{ "workflow" }</strong><div>{ "Use context/report commands in CLI for advanced behavior." }</div></div>
+                                    </div>
+                                </div>
+                                <div class="panel">
+                                    <div class="header">{ "Current Data" }</div>
+                                    <div class="details">
+                                        <div class="kv"><strong>{ "tasks loaded" }</strong><div>{ tasks.len() }</div></div>
+                                        <div class="kv"><strong>{ "selected" }</strong><div>{ bulk_count }</div></div>
+                                    </div>
+                                </div>
+                            </>
+                        }
+                    } else {
+                        html! {
+                            <>
+                                <TaskList
+                                    tasks={visible_tasks.clone()}
+                                    selected={*selected}
+                                    selected_ids={(*bulk_selected).clone()}
+                                    on_select={on_select}
+                                    on_toggle_select={on_toggle_select}
+                                />
+                                {
+                                    if *active_view == "projects" && selected_task.is_none() {
+                                        html! {
+                                            <FacetPanel
+                                                title={"Projects".to_string()}
+                                                selected={(*active_project).clone()}
+                                                items={project_facets}
+                                                on_select={on_choose_project}
+                                            />
+                                        }
+                                    } else if *active_view == "tags" && selected_task.is_none() {
+                                        html! {
+                                            <FacetPanel
+                                                title={"Tags".to_string()}
+                                                selected={(*active_tag).clone()}
+                                                items={tag_facets}
+                                                on_select={on_choose_tag}
+                                            />
+                                        }
+                                    } else {
+                                        html! {
+                                            <Details task={selected_task} on_done={on_done} on_delete={on_delete} on_edit={on_edit} />
+                                        }
+                                    }
+                                }
+                            </>
+                        }
+                    }
+                }
             </div>
 
             {
@@ -356,4 +541,62 @@ fn optional_text(text: &str) -> Option<String> {
 
 fn split_tags(text: &str) -> Vec<String> {
     text.split_whitespace().map(ToString::to_string).collect()
+}
+
+fn filter_visible_tasks(
+    tasks: &[TaskDto],
+    active_view: &str,
+    query: &str,
+    active_project: Option<&str>,
+    active_tag: Option<&str>,
+) -> Vec<TaskDto> {
+    let q = query.to_ascii_lowercase();
+
+    tasks
+        .iter()
+        .filter(|task| {
+            if !q.is_empty() && !task.description.to_ascii_lowercase().contains(&q) {
+                return false;
+            }
+
+            match active_view {
+                "projects" => {
+                    if let Some(project) = active_project {
+                        task.project.as_deref() == Some(project)
+                    } else {
+                        true
+                    }
+                }
+                "tags" => {
+                    if let Some(tag) = active_tag {
+                        task.tags.iter().any(|value| value == tag)
+                    } else {
+                        true
+                    }
+                }
+                _ => true,
+            }
+        })
+        .cloned()
+        .collect()
+}
+
+fn build_project_facets(tasks: &[TaskDto]) -> Vec<(String, usize)> {
+    let mut counts = BTreeMap::new();
+    for task in tasks {
+        if let Some(project) = task.project.as_ref() {
+            *counts.entry(project.clone()).or_insert(0_usize) += 1;
+        }
+    }
+    counts.into_iter().collect()
+}
+
+fn build_tag_facets(tasks: &[TaskDto]) -> Vec<(String, usize)> {
+    let mut counts = BTreeMap::new();
+    for task in tasks {
+        for tag in &task.tags {
+            *counts.entry(tag.clone()).or_insert(0_usize) += 1;
+        }
+    }
+    counts.into_iter().collect()
 }

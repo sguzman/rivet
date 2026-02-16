@@ -1,0 +1,9 @@
+{
+  "name": "report-focus",
+  "steps": [
+    { "args": ["add", "report", "one", "+rivet"] },
+    { "args": ["add", "report", "two", "priority:H"] },
+    { "args": ["2", "start"] },
+    { "args": ["focus"] }
+  ]
+}

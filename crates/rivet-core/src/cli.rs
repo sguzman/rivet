@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::ffi::OsString;
 use std::io::IsTerminal;
 use std::path::PathBuf;
@@ -174,9 +175,21 @@ impl Invocation {
             });
         }
 
-        let (filter_terms, command, command_args) = split_filter_command(&tokens);
+        let (filter_terms, command, command_args) = split_filter_command(cfg, &tokens);
+
+        let report_commands = report_command_names(cfg);
 
         if command == "next"
+            && !tokens.is_empty()
+            && !tokens.iter().any(|tok| {
+                crate::commands::expand_command_abbrev(tok, &crate::commands::known_command_names())
+                    .is_some()
+                    || expand_report_abbrev(tok, &report_commands).is_some()
+            })
+            && !report_commands.is_empty()
+        {
+            warn!("no command detected, treated all terms as filter for default 'next'");
+        } else if command == "next"
             && !tokens.is_empty()
             && !tokens.iter().any(|tok| {
                 crate::commands::expand_command_abbrev(tok, &crate::commands::known_command_names())
@@ -194,8 +207,9 @@ impl Invocation {
     }
 }
 
-fn split_filter_command(tokens: &[String]) -> (Vec<String>, String, Vec<String>) {
+fn split_filter_command(cfg: &Config, tokens: &[String]) -> (Vec<String>, String, Vec<String>) {
     let known = crate::commands::known_command_names();
+    let report_commands = report_command_names(cfg);
 
     for i in 0..tokens.len() {
         let token = tokens[i].as_str();
@@ -212,7 +226,50 @@ fn split_filter_command(tokens: &[String]) -> (Vec<String>, String, Vec<String>)
                 tokens[i + 1..].to_vec(),
             );
         }
+
+        if let Some(full) = expand_report_abbrev(token, &report_commands) {
+            debug!(
+                token = %token,
+                expanded = %full,
+                split_index = i,
+                "resolved report token"
+            );
+            return (tokens[..i].to_vec(), full, tokens[i + 1..].to_vec());
+        }
     }
 
     (tokens.to_vec(), "next".to_string(), vec![])
+}
+
+fn report_command_names(cfg: &Config) -> Vec<String> {
+    let mut names = BTreeSet::new();
+    for (key, _) in cfg.iter() {
+        let Some(rest) = key.strip_prefix("report.") else {
+            continue;
+        };
+        let Some((name, _)) = rest.split_once('.') else {
+            continue;
+        };
+        if !name.is_empty() {
+            names.insert(name.to_string());
+        }
+    }
+    names.into_iter().collect()
+}
+
+fn expand_report_abbrev(token: &str, report_commands: &[String]) -> Option<String> {
+    if report_commands.iter().any(|name| name == token) {
+        return Some(token.to_string());
+    }
+
+    let mut matches = report_commands
+        .iter()
+        .filter(|name| name.starts_with(token))
+        .cloned();
+    let first = matches.next()?;
+    if matches.next().is_some() {
+        None
+    } else {
+        Some(first)
+    }
 }

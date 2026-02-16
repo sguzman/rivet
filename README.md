@@ -42,6 +42,7 @@ Machine-readable parity data is tracked in `tests/parity_map.json` for CI/report
 - `tags`
 - `context`
 - `contexts`
+- custom report commands via `report.<name>.*`
 - `_commands`
 - `_show`
 - `_unique`
@@ -63,6 +64,9 @@ Machine-readable parity data is tracked in `tests/parity_map.json` for CI/report
   - `and` / `or` / implicit `and` with parentheses grouping.
 - Virtual tag support:
   - `+PENDING`, `+WAITING`, `+COMPLETED`, `+DELETED`, `+ACTIVE`, `+READY`, `+BLOCKED`, `+UNBLOCKED`, `+DUE`, `+OVERDUE`, `+TODAY`, `+TOMORROW`.
+- Configurable report engine support:
+  - `report.<name>.columns`, `report.<name>.labels`, `report.<name>.sort`, `report.<name>.filter`, `report.<name>.limit`.
+  - dynamic report command resolution with abbreviations.
 - Colorized tabular rendering in terminal output.
 
 ## Logging (Tracing)
@@ -111,6 +115,7 @@ Default scenario:
 - `crates/rivet-parity/scenarios/boolean_filters.json`
 - `crates/rivet-parity/scenarios/cross_status_modify.json`
 - `crates/rivet-parity/scenarios/virtual_tags.json`
+- `crates/rivet-parity/scenarios/report_focus.json`
 
 Run candidate-only:
 
@@ -143,7 +148,8 @@ cargo run -p rivet_parity -- \
   --scenario crates/rivet-parity/scenarios/context_activation.json \
   --scenario crates/rivet-parity/scenarios/boolean_filters.json \
   --scenario crates/rivet-parity/scenarios/cross_status_modify.json \
-  --scenario crates/rivet-parity/scenarios/virtual_tags.json
+  --scenario crates/rivet-parity/scenarios/virtual_tags.json \
+  --scenario crates/rivet-parity/scenarios/report_focus.json
 ```
 
 The harness reports per-scenario bucket parity (`pending`, `completed`, `deleted`) and an overall score using Jaccard similarity over canonicalized exported tasks.
@@ -167,6 +173,13 @@ cargo tauri dev
 Frontend styling lives at:
 
 - `crates/rivet-gui/ui/assets/app.css`
+
+Current GUI capabilities:
+
+- Inbox/completed/project/tag/settings views via sidebar navigation.
+- Facet panels for project and tag drill-down.
+- Single-task edit/done/delete flows.
+- Bulk done/delete actions from multi-select in the task list.
 
 ## Notes
 

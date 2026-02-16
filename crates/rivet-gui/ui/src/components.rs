@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use rivet_gui_shared::{TaskDto, TaskStatus};
 use uuid::Uuid;
 use yew::{Callback, Html, Properties, function_component, html};
@@ -38,7 +40,9 @@ pub fn sidebar(props: &SidebarProps) -> Html {
 pub struct TaskListProps {
     pub tasks: Vec<TaskDto>,
     pub selected: Option<Uuid>,
+    pub selected_ids: BTreeSet<Uuid>,
     pub on_select: Callback<Uuid>,
+    pub on_toggle_select: Callback<Uuid>,
 }
 
 #[function_component(TaskList)]
@@ -52,6 +56,8 @@ pub fn task_list(props: &TaskListProps) -> Html {
                     let selected = props.selected == Some(id);
                     let class = if selected { "row selected" } else { "row" };
                     let on_select = props.on_select.clone();
+                    let on_toggle_select = props.on_toggle_select.clone();
+                    let checked = props.selected_ids.contains(&id);
 
                     let dot_class = match task.status {
                         TaskStatus::Pending => "dot pending",
@@ -65,6 +71,15 @@ pub fn task_list(props: &TaskListProps) -> Html {
 
                     html! {
                         <div class={class} onclick={move |_| on_select.emit(id)}>
+                            <button
+                                class={if checked { "selector on" } else { "selector" }}
+                                onclick={move |e: yew::MouseEvent| {
+                                    e.stop_propagation();
+                                    on_toggle_select.emit(id);
+                                }}
+                            >
+                                { if checked { "✓" } else { "" } }
+                            </button>
                             <div class={dot_class}></div>
                             <div>
                                 <div>{ &task.description }</div>
@@ -120,6 +135,7 @@ pub fn details(props: &DetailsProps) -> Html {
     let on_edit = props.on_edit.clone();
     let id = task.uuid;
     let task_for_edit = task.clone();
+    let can_mark_done = matches!(task.status, TaskStatus::Pending | TaskStatus::Waiting);
 
     html! {
         <div class="panel">
@@ -162,9 +178,57 @@ pub fn details(props: &DetailsProps) -> Html {
 
                 <div class="actions">
                     <button class="btn" onclick={move |_| on_edit.emit(task_for_edit.clone())}>{ "Edit" }</button>
-                    <button class="btn ok" onclick={move |_| on_done.emit(id)}>{ "Done" }</button>
+                    {
+                        if can_mark_done {
+                            html! { <button class="btn ok" onclick={move |_| on_done.emit(id)}>{ "Done" }</button> }
+                        } else {
+                            html! {}
+                        }
+                    }
                     <button class="btn danger" onclick={move |_| on_delete.emit(id)}>{ "Delete" }</button>
                 </div>
+            </div>
+        </div>
+    }
+}
+
+#[derive(Properties, PartialEq)]
+pub struct FacetPanelProps {
+    pub title: String,
+    pub items: Vec<(String, usize)>,
+    pub selected: Option<String>,
+    pub on_select: Callback<Option<String>>,
+}
+
+#[function_component(FacetPanel)]
+pub fn facet_panel(props: &FacetPanelProps) -> Html {
+    let on_select_all = props.on_select.clone();
+
+    html! {
+        <div class="panel">
+            <div class="header">{ &props.title }</div>
+            <div class="details">
+                <div
+                    class={if props.selected.is_none() { "facet active" } else { "facet" }}
+                    onclick={move |_| on_select_all.emit(None)}
+                >
+                    <span>{ "All" }</span>
+                </div>
+
+                {
+                    for props.items.iter().map(|(item, count)| {
+                        let item_name = item.clone();
+                        let on_select = props.on_select.clone();
+                        let is_active = props.selected.as_deref() == Some(item.as_str());
+                        let class = if is_active { "facet active" } else { "facet" };
+                        html! {
+                            <div class={class} onclick={move |_| on_select.emit(Some(item_name.clone()))}>
+                                <span>{ item }</span>
+                                <span class="badge">{ *count }</span>
+                            </div>
+                        }
+                    })
+                }
             </div>
         </div>
     }

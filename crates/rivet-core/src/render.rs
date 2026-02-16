@@ -71,6 +71,17 @@ impl Renderer {
             rows.push(vec![id, due, project, task.description.clone(), tags]);
         }
 
+        write_table(&mut out, &headers, &rows)?;
+        Ok(())
+    }
+
+    #[tracing::instrument(skip(self, headers, rows))]
+    pub fn print_report_table(
+        &mut self,
+        headers: &[String],
+        rows: &[Vec<String>],
+    ) -> anyhow::Result<()> {
+        let mut out = io::stdout().lock();
         write_table(&mut out, headers, rows)?;
         Ok(())
     }
@@ -132,8 +143,8 @@ impl Renderer {
 
 fn write_table<W: Write>(
     mut writer: W,
-    headers: Vec<String>,
-    rows: Vec<Vec<String>>,
+    headers: &[String],
+    rows: &[Vec<String>],
 ) -> anyhow::Result<()> {
     let column_count = headers.len();
     let mut widths = vec![0usize; column_count];
@@ -142,7 +153,7 @@ fn write_table<W: Write>(
         widths[idx] = widths[idx].max(UnicodeWidthStr::width(header.as_str()));
     }
 
-    for row in &rows {
+    for row in rows {
         for (idx, cell) in row.iter().enumerate() {
             widths[idx] = widths[idx].max(UnicodeWidthStr::width(strip_ansi(cell).as_str()));
         }

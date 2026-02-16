@@ -148,7 +148,7 @@ body {
   border-bottom: 1px solid var(--border);
   padding: 10px 12px;
   display: grid;
-  grid-template-columns: 14px minmax(0, 1fr) auto;
+  grid-template-columns: 28px 14px minmax(0, 1fr) auto;
   gap: 10px;
   cursor: pointer;
 }
@@ -185,6 +185,22 @@ body {
   background: #9b7b2f;
 }
 
+.selector {
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: var(--panel-soft);
+  color: var(--text);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.selector.on {
+  border-color: var(--accent);
+  background: rgba(201, 95, 47, 0.16);
+}
+
 .badge {
   font-size: 11px;
   border: 1px solid var(--border);
@@ -216,6 +232,22 @@ body {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.facet {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 9px 10px;
+  cursor: pointer;
+  background: var(--panel);
+}
+
+.facet.active {
+  border-color: var(--accent);
+  background: rgba(201, 95, 47, 0.12);
 }
 
 .field label {

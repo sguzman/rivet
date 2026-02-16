@@ -215,7 +215,7 @@ fn write_taskrc(base: &Path) -> anyhow::Result<PathBuf> {
 
     let taskrc = base.join("taskrc");
     let content = format!(
-        "data.location={}\nconfirmation=no\nverbose=nothing\ncontext.rivet=+rivet\ncontext.ops=project:ops\n",
+        "data.location={}\nconfirmation=no\nverbose=nothing\ncontext.rivet=+rivet\ncontext.ops=project:ops\nreport.focus.columns=id,description,urgency\nreport.focus.labels=ID,Description,Urgency\nreport.focus.sort=urgency-\nreport.focus.filter=status:pending\nreport.focus.limit=50\n",
         data_dir.display()
     );
     fs::write(&taskrc, content)
