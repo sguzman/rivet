@@ -7,6 +7,7 @@ Rivet is a Rust-first Taskwarrior port with two layers:
 
 See `ROADMAP.md` for the full milestone plan toward comprehensive parity.
 See `PARITY_MATRIX.md` for the current command/feature parity status against Taskwarrior `3.4.2`.
+Machine-readable parity data is tracked in `tests/parity_map.json` for CI/reporting tooling.
 
 ## Workspace Layout
 

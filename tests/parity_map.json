@@ -1,0 +1,270 @@
+{
+  "version": 1,
+  "reference": {
+    "taskwarrior": "3.4.2"
+  },
+  "legend": {
+    "implemented": "behavior exists and has parity coverage in harness/tests",
+    "partial": "behavior exists but is incomplete or not fully parity-verified",
+    "missing": "not implemented yet"
+  },
+  "areas": [
+    {
+      "id": "commands",
+      "name": "Command Surface",
+      "items": [
+        {
+          "id": "cmd.add",
+          "label": "add",
+          "status": "implemented",
+          "coverage": ["crates/rivet-parity/scenarios/basic_flow.json"]
+        },
+        {
+          "id": "cmd.list_next",
+          "label": "list/next",
+          "status": "implemented",
+          "coverage": [
+            "crates/rivet-parity/scenarios/basic_flow.json",
+            "crates/rivet-parity/scenarios/append_prepend.json"
+          ]
+        },
+        {
+          "id": "cmd.info",
+          "label": "info",
+          "status": "implemented",
+          "coverage": []
+        },
+        {
+          "id": "cmd.modify",
+          "label": "modify",
+          "status": "implemented",
+          "coverage": [
+            "crates/rivet-parity/scenarios/basic_flow.json",
+            "crates/rivet-parity/scenarios/waiting_and_modify.json"
+          ]
+        },
+        {
+          "id": "cmd.append_prepend",
+          "label": "append/prepend",
+          "status": "implemented",
+          "coverage": ["crates/rivet-parity/scenarios/append_prepend.json"]
+        },
+        {
+          "id": "cmd.done",
+          "label": "done",
+          "status": "implemented",
+          "coverage": [
+            "crates/rivet-parity/scenarios/basic_flow.json",
+            "crates/rivet-parity/scenarios/lifecycle_delete.json"
+          ]
+        },
+        {
+          "id": "cmd.delete",
+          "label": "delete",
+          "status": "implemented",
+          "coverage": ["crates/rivet-parity/scenarios/lifecycle_delete.json"]
+        },
+        {
+          "id": "cmd.export",
+          "label": "export",
+          "status": "implemented",
+          "coverage": [
+            "crates/rivet-parity/scenarios/basic_flow.json",
+            "crates/rivet-parity/scenarios/lifecycle_delete.json",
+            "crates/rivet-parity/scenarios/waiting_and_modify.json",
+            "crates/rivet-parity/scenarios/append_prepend.json"
+          ]
+        },
+        {
+          "id": "cmd.import",
+          "label": "import",
+          "status": "partial",
+          "coverage": []
+        },
+        {
+          "id": "cmd.projects_tags",
+          "label": "projects/tags",
+          "status": "implemented",
+          "coverage": []
+        },
+        {
+          "id": "cmd.start_stop",
+          "label": "start/stop",
+          "status": "missing",
+          "coverage": []
+        },
+        {
+          "id": "cmd.undo",
+          "label": "undo",
+          "status": "missing",
+          "coverage": []
+        },
+        {
+          "id": "cmd.annotate_denotate",
+          "label": "annotate/denotate",
+          "status": "missing",
+          "coverage": []
+        },
+        {
+          "id": "cmd.duplicate",
+          "label": "duplicate",
+          "status": "missing",
+          "coverage": []
+        },
+        {
+          "id": "cmd.log",
+          "label": "log",
+          "status": "missing",
+          "coverage": []
+        },
+        {
+          "id": "cmd.contexts",
+          "label": "contexts",
+          "status": "missing",
+          "coverage": []
+        }
+      ]
+    },
+    {
+      "id": "filters",
+      "name": "Filter Grammar",
+      "items": [
+        {
+          "id": "filter.tags",
+          "label": "tag include/exclude",
+          "status": "implemented",
+          "coverage": [
+            "crates/rivet-parity/scenarios/basic_flow.json",
+            "crates/rivet-parity/scenarios/append_prepend.json"
+          ]
+        },
+        {
+          "id": "filter.id_uuid",
+          "label": "id/uuid selection",
+          "status": "implemented",
+          "coverage": ["crates/rivet-parity/scenarios/basic_flow.json"]
+        },
+        {
+          "id": "filter.project",
+          "label": "project equality",
+          "status": "implemented",
+          "coverage": [
+            "crates/rivet-parity/scenarios/basic_flow.json",
+            "crates/rivet-parity/scenarios/lifecycle_delete.json"
+          ]
+        },
+        {
+          "id": "filter.status",
+          "label": "status filters including waiting semantics",
+          "status": "implemented",
+          "coverage": [
+            "crates/rivet-parity/scenarios/lifecycle_delete.json",
+            "crates/rivet-parity/scenarios/waiting_and_modify.json"
+          ]
+        },
+        {
+          "id": "filter.due_before_after",
+          "label": "due.before/due.after",
+          "status": "implemented",
+          "coverage": []
+        },
+        {
+          "id": "filter.boolean_grammar",
+          "label": "boolean operators and parentheses",
+          "status": "missing",
+          "coverage": []
+        },
+        {
+          "id": "filter.virtual_tags",
+          "label": "virtual tags full compatibility",
+          "status": "missing",
+          "coverage": []
+        }
+      ]
+    },
+    {
+      "id": "reports",
+      "name": "Report Engine",
+      "items": [
+        {
+          "id": "report.table_basic",
+          "label": "basic tabular rendering with color",
+          "status": "implemented",
+          "coverage": []
+        },
+        {
+          "id": "report.configurable",
+          "label": "report.* configurable columns/labels/sorting",
+          "status": "missing",
+          "coverage": []
+        },
+        {
+          "id": "report.urgency",
+          "label": "urgency scoring parity",
+          "status": "missing",
+          "coverage": []
+        }
+      ]
+    },
+    {
+      "id": "persistence",
+      "name": "Persistence and Runtime",
+      "items": [
+        {
+          "id": "persist.jsonl",
+          "label": "pending.data/completed.data JSONL",
+          "status": "implemented",
+          "coverage": ["crates/rivet-core/tests/core_flow.rs"]
+        },
+        {
+          "id": "persist.taskrc",
+          "label": "taskrc/include/rc overrides",
+          "status": "implemented",
+          "coverage": []
+        },
+        {
+          "id": "persist.undo_journal",
+          "label": "undo journal",
+          "status": "missing",
+          "coverage": []
+        },
+        {
+          "id": "persist.hooks",
+          "label": "hook lifecycle",
+          "status": "missing",
+          "coverage": []
+        }
+      ]
+    },
+    {
+      "id": "gui",
+      "name": "GUI Layer",
+      "items": [
+        {
+          "id": "gui.backend_commands",
+          "label": "tauri backend task commands",
+          "status": "implemented",
+          "coverage": []
+        },
+        {
+          "id": "gui.frontend_shell",
+          "label": "yew frontend task shell",
+          "status": "implemented",
+          "coverage": []
+        },
+        {
+          "id": "gui.routed_views",
+          "label": "route-level inbox/projects/tags/completed/settings",
+          "status": "partial",
+          "coverage": []
+        },
+        {
+          "id": "gui.bulk_actions",
+          "label": "bulk actions and advanced report views",
+          "status": "missing",
+          "coverage": []
+        }
+      ]
+    }
+  ]
+}

@@ -6,6 +6,8 @@ Legend:
 - `partial`: behavior exists but is incomplete or not yet fully parity-verified
 - `missing`: not implemented yet
 
+Machine-readable source of this matrix: `tests/parity_map.json`
+
 ## Command Surface
 
 | Area | Command / Capability | Status | Notes |

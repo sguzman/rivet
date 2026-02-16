@@ -8,6 +8,7 @@ This roadmap tracks work required to move from the current high-parity subset to
 - Current parity harness status: green on implemented scenario suite
 - Scope status: partial command and grammar coverage, not full feature-complete parity
 - Working matrix: `PARITY_MATRIX.md`
+- Machine-readable matrix data: `tests/parity_map.json`
 
 ## Milestones
 
