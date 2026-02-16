@@ -38,6 +38,15 @@ fn configure_wayland_defaults() {
             info!(key, "preserving existing linux GUI runtime value");
         }
     }
+
+    info!(
+        gdk_backend = env::var("GDK_BACKEND").unwrap_or_else(|_| "<unset>".to_string()),
+        winit_unix_backend =
+            env::var("WINIT_UNIX_BACKEND").unwrap_or_else(|_| "<unset>".to_string()),
+        webkit_disable_dmabuf_renderer =
+            env::var("WEBKIT_DISABLE_DMABUF_RENDERER").unwrap_or_else(|_| "<unset>".to_string()),
+        "effective linux GUI runtime backends"
+    );
 }
 
 #[cfg(not(target_os = "linux"))]
