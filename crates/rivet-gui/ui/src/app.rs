@@ -4,6 +4,7 @@ use gloo::console::log;
 use rivet_gui_shared::{
     TaskCreate, TaskDto, TaskIdArg, TaskPatch, TaskStatus, TaskUpdateArgs, TasksListArgs,
 };
+use serde::Serialize;
 use uuid::Uuid;
 use yew::{
     Callback, Html, TargetCast, classes, function_component, html, use_effect_with, use_state,
@@ -368,6 +369,17 @@ pub fn app() -> Html {
                     state.draft_desc.len()
                 ),
             );
+            ui_backend_log(
+                "action.modal.submit",
+                &format!(
+                    "mode={}, desc_len={}",
+                    match state.mode {
+                        ModalMode::Add => "add",
+                        ModalMode::Edit(_) => "edit",
+                    },
+                    state.draft_desc.len()
+                ),
+            );
             let modal_state = modal_state.clone();
             let refresh_tick = refresh_tick.clone();
 
@@ -392,15 +404,18 @@ pub fn app() -> Html {
                         };
 
                         ui_debug("invoke.task_add.begin", "calling tauri command task_add");
+                        ui_backend_log("invoke.task_add.begin", "calling tauri command task_add");
                         if let Err(err) = invoke_tauri::<TaskDto, _>("task_add", &create).await {
                             tracing::error!(error = %err, "task_add failed");
                             ui_debug("invoke.task_add.error", &err);
+                            ui_backend_log("invoke.task_add.error", &err);
                             let mut next = state.clone();
                             next.error = Some(format!("Save failed: {err}"));
                             modal_state.set(Some(next));
                             return;
                         }
                         ui_debug("invoke.task_add.ok", "task_add succeeded");
+                        ui_backend_log("invoke.task_add.ok", "task_add succeeded");
                     }
                     ModalMode::Edit(uuid) => {
                         let update = TaskUpdateArgs {
@@ -418,19 +433,26 @@ pub fn app() -> Html {
                             "invoke.task_update.begin",
                             &format!("calling tauri command task_update uuid={uuid}"),
                         );
+                        ui_backend_log(
+                            "invoke.task_update.begin",
+                            &format!("calling tauri command task_update uuid={uuid}"),
+                        );
                         if let Err(err) = invoke_tauri::<TaskDto, _>("task_update", &update).await {
                             tracing::error!(error = %err, "task_update failed");
                             ui_debug("invoke.task_update.error", &err);
+                            ui_backend_log("invoke.task_update.error", &err);
                             let mut next = state.clone();
                             next.error = Some(format!("Save failed: {err}"));
                             modal_state.set(Some(next));
                             return;
                         }
                         ui_debug("invoke.task_update.ok", "task_update succeeded");
+                        ui_backend_log("invoke.task_update.ok", "task_update succeeded");
                     }
                 }
 
                 ui_debug("action.modal.close", "save complete, closing modal");
+                ui_backend_log("action.modal.close", "save complete, closing modal");
                 modal_state.set(None);
                 refresh_tick.set((*refresh_tick).saturating_add(1));
             });
@@ -540,29 +562,24 @@ pub fn app() -> Html {
 
             {
                 if let Some(state) = (*modal_state).clone() {
-                    let dispatch_modal_submit = {
-                        let modal_state = modal_state.clone();
-                        let on_modal_submit = on_modal_submit.clone();
-                        Callback::from(move |_| {
-                            if let Some(current) = (*modal_state).clone() {
-                                on_modal_submit.emit(current);
-                            } else {
-                                ui_debug("modal.submit.dispatch", "modal state missing");
-                            }
-                        })
-                    };
+                    let submit_state = state.clone();
                     let on_submit_form = {
-                        let dispatch_modal_submit = dispatch_modal_submit.clone();
+                        let on_modal_submit = on_modal_submit.clone();
+                        let submit_state = submit_state.clone();
                         Callback::from(move |e: web_sys::SubmitEvent| {
                             e.prevent_default();
-                            dispatch_modal_submit.emit(());
+                            ui_debug("form.submit.handler", "submit event fired");
+                            on_modal_submit.emit(submit_state.clone());
                         })
                     };
-                    let on_save_click = {
-                        let dispatch_modal_submit = dispatch_modal_submit.clone();
+                    let on_save_mousedown = {
+                        let on_modal_submit = on_modal_submit.clone();
+                        let submit_state = submit_state.clone();
                         Callback::from(move |e: web_sys::MouseEvent| {
                             e.prevent_default();
-                            dispatch_modal_submit.emit(());
+                            ui_debug("button.save.mousedown", "save mousedown fired");
+                            ui_backend_log("button.save.mousedown", "save mousedown fired");
+                            on_modal_submit.emit(submit_state.clone());
                         })
                     };
                     html! {
@@ -666,7 +683,7 @@ pub fn app() -> Html {
                                             id="modal-save-btn"
                                             type="button"
                                             class="btn"
-                                            onclick={on_save_click}
+                                            onmousedown={on_save_mousedown}
                                         >
                                             { "Save" }
                                         </button>
@@ -776,4 +793,23 @@ fn build_tag_facets(tasks: &[TaskDto]) -> Vec<(String, usize)> {
 fn ui_debug(event: &str, detail: &str) {
     tracing::debug!(event, detail, "ui-debug");
     log!(format!("[ui-debug] {event}: {detail}"));
+}
+
+fn ui_backend_log(event: &str, detail: &str) {
+    let payload = UiLogPayload {
+        event: event.to_string(),
+        detail: detail.to_string(),
+    };
+
+    wasm_bindgen_futures::spawn_local(async move {
+        if let Err(err) = invoke_tauri::<(), _>("ui_log", &payload).await {
+            log!(format!("[ui-backend-log] invoke failed: {err}"));
+        }
+    });
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct UiLogPayload {
+    event: String,
+    detail: String,
 }
