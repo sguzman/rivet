@@ -85,6 +85,13 @@ pub fn app() -> Html {
 
     {
         use_effect_with((), move |_| {
+            ui_debug("app.mounted", "frontend mounted and hooks initialized");
+            || ()
+        });
+    }
+
+    {
+        use_effect_with((), move |_| {
             let document = web_sys::window().and_then(|window| window.document());
 
             let click_listener = document.as_ref().map(|document| {
@@ -412,9 +419,8 @@ pub fn app() -> Html {
 
     let on_modal_close_click = {
         let close_modal = close_modal.clone();
-        Callback::from(move |e: web_sys::MouseEvent| {
-            e.prevent_default();
-            e.stop_propagation();
+        Callback::from(move |_| {
+            ui_debug("button.cancel.click", "Cancel clicked");
             close_modal.emit(());
         })
     };
@@ -502,82 +508,6 @@ pub fn app() -> Html {
             });
         })
     };
-
-    {
-        let modal_state = modal_state.clone();
-        let close_modal = close_modal.clone();
-        let on_modal_submit = on_modal_submit.clone();
-        use_effect_with((*modal_state).is_some(), move |is_modal_open| {
-            let click_listener = if !*is_modal_open {
-                None
-            } else {
-                web_sys::window()
-                    .and_then(|window| window.document())
-                    .map(|document| {
-                        let modal_state = modal_state.clone();
-                        let close_modal = close_modal.clone();
-                        let on_modal_submit = on_modal_submit.clone();
-                        EventListener::new(&document, "click", move |event| {
-                            let Some(target) = event.target() else {
-                                return;
-                            };
-                            let target_el = if let Ok(element) =
-                                target.clone().dyn_into::<web_sys::Element>()
-                            {
-                                Some(element)
-                            } else if let Ok(node) = target.dyn_into::<web_sys::Node>() {
-                                node.parent_element()
-                            } else {
-                                None
-                            };
-                            let Some(target_el) = target_el else {
-                                return;
-                            };
-
-                            if target_el
-                                .closest("#modal-save-btn")
-                                .ok()
-                                .flatten()
-                                .is_some()
-                            {
-                                event.prevent_default();
-                                ui_debug(
-                                    "button.save.fallback",
-                                    "document listener captured save click",
-                                );
-                                if let Some(current) = (*modal_state).clone() {
-                                    on_modal_submit.emit(current);
-                                } else {
-                                    ui_debug(
-                                        "button.save.fallback",
-                                        "modal state missing in fallback",
-                                    );
-                                }
-                                return;
-                            }
-
-                            if target_el
-                                .closest("#modal-cancel-btn")
-                                .ok()
-                                .flatten()
-                                .is_some()
-                            {
-                                event.prevent_default();
-                                ui_debug(
-                                    "button.cancel.fallback",
-                                    "document listener captured cancel click",
-                                );
-                                close_modal.emit(());
-                            }
-                        })
-                    })
-            };
-
-            move || {
-                drop(click_listener);
-            }
-        });
-    }
 
     let bulk_count = (*bulk_selected).len();
 
@@ -695,21 +625,12 @@ pub fn app() -> Html {
                             }
                         })
                     };
-                    let on_save_click = {
-                        let modal_state = modal_state.clone();
-                        let on_modal_submit = on_modal_submit.clone();
-                        Callback::from(move |e: web_sys::MouseEvent| {
-                            e.prevent_default();
-                            e.stop_propagation();
-                            ui_debug("button.save.click", "Save clicked");
-                            if let Some(current) = (*modal_state).clone() {
-                                ui_debug("button.save.click", "emitting modal submit from click");
-                                on_modal_submit.emit(current);
-                            } else {
-                                ui_debug("button.save.click", "modal state missing");
-                            }
-                        })
-                    };
+                    let on_save_click = Callback::from(move |_| {
+                        ui_debug("button.save.click", "Save clicked (submit button)");
+                    });
+                    let on_save_mousedown = Callback::from(move |_| {
+                        ui_debug("button.save.mousedown", "Save mousedown");
+                    });
                     html! {
                         <div class="modal-backdrop">
                             <div class="modal">
@@ -802,9 +723,10 @@ pub fn app() -> Html {
                                         <button id="modal-cancel-btn" type="button" class="btn" onclick={on_modal_close_click.clone()}>{ "Cancel" }</button>
                                         <button
                                             id="modal-save-btn"
-                                            type="button"
+                                            type="submit"
                                             class="btn"
                                             onclick={on_save_click}
+                                            onmousedown={on_save_mousedown}
                                         >
                                             { "Save" }
                                         </button>
