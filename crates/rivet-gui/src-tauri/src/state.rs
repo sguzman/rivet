@@ -31,12 +31,13 @@ impl AppState {
         let store = self.store.lock();
         let mut tasks = store.load_pending()?;
         tasks.extend(store.load_completed()?);
+        let now = Utc::now();
 
         let filtered = tasks
             .into_iter()
             .filter(|task| {
                 if let Some(status) = args.status.as_ref()
-                    && map_status(task.status.clone()) != *status
+                    && task_status_for_view(task, now) != *status
                 {
                     return false;
                 }
@@ -85,9 +86,6 @@ impl AppState {
         }
         if let Some(wait) = create.wait {
             let parsed = parse_date_expr(&wait, now)?;
-            if parsed > now {
-                task.status = Status::Waiting;
-            }
             task.wait = Some(parsed);
         }
         if let Some(scheduled) = create.scheduled {
@@ -204,12 +202,21 @@ fn map_status(status: Status) -> TaskStatus {
     }
 }
 
+fn task_status_for_view(task: &Task, now: chrono::DateTime<Utc>) -> TaskStatus {
+    if task.status == Status::Pending && task.wait.map(|wait| wait > now).unwrap_or(false) {
+        return TaskStatus::Waiting;
+    }
+    map_status(task.status.clone())
+}
+
 fn task_to_dto(task: Task) -> TaskDto {
+    let status = task_status_for_view(&task, Utc::now());
+
     TaskDto {
         uuid: task.uuid,
         id: task.id,
         description: task.description,
-        status: map_status(task.status),
+        status,
         project: task.project,
         tags: task.tags,
         priority: priority_from_core(task.priority),
@@ -260,9 +267,7 @@ fn apply_patch(
             .transpose()?;
     }
 
-    if task.wait.map(|wait| wait > now).unwrap_or(false) {
-        task.status = Status::Waiting;
-    } else if task.status == Status::Waiting {
+    if task.wait.map(|wait| wait <= now).unwrap_or(false) && task.status == Status::Waiting {
         task.status = Status::Pending;
     }
 

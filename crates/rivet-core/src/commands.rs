@@ -385,7 +385,12 @@ fn cmd_import(store: &mut DataStore) -> anyhow::Result<()> {
         for task in tasks {
             match task.status {
                 Status::Completed => completed.push(task),
-                Status::Pending | Status::Waiting | Status::Deleted => pending.push(task),
+                Status::Pending | Status::Deleted => pending.push(task),
+                Status::Waiting => {
+                    let mut task = task;
+                    task.status = Status::Pending;
+                    pending.push(task);
+                }
             }
         }
     } else {
@@ -398,7 +403,12 @@ fn cmd_import(store: &mut DataStore) -> anyhow::Result<()> {
                 .with_context(|| format!("failed parsing import line {}", idx + 1))?;
             match task.status {
                 Status::Completed => completed.push(task),
-                Status::Pending | Status::Waiting | Status::Deleted => pending.push(task),
+                Status::Pending | Status::Deleted => pending.push(task),
+                Status::Waiting => {
+                    let mut task = task;
+                    task.status = Status::Pending;
+                    pending.push(task);
+                }
             }
         }
     }
@@ -597,9 +607,7 @@ fn apply_mods(task: &mut Task, mods: &[Mod], now: chrono::DateTime<Utc>) -> anyh
             }
             Mod::Wait(dt) => {
                 task.wait = Some(*dt);
-                if *dt > now {
-                    task.status = Status::Waiting;
-                } else if task.status == Status::Waiting {
+                if *dt <= now && task.status == Status::Waiting {
                     task.status = Status::Pending;
                 }
             }

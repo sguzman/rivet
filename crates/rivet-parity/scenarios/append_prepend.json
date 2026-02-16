@@ -1,0 +1,10 @@
+{
+  "name": "append-prepend",
+  "steps": [
+    { "args": ["add", "draft", "report", "+wip", "project:work"] },
+    { "args": ["1", "append", "notes"] },
+    { "args": ["1", "prepend", "urgent"] },
+    { "args": ["1", "modify", "-wip", "+final", "project:work.docs", "priority:H"] },
+    { "args": ["+final", "list"] }
+  ]
+}

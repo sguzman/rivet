@@ -1,0 +1,9 @@
+{
+  "name": "lifecycle-delete",
+  "steps": [
+    { "args": ["add", "alpha", "one", "project:rivet", "+a"] },
+    { "args": ["add", "beta", "two", "project:rivet", "+b"] },
+    { "args": ["1", "done"] },
+    { "args": ["2", "delete"] }
+  ]
+}

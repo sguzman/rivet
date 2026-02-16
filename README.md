@@ -83,6 +83,9 @@ A scenario-based parity harness is included at `crates/rivet-parity`.
 Default scenario:
 
 - `crates/rivet-parity/scenarios/basic_flow.json`
+- `crates/rivet-parity/scenarios/lifecycle_delete.json`
+- `crates/rivet-parity/scenarios/waiting_and_modify.json`
+- `crates/rivet-parity/scenarios/append_prepend.json`
 
 Run candidate-only:
 
@@ -96,6 +99,18 @@ Run against Taskwarrior if installed:
 cargo run -p rivet_parity -- \
   --candidate-bin target/debug/task \
   --reference-bin /usr/bin/task
+```
+
+Run all included scenarios explicitly:
+
+```bash
+cargo run -p rivet_parity -- \
+  --candidate-bin target/debug/task \
+  --reference-bin task \
+  --scenario crates/rivet-parity/scenarios/basic_flow.json \
+  --scenario crates/rivet-parity/scenarios/lifecycle_delete.json \
+  --scenario crates/rivet-parity/scenarios/waiting_and_modify.json \
+  --scenario crates/rivet-parity/scenarios/append_prepend.json
 ```
 
 The harness reports per-scenario bucket parity (`pending`, `completed`, `deleted`) and an overall score using Jaccard similarity over canonicalized exported tasks.

@@ -12,6 +12,7 @@ pub enum Pred {
     TagExclude(String),
     ProjectEq(String),
     StatusEq(Status),
+    Waiting,
     DueBefore(DateTime<Utc>),
     DueAfter(DateTime<Utc>),
     TextContains(String),
@@ -51,17 +52,13 @@ impl Filter {
             }
 
             if let Some(status_text) = term.strip_prefix("status:") {
-                let status = match status_text.to_ascii_lowercase().as_str() {
-                    "pending" => Status::Pending,
-                    "completed" => Status::Completed,
-                    "deleted" => Status::Deleted,
-                    "waiting" => Status::Waiting,
-                    _ => {
-                        preds.push(Pred::TextContains(term.clone()));
-                        continue;
-                    }
-                };
-                preds.push(Pred::StatusEq(status));
+                match status_text.to_ascii_lowercase().as_str() {
+                    "pending" => preds.push(Pred::StatusEq(Status::Pending)),
+                    "completed" => preds.push(Pred::StatusEq(Status::Completed)),
+                    "deleted" => preds.push(Pred::StatusEq(Status::Deleted)),
+                    "waiting" => preds.push(Pred::Waiting),
+                    _ => preds.push(Pred::TextContains(term.clone())),
+                }
                 continue;
             }
 
@@ -90,7 +87,11 @@ impl Filter {
                 Pred::TagInclude(tag) => task.tags.iter().any(|t| t == tag),
                 Pred::TagExclude(tag) => task.tags.iter().all(|t| t != tag),
                 Pred::ProjectEq(project) => task.project.as_deref() == Some(project.as_str()),
-                Pred::StatusEq(status) => &task.status == status,
+                Pred::StatusEq(status) => match status {
+                    Status::Pending => task.status == Status::Pending && !task.is_waiting(now),
+                    _ => &task.status == status,
+                },
+                Pred::Waiting => task.is_waiting(now),
                 Pred::DueBefore(dt) => task.due.map(|due| due < *dt).unwrap_or(false),
                 Pred::DueAfter(dt) => task.due.map(|due| due > *dt).unwrap_or(false),
                 Pred::TextContains(text) => task
@@ -105,16 +106,16 @@ impl Filter {
             }
         }
 
-        if task.is_waiting(now) && !self.explicit_waiting_filter() {
+        if task.is_waiting(now) && !self.has_explicit_status_filter() {
             return false;
         }
 
         true
     }
 
-    fn explicit_waiting_filter(&self) -> bool {
+    fn has_explicit_status_filter(&self) -> bool {
         self.preds
             .iter()
-            .any(|pred| matches!(pred, Pred::StatusEq(Status::Waiting)))
+            .any(|pred| matches!(pred, Pred::StatusEq(_) | Pred::Waiting))
     }
 }

@@ -1,0 +1,10 @@
+{
+  "name": "waiting-and-modify",
+  "steps": [
+    { "args": ["add", "wait", "task", "+sleep", "wait:tomorrow"] },
+    { "args": ["add", "normal", "task", "+awake", "due:tomorrow"] },
+    { "args": ["status:waiting", "modify", "project:nap"] },
+    { "args": ["status:pending", "modify", "+active"] },
+    { "args": ["status:pending", "list"] }
+  ]
+}
