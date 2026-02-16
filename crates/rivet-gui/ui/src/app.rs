@@ -424,6 +424,12 @@ pub fn app() -> Html {
             close_modal.emit(());
         })
     };
+    let on_cancel_mousedown = Callback::from(move |_| {
+        ui_debug("button.cancel.mousedown", "Cancel mousedown");
+    });
+    let on_cancel_mouseup = Callback::from(move |_| {
+        ui_debug("button.cancel.mouseup", "Cancel mouseup");
+    });
 
     let on_modal_submit = {
         let modal_state = modal_state.clone();
@@ -631,6 +637,9 @@ pub fn app() -> Html {
                     let on_save_mousedown = Callback::from(move |_| {
                         ui_debug("button.save.mousedown", "Save mousedown");
                     });
+                    let on_save_mouseup = Callback::from(move |_| {
+                        ui_debug("button.save.mouseup", "Save mouseup");
+                    });
                     html! {
                         <div class="modal-backdrop">
                             <div class="modal">
@@ -720,13 +729,23 @@ pub fn app() -> Html {
                                         />
                                     </div>
                                     <div class="footer">
-                                        <button id="modal-cancel-btn" type="button" class="btn" onclick={on_modal_close_click.clone()}>{ "Cancel" }</button>
+                                        <button
+                                            id="modal-cancel-btn"
+                                            type="button"
+                                            class="btn"
+                                            onclick={on_modal_close_click.clone()}
+                                            onmousedown={on_cancel_mousedown}
+                                            onmouseup={on_cancel_mouseup}
+                                        >
+                                            { "Cancel" }
+                                        </button>
                                         <button
                                             id="modal-save-btn"
                                             type="submit"
                                             class="btn"
                                             onclick={on_save_click}
                                             onmousedown={on_save_mousedown}
+                                            onmouseup={on_save_mouseup}
                                         >
                                             { "Save" }
                                         </button>
