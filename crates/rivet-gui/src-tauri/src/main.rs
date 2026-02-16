@@ -2,6 +2,7 @@ mod commands;
 mod state;
 
 use anyhow::Context;
+use std::env;
 use tracing::{error, info};
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
@@ -16,8 +17,35 @@ fn init_tracing() {
         .try_init();
 }
 
+#[cfg(target_os = "linux")]
+fn configure_wayland_defaults() {
+    let defaults = [
+        // Prefer native Wayland backend for GTK/WebKit.
+        ("GDK_BACKEND", "wayland"),
+        // Keep winit on Wayland to avoid mixed backend behavior.
+        ("WINIT_UNIX_BACKEND", "wayland"),
+        // Work around compositor/driver dmabuf instability on some systems.
+        ("WEBKIT_DISABLE_DMABUF_RENDERER", "1"),
+    ];
+
+    for (key, value) in defaults {
+        if env::var_os(key).is_none() {
+            unsafe {
+                env::set_var(key, value);
+            }
+            info!(key, value, "set linux GUI runtime default");
+        } else {
+            info!(key, "preserving existing linux GUI runtime value");
+        }
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn configure_wayland_defaults() {}
+
 fn main() {
     init_tracing();
+    configure_wayland_defaults();
 
     info!("starting Rivet GUI backend");
 
