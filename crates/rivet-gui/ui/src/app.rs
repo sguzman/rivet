@@ -1,9 +1,12 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use gloo::console::log;
+use gloo::events::EventListener;
 use rivet_gui_shared::{
     TaskCreate, TaskDto, TaskIdArg, TaskPatch, TaskStatus, TaskUpdateArgs, TasksListArgs,
 };
 use uuid::Uuid;
+use wasm_bindgen::JsCast;
 use yew::{
     Callback, Html, TargetCast, classes, function_component, html, use_effect_with, use_state,
 };
@@ -78,6 +81,72 @@ pub fn app() -> Html {
     let active_project = use_state(|| None::<String>);
     let active_tag = use_state(|| None::<String>);
     let modal_state = use_state(|| None::<ModalState>);
+
+    {
+        use_effect_with((), move |_| {
+            let document = web_sys::window().and_then(|window| window.document());
+
+            let click_listener = document.as_ref().map(|document| {
+                EventListener::new(document, "click", move |event| {
+                    ui_debug(
+                        "dom.click",
+                        &format!("target={}", describe_event_target(event)),
+                    );
+                })
+            });
+
+            let input_listener = document.as_ref().map(|document| {
+                EventListener::new(document, "input", move |event| {
+                    ui_debug(
+                        "dom.input",
+                        &format!("target={}", describe_event_target(event)),
+                    );
+                })
+            });
+
+            let submit_listener = document.as_ref().map(|document| {
+                EventListener::new(document, "submit", move |event| {
+                    ui_debug(
+                        "dom.submit",
+                        &format!("target={}", describe_event_target(event)),
+                    );
+                })
+            });
+
+            let keydown_listener = document.as_ref().map(|document| {
+                EventListener::new(document, "keydown", move |event| {
+                    if let Some(key) = event
+                        .dyn_ref::<web_sys::KeyboardEvent>()
+                        .map(|keyboard| keyboard.key())
+                    {
+                        ui_debug(
+                            "dom.keydown",
+                            &format!("key={key}, target={}", describe_event_target(event)),
+                        );
+                    } else {
+                        ui_debug(
+                            "dom.keydown",
+                            &format!("target={}", describe_event_target(event)),
+                        );
+                    }
+                })
+            });
+
+            if document.is_none() {
+                ui_debug(
+                    "dom.listeners",
+                    "window/document unavailable; interaction listeners not attached",
+                );
+            }
+
+            move || {
+                drop(click_listener);
+                drop(input_listener);
+                drop(submit_listener);
+                drop(keydown_listener);
+            }
+        });
+    }
 
     {
         let active_view = active_view.clone();
@@ -193,6 +262,7 @@ pub fn app() -> Html {
     let on_add_click = {
         let modal_state = modal_state.clone();
         Callback::from(move |_| {
+            ui_debug("action.add_modal.open", "clicked Add Task");
             modal_state.set(Some(ModalState {
                 mode: ModalMode::Add,
                 draft_desc: String::new(),
@@ -340,6 +410,17 @@ pub fn app() -> Html {
         let modal_state = modal_state.clone();
         let refresh_tick = refresh_tick.clone();
         Callback::from(move |state: ModalState| {
+            ui_debug(
+                "action.modal.submit",
+                &format!(
+                    "mode={}, desc_len={}",
+                    match state.mode {
+                        ModalMode::Add => "add",
+                        ModalMode::Edit(_) => "edit",
+                    },
+                    state.draft_desc.len()
+                ),
+            );
             let modal_state = modal_state.clone();
             let refresh_tick = refresh_tick.clone();
 
@@ -363,13 +444,16 @@ pub fn app() -> Html {
                             scheduled: None,
                         };
 
+                        ui_debug("invoke.task_add.begin", "calling tauri command task_add");
                         if let Err(err) = invoke_tauri::<TaskDto, _>("task_add", &create).await {
                             tracing::error!(error = %err, "task_add failed");
+                            ui_debug("invoke.task_add.error", &err);
                             let mut next = state.clone();
                             next.error = Some(format!("Save failed: {err}"));
                             modal_state.set(Some(next));
                             return;
                         }
+                        ui_debug("invoke.task_add.ok", "task_add succeeded");
                     }
                     ModalMode::Edit(uuid) => {
                         let update = TaskUpdateArgs {
@@ -383,16 +467,23 @@ pub fn app() -> Html {
                             },
                         };
 
+                        ui_debug(
+                            "invoke.task_update.begin",
+                            &format!("calling tauri command task_update uuid={uuid}"),
+                        );
                         if let Err(err) = invoke_tauri::<TaskDto, _>("task_update", &update).await {
                             tracing::error!(error = %err, "task_update failed");
+                            ui_debug("invoke.task_update.error", &err);
                             let mut next = state.clone();
                             next.error = Some(format!("Save failed: {err}"));
                             modal_state.set(Some(next));
                             return;
                         }
+                        ui_debug("invoke.task_update.ok", "task_update succeeded");
                     }
                 }
 
+                ui_debug("action.modal.close", "save complete, closing modal");
                 modal_state.set(None);
                 refresh_tick.set((*refresh_tick).saturating_add(1));
             });
@@ -507,14 +598,26 @@ pub fn app() -> Html {
                         let on_modal_submit = on_modal_submit.clone();
                         Callback::from(move |e: web_sys::SubmitEvent| {
                             e.prevent_default();
+                            ui_debug("form.submit.handler", "onsubmit fired");
                             if let Some(current) = (*modal_state).clone() {
                                 on_modal_submit.emit(current);
+                            } else {
+                                ui_debug("form.submit.handler", "modal state missing");
                             }
                         })
                     };
                     html! {
-                        <div class="modal-backdrop" onclick={on_modal_close.clone()}>
-                            <div class="modal" onclick={|e: web_sys::MouseEvent| e.stop_propagation()}>
+                        <div class="modal-backdrop" onclick={{
+                            let modal_state = modal_state.clone();
+                            Callback::from(move |_| {
+                                ui_debug("modal.backdrop.click", "closing modal from backdrop");
+                                modal_state.set(None);
+                            })
+                        }}>
+                            <div class="modal" onclick={|e: web_sys::MouseEvent| {
+                                ui_debug("modal.surface.click", "stopping click propagation");
+                                e.stop_propagation();
+                            }}>
                                 <div class="header">
                                     {
                                         match state.mode {
@@ -602,7 +705,13 @@ pub fn app() -> Html {
                                     </div>
                                     <div class="footer">
                                         <button type="button" class="btn" onclick={on_modal_close.clone()}>{ "Cancel" }</button>
-                                        <button type="submit" class="btn">{ "Save" }</button>
+                                        <button
+                                            type="submit"
+                                            class="btn"
+                                            onclick={Callback::from(|_| ui_debug("button.save.click", "Save clicked"))}
+                                        >
+                                            { "Save" }
+                                        </button>
                                     </div>
                                 </form>
                             </div>
@@ -704,4 +813,24 @@ fn build_tag_facets(tasks: &[TaskDto]) -> Vec<(String, usize)> {
         }
     }
     counts.into_iter().collect()
+}
+
+fn describe_event_target(event: &web_sys::Event) -> String {
+    let Some(target) = event.target() else {
+        return "none".to_string();
+    };
+
+    let Some(element) = target.dyn_ref::<web_sys::Element>() else {
+        return "non-element".to_string();
+    };
+
+    let tag = element.tag_name();
+    let id = element.id();
+    let class_name = element.class_name();
+    format!("tag={tag}, id={id}, class={class_name}")
+}
+
+fn ui_debug(event: &str, detail: &str) {
+    tracing::info!(event, detail, "ui-debug");
+    log!(format!("[ui-debug] {event}: {detail}"));
 }
