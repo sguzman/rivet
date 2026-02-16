@@ -14,6 +14,13 @@
   --title: "Alegreya Sans", "Gill Sans", "Trebuchet MS", sans-serif;
   --body: "Source Sans 3", "Segoe UI", sans-serif;
   --mono: "IBM Plex Mono", "SFMono-Regular", monospace;
+  --topbar-bg: rgba(255, 253, 247, 0.9);
+  --panel-shadow: 0 8px 22px rgba(29, 17, 8, 0.05);
+  --sidebar-active-bg: linear-gradient(90deg, rgba(201, 95, 47, 0.15), transparent);
+  --row-hover-bg: rgba(201, 95, 47, 0.08);
+  --row-selected-bg: rgba(201, 95, 47, 0.13);
+  --selector-on-bg: rgba(201, 95, 47, 0.16);
+  --facet-active-bg: rgba(201, 95, 47, 0.12);
 }
 
 * {
@@ -37,6 +44,27 @@ body {
   min-height: 100vh;
   display: grid;
   grid-template-rows: 62px 1fr;
+  background: var(--bg-grad);
+}
+
+.app.theme-night {
+  --bg: #131922;
+  --bg-grad: radial-gradient(circle at 12% 8%, #263448 0, #1a2230 45%, #10161f 100%);
+  --panel: #1b2533;
+  --panel-soft: #233043;
+  --text: #e8eef7;
+  --muted: #9fb1c7;
+  --accent: #f28d47;
+  --ok: #4bbc84;
+  --danger: #d86d61;
+  --border: #314257;
+  --topbar-bg: rgba(26, 34, 48, 0.9);
+  --panel-shadow: 0 10px 28px rgba(0, 0, 0, 0.38);
+  --sidebar-active-bg: linear-gradient(90deg, rgba(242, 141, 71, 0.22), transparent);
+  --row-hover-bg: rgba(242, 141, 71, 0.14);
+  --row-selected-bg: rgba(242, 141, 71, 0.2);
+  --selector-on-bg: rgba(242, 141, 71, 0.25);
+  --facet-active-bg: rgba(242, 141, 71, 0.2);
 }
 
 .topbar {
@@ -47,7 +75,7 @@ body {
   align-items: center;
   gap: 12px;
   border-bottom: 1px solid var(--border);
-  background: rgba(255, 253, 247, 0.9);
+  background: var(--topbar-bg);
   backdrop-filter: blur(8px);
   padding: 0 var(--pad);
 }
@@ -113,7 +141,7 @@ body {
   border-radius: var(--radius);
   background: var(--panel);
   overflow: hidden;
-  box-shadow: 0 8px 22px rgba(29, 17, 8, 0.05);
+  box-shadow: var(--panel-shadow);
 }
 
 .panel .header {
@@ -134,7 +162,7 @@ body {
 
 .sidebar .item.active {
   color: var(--text);
-  background: linear-gradient(90deg, rgba(201, 95, 47, 0.15), transparent);
+  background: var(--sidebar-active-bg);
   border-left: 3px solid var(--accent);
   padding-left: 9px;
 }
@@ -154,11 +182,11 @@ body {
 }
 
 .row:hover {
-  background: rgba(201, 95, 47, 0.08);
+  background: var(--row-hover-bg);
 }
 
 .row.selected {
-  background: rgba(201, 95, 47, 0.13);
+  background: var(--row-selected-bg);
 }
 
 .dot {
@@ -198,7 +226,7 @@ body {
 
 .selector.on {
   border-color: var(--accent);
-  background: rgba(201, 95, 47, 0.16);
+  background: var(--selector-on-bg);
 }
 
 .badge {
@@ -247,7 +275,7 @@ body {
 
 .facet.active {
   border-color: var(--accent);
-  background: rgba(201, 95, 47, 0.12);
+  background: var(--facet-active-bg);
 }
 
 .field label {

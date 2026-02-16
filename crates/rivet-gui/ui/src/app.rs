@@ -4,7 +4,9 @@ use rivet_gui_shared::{
     TaskCreate, TaskDto, TaskIdArg, TaskPatch, TaskStatus, TaskUpdateArgs, TasksListArgs,
 };
 use uuid::Uuid;
-use yew::{Callback, Html, TargetCast, function_component, html, use_effect_with, use_state};
+use yew::{
+    Callback, Html, TargetCast, classes, function_component, html, use_effect_with, use_state,
+};
 
 use crate::api::invoke_tauri;
 use crate::components::{Details, FacetPanel, Sidebar, TaskList};
@@ -24,8 +26,47 @@ enum ModalMode {
     Edit(Uuid),
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ThemeMode {
+    Day,
+    Night,
+}
+
+impl ThemeMode {
+    fn as_class(self) -> &'static str {
+        match self {
+            Self::Day => "theme-day",
+            Self::Night => "theme-night",
+        }
+    }
+
+    fn next(self) -> Self {
+        match self {
+            Self::Day => Self::Night,
+            Self::Night => Self::Day,
+        }
+    }
+
+    fn storage_value(self) -> &'static str {
+        match self {
+            Self::Day => "day",
+            Self::Night => "night",
+        }
+    }
+
+    fn toggle_label(self) -> &'static str {
+        match self {
+            Self::Day => "Night",
+            Self::Night => "Day",
+        }
+    }
+}
+
+const THEME_STORAGE_KEY: &str = "rivet.theme";
+
 #[function_component(App)]
 pub fn app() -> Html {
+    let theme = use_state(load_theme_mode);
     let active_view = use_state(|| "inbox".to_string());
     let search = use_state(String::new);
     let refresh_tick = use_state(|| 0_u64);
@@ -158,6 +199,15 @@ pub fn app() -> Html {
                 draft_tags: String::new(),
                 draft_due: String::new(),
             }))
+        })
+    };
+
+    let on_toggle_theme = {
+        let theme = theme.clone();
+        Callback::from(move |_| {
+            let next = (*theme).next();
+            save_theme_mode(next);
+            theme.set(next);
         })
     };
 
@@ -334,7 +384,7 @@ pub fn app() -> Html {
     let bulk_count = (*bulk_selected).len();
 
     html! {
-        <div class="app">
+        <div class={classes!("app", (*theme).as_class())}>
             <div class="topbar">
                 <div class="brand">{ "Rivet" }</div>
                 <div class="search">
@@ -363,6 +413,7 @@ pub fn app() -> Html {
                     }
                 }
                 <button class="btn" onclick={on_add_click}>{ "Add Task" }</button>
+                <button class="btn" onclick={on_toggle_theme}>{ (*theme).toggle_label() }</button>
             </div>
 
             <div class="main">
@@ -527,6 +578,25 @@ pub fn app() -> Html {
                 }
             }
         </div>
+    }
+}
+
+fn load_theme_mode() -> ThemeMode {
+    let stored = web_sys::window()
+        .and_then(|window| window.local_storage().ok().flatten())
+        .and_then(|storage| storage.get_item(THEME_STORAGE_KEY).ok().flatten());
+
+    match stored.as_deref() {
+        Some("night") => ThemeMode::Night,
+        _ => ThemeMode::Day,
+    }
+}
+
+fn save_theme_mode(theme: ThemeMode) {
+    if let Some(storage) =
+        web_sys::window().and_then(|window| window.local_storage().ok().flatten())
+    {
+        let _ = storage.set_item(THEME_STORAGE_KEY, theme.storage_value());
     }
 }
 
