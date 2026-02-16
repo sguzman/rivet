@@ -607,6 +607,21 @@ pub fn app() -> Html {
                             }
                         })
                     };
+                    let on_save_click = {
+                        let modal_state = modal_state.clone();
+                        let on_modal_submit = on_modal_submit.clone();
+                        Callback::from(move |e: web_sys::MouseEvent| {
+                            e.prevent_default();
+                            e.stop_propagation();
+                            ui_debug("button.save.click", "Save clicked");
+                            if let Some(current) = (*modal_state).clone() {
+                                ui_debug("button.save.click", "emitting modal submit from click");
+                                on_modal_submit.emit(current);
+                            } else {
+                                ui_debug("button.save.click", "modal state missing");
+                            }
+                        })
+                    };
                     html! {
                         <div class="modal-backdrop" onclick={{
                             let modal_state = modal_state.clone();
@@ -707,9 +722,9 @@ pub fn app() -> Html {
                                     <div class="footer">
                                         <button type="button" class="btn" onclick={on_modal_close.clone()}>{ "Cancel" }</button>
                                         <button
-                                            type="submit"
+                                            type="button"
                                             class="btn"
-                                            onclick={Callback::from(|_| ui_debug("button.save.click", "Save clicked"))}
+                                            onclick={on_save_click}
                                         >
                                             { "Save" }
                                         </button>

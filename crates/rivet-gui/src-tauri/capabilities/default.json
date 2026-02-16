@@ -2,5 +2,5 @@
   "identifier": "default",
   "description": "Default capability for local desktop app",
   "windows": ["main"],
-  "permissions": []
+  "permissions": ["core:default"]
 }

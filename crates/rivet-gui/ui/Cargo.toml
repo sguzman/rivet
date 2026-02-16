@@ -17,6 +17,6 @@ uuid = { version = "1.21.0", features = ["v4", "serde", "js"] }
 wasm-bindgen = "0.2.108"
 wasm-bindgen-futures = "0.4.58"
 wasm-tracing = "2.1.0"
-web-sys = { version = "0.3.85", features = ["Window", "Document", "HtmlInputElement", "InputEvent", "MouseEvent"] }
+web-sys = { version = "0.3.85", features = ["Window", "Document", "Element", "Event", "HtmlInputElement", "InputEvent", "KeyboardEvent", "MouseEvent", "SubmitEvent"] }
 yew = { version = "0.22.0", features = ["csr"] }
 yew-router = "0.19.0"
