@@ -18,6 +18,7 @@ struct ModalState {
     draft_project: String,
     draft_tags: String,
     draft_due: String,
+    error: Option<String>,
 }
 
 #[derive(Clone, PartialEq)]
@@ -198,6 +199,7 @@ pub fn app() -> Html {
                 draft_project: String::new(),
                 draft_tags: String::new(),
                 draft_due: String::new(),
+                error: None,
             }))
         })
     };
@@ -324,6 +326,7 @@ pub fn app() -> Html {
                 draft_project: task.project.unwrap_or_default(),
                 draft_tags: task.tags.join(" "),
                 draft_due: task.due.unwrap_or_default(),
+                error: None,
             }));
         })
     };
@@ -341,6 +344,13 @@ pub fn app() -> Html {
             let refresh_tick = refresh_tick.clone();
 
             wasm_bindgen_futures::spawn_local(async move {
+                if state.draft_desc.trim().is_empty() {
+                    let mut next = state.clone();
+                    next.error = Some("Description is required.".to_string());
+                    modal_state.set(Some(next));
+                    return;
+                }
+
                 match state.mode {
                     ModalMode::Add => {
                         let create = TaskCreate {
@@ -355,6 +365,10 @@ pub fn app() -> Html {
 
                         if let Err(err) = invoke_tauri::<TaskDto, _>("task_add", &create).await {
                             tracing::error!(error = %err, "task_add failed");
+                            let mut next = state.clone();
+                            next.error = Some(format!("Save failed: {err}"));
+                            modal_state.set(Some(next));
+                            return;
                         }
                     }
                     ModalMode::Edit(uuid) => {
@@ -371,6 +385,10 @@ pub fn app() -> Html {
 
                         if let Err(err) = invoke_tauri::<TaskDto, _>("task_update", &update).await {
                             tracing::error!(error = %err, "task_update failed");
+                            let mut next = state.clone();
+                            next.error = Some(format!("Save failed: {err}"));
+                            modal_state.set(Some(next));
+                            return;
                         }
                     }
                 }
@@ -485,6 +503,7 @@ pub fn app() -> Html {
             {
                 if let Some(state) = (*modal_state).clone() {
                     let state_for_submit = state.clone();
+                    let can_save = !state.draft_desc.trim().is_empty();
                     html! {
                         <div class="modal-backdrop" onclick={on_modal_close.clone()}>
                             <div class="modal" onclick={|e: web_sys::MouseEvent| e.stop_propagation()}>
@@ -497,6 +516,13 @@ pub fn app() -> Html {
                                     }
                                 </div>
                                 <div class="content">
+                                    {
+                                        if let Some(err) = state.error.clone() {
+                                            html! { <div class="form-error">{ err }</div> }
+                                        } else {
+                                            html! {}
+                                        }
+                                    }
                                     <div class="field">
                                         <label>{ "Description" }</label>
                                         <input
@@ -507,6 +533,7 @@ pub fn app() -> Html {
                                                     let input: web_sys::HtmlInputElement = e.target_unchecked_into();
                                                     if let Some(mut current) = (*modal_state).clone() {
                                                         current.draft_desc = input.value();
+                                                        current.error = None;
                                                         modal_state.set(Some(current));
                                                     }
                                                 })
@@ -523,6 +550,7 @@ pub fn app() -> Html {
                                                     let input: web_sys::HtmlInputElement = e.target_unchecked_into();
                                                     if let Some(mut current) = (*modal_state).clone() {
                                                         current.draft_project = input.value();
+                                                        current.error = None;
                                                         modal_state.set(Some(current));
                                                     }
                                                 })
@@ -539,6 +567,7 @@ pub fn app() -> Html {
                                                     let input: web_sys::HtmlInputElement = e.target_unchecked_into();
                                                     if let Some(mut current) = (*modal_state).clone() {
                                                         current.draft_tags = input.value();
+                                                        current.error = None;
                                                         modal_state.set(Some(current));
                                                     }
                                                 })
@@ -556,6 +585,7 @@ pub fn app() -> Html {
                                                     let input: web_sys::HtmlInputElement = e.target_unchecked_into();
                                                     if let Some(mut current) = (*modal_state).clone() {
                                                         current.draft_due = input.value();
+                                                        current.error = None;
                                                         modal_state.set(Some(current));
                                                     }
                                                 })
@@ -565,7 +595,7 @@ pub fn app() -> Html {
                                 </div>
                                 <div class="footer">
                                     <button class="btn" onclick={on_modal_close.clone()}>{ "Cancel" }</button>
-                                    <button class="btn" onclick={{
+                                    <button class="btn" disabled={!can_save} onclick={{
                                         let on_modal_submit = on_modal_submit.clone();
                                         Callback::from(move |_| on_modal_submit.emit(state_for_submit.clone()))
                                     }}>{ "Save" }</button>

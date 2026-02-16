@@ -124,6 +124,11 @@ body {
   cursor: pointer;
 }
 
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .btn:hover {
   border-color: var(--accent);
 }
@@ -310,10 +315,14 @@ body {
   overflow: hidden;
 }
 
+.modal .header {
+  padding: 16px 18px;
+}
+
 .modal .content {
   display: grid;
-  gap: 10px;
-  padding: 12px;
+  gap: 14px;
+  padding: 18px;
 }
 
 .footer {
@@ -321,8 +330,17 @@ body {
   justify-content: flex-end;
   gap: 9px;
   border-top: 1px solid var(--border);
-  padding: 12px;
+  padding: 14px 18px 16px;
   background: var(--panel-soft);
+}
+
+.form-error {
+  border: 1px solid color-mix(in srgb, var(--danger) 50%, var(--border));
+  background: color-mix(in srgb, var(--danger) 14%, var(--panel));
+  color: var(--text);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 0.95rem;
 }
 
 @media (max-width: 1080px) {
