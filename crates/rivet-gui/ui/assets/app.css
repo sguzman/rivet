@@ -305,6 +305,8 @@ body {
   display: grid;
   place-items: center;
   padding: 16px;
+  z-index: 2000;
+  pointer-events: auto;
 }
 
 .modal {
@@ -313,6 +315,9 @@ body {
   border-radius: var(--radius);
   background: var(--panel);
   overflow: hidden;
+  position: relative;
+  z-index: 2001;
+  pointer-events: auto;
 }
 
 .modal .header {

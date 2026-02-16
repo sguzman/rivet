@@ -30,16 +30,16 @@ pub async fn tasks_list(
 }
 
 #[tauri::command]
-#[instrument(skip(state), fields(description_len = create.description.len()))]
-pub async fn task_add(state: State<'_, AppState>, create: TaskCreate) -> Result<TaskDto, String> {
+#[instrument(skip(state), fields(description_len = args.description.len()))]
+pub async fn task_add(state: State<'_, AppState>, args: TaskCreate) -> Result<TaskDto, String> {
     info!(
-        description_len = create.description.len(),
-        has_project = create.project.is_some(),
-        tag_count = create.tags.len(),
-        has_due = create.due.is_some(),
+        description_len = args.description.len(),
+        has_project = args.project.is_some(),
+        tag_count = args.tags.len(),
+        has_due = args.due.is_some(),
         "task_add command invoked"
     );
-    let result = state.add(create);
+    let result = state.add(args);
     if let Err(err) = result.as_ref() {
         error!(error = %err, "task_add command failed");
     }
@@ -61,10 +61,10 @@ pub async fn task_update(
 }
 
 #[tauri::command]
-#[instrument(skip(state), fields(uuid = %arg.uuid))]
-pub async fn task_done(state: State<'_, AppState>, arg: TaskIdArg) -> Result<TaskDto, String> {
-    info!(uuid = %arg.uuid, "task_done command invoked");
-    let result = state.done(arg.uuid);
+#[instrument(skip(state), fields(uuid = %args.uuid))]
+pub async fn task_done(state: State<'_, AppState>, args: TaskIdArg) -> Result<TaskDto, String> {
+    info!(uuid = %args.uuid, "task_done command invoked");
+    let result = state.done(args.uuid);
     if let Err(err) = result.as_ref() {
         error!(error = %err, "task_done command failed");
     }
@@ -72,10 +72,10 @@ pub async fn task_done(state: State<'_, AppState>, arg: TaskIdArg) -> Result<Tas
 }
 
 #[tauri::command]
-#[instrument(skip(state), fields(uuid = %arg.uuid))]
-pub async fn task_delete(state: State<'_, AppState>, arg: TaskIdArg) -> Result<(), String> {
-    info!(uuid = %arg.uuid, "task_delete command invoked");
-    let result = state.delete(arg.uuid);
+#[instrument(skip(state), fields(uuid = %args.uuid))]
+pub async fn task_delete(state: State<'_, AppState>, args: TaskIdArg) -> Result<(), String> {
+    info!(uuid = %args.uuid, "task_delete command invoked");
+    let result = state.delete(args.uuid);
     if let Err(err) = result.as_ref() {
         error!(error = %err, "task_delete command failed");
     }
@@ -89,8 +89,8 @@ pub struct UiLogArg {
 }
 
 #[tauri::command]
-#[instrument(fields(event = %arg.event))]
-pub async fn ui_log(arg: UiLogArg) -> Result<(), String> {
-    info!(event = %arg.event, detail = %arg.detail, "ui interaction");
+#[instrument(fields(event = %args.event))]
+pub async fn ui_log(args: UiLogArg) -> Result<(), String> {
+    info!(event = %args.event, detail = %args.detail, "ui interaction");
     Ok(())
 }

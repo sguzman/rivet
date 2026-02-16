@@ -404,7 +404,10 @@ pub fn app() -> Html {
 
     let on_modal_close = {
         let modal_state = modal_state.clone();
-        Callback::from(move |_| modal_state.set(None))
+        Callback::from(move |_| {
+            ui_debug("action.modal.cancel", "Cancel clicked, closing modal");
+            modal_state.set(None);
+        })
     };
 
     let on_modal_submit = {
@@ -623,17 +626,8 @@ pub fn app() -> Html {
                         })
                     };
                     html! {
-                        <div class="modal-backdrop" onclick={{
-                            let modal_state = modal_state.clone();
-                            Callback::from(move |_| {
-                                ui_debug("modal.backdrop.click", "closing modal from backdrop");
-                                modal_state.set(None);
-                            })
-                        }}>
-                            <div class="modal" onclick={|e: web_sys::MouseEvent| {
-                                ui_debug("modal.surface.click", "stopping click propagation");
-                                e.stop_propagation();
-                            }}>
+                        <div class="modal-backdrop">
+                            <div class="modal">
                                 <div class="header">
                                     {
                                         match state.mode {

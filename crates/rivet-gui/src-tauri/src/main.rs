@@ -3,7 +3,8 @@ mod state;
 
 use anyhow::Context;
 use std::env;
-use tracing::{error, info};
+use tauri::Manager;
+use tracing::{error, info, warn};
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
 fn init_tracing() {
@@ -67,6 +68,10 @@ fn main() {
     };
 
     tauri::Builder::default()
+        .setup(|app| {
+            configure_main_window_icon(app);
+            Ok(())
+        })
         .manage(state)
         .invoke_handler(tauri::generate_handler![
             commands::tasks_list,
@@ -78,4 +83,24 @@ fn main() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running Rivet GUI backend");
+}
+
+fn configure_main_window_icon<R: tauri::Runtime>(app: &tauri::App<R>) {
+    let Some(window) = app.get_webview_window("main") else {
+        warn!("main window not found during setup; skipping icon override");
+        return;
+    };
+
+    match tauri::image::Image::from_bytes(include_bytes!("../icons/icon.png")) {
+        Ok(icon) => {
+            if let Err(err) = window.set_icon(icon) {
+                error!(error = %err, "failed to set main window icon");
+            } else {
+                info!("set main window icon from mascot asset");
+            }
+        }
+        Err(err) => {
+            error!(error = %err, "failed to decode main window icon bytes");
+        }
+    }
 }
