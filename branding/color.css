@@ -1,0 +1,110 @@
+/* Rivet (kawaii frog) color style guide
+   Palette extracted from the mascot image (dominant + highlight clusters).
+   Theme direction: GREEN + BROWN, with warm cream highlights + steel rivet neutrals.
+*/
+
+:root {
+  /* ===== Brand Greens (frog + accents) ===== */
+  --rivet-green-900: #495B11; /* deep moss shadow */
+  --rivet-green-800: #5D3813; /* (keep for earth; see browns) */
+  --rivet-green-700: #6D801A; /* main moss */
+  --rivet-green-600: #76871C; /* leaf */
+  --rivet-green-500: #8E9E21; /* olive */
+  --rivet-green-400: #A6B52B; /* bright frog */
+  --rivet-green-300: #BAC635; /* highlight green */
+  --rivet-green-200: #E4EE51; /* neon highlight (use sparingly) */
+
+  /* ===== Earth Browns (boots + clothing + leather) ===== */
+  --rivet-brown-950: #160A02; /* near-black brown */
+  --rivet-brown-900: #2A1A0B; /* espresso */
+  --rivet-brown-800: #3E250E; /* dark leather */
+  --rivet-brown-700: #412B12; /* soil */
+  --rivet-brown-600: #583713; /* bark */
+  --rivet-brown-500: #6A4116; /* boot mid */
+  --rivet-brown-400: #784D18; /* warm leather */
+  --rivet-brown-300: #915C20; /* tan */
+  --rivet-brown-200: #956122; /* light tan */
+  --rivet-caramel-400: #B3712B; /* caramel trim */
+  --rivet-caramel-300: #BA7B2E; /* boot highlight */
+
+  /* ===== Warm Highlights (skin/shine/soft kawaii lighting) ===== */
+  --rivet-cream-50:  #FDFDF1; /* near-white */
+  --rivet-cream-100: #F4F0D7; /* soft paper */
+  --rivet-cream-200: #FAE6B4; /* warm cream */
+  --rivet-cream-300: #F4ECAE; /* buttery highlight */
+  --rivet-cream-400: #F5E991; /* golden cream */
+  --rivet-gold-300:  #F3EE7B; /* bright glow */
+
+  /* ===== Accent Orange (blush / small UI emphasis) ===== */
+  --rivet-orange-500: #E58E3E; /* warm blush */
+  --rivet-orange-600: #F18733; /* punchy accent (sparingly) */
+
+  /* ===== Rivet Metal (hardware) ===== */
+  --rivet-steel-700: #5D6161; /* steel mid */
+  --rivet-steel-300: #D6D3C4; /* steel highlight */
+  --rivet-steel-200: #B5AE9C; /* muted metal/stone */
+
+  /* ===== Ink / Outline ===== */
+  --rivet-ink-950: #090300; /* line art black */
+  --rivet-ink-900: #160A02; /* warm-black */
+
+  /* ===== UI Semantic Tokens (recommended mapping) ===== */
+  --bg:        #0B0C10;      /* keep UI background very dark */
+  --panel:     #11131A;
+  --panel-2:   #151824;
+  --border:    #23283B;
+
+  --text:      var(--rivet-cream-50);
+  --muted:     #A5ADBD;      /* neutral UI gray (not from mascot; optional) */
+
+  --brand:     var(--rivet-green-400);
+  --brand-2:   var(--rivet-green-700);
+
+  --ok:        #9ECE6A;      /* optional: can swap to green-300 if you prefer */
+  --warn:      var(--rivet-orange-500);
+  --danger:    #F7768E;      /* optional: can shift to orange-600 for all-warm */
+}
+
+/* ===== Usage guidance (quick, practical) =====
+   - Primary buttons: green-400 background, ink outline, cream text.
+   - Secondary buttons: panel background, border + green hover.
+   - Badges/chips: panel-2 with border, text cream-200, accent with green-300.
+   - Highlights: cream-300/400 for subtle glows, gold-300 for very sparing emphasis.
+   - Metal UI elements (icons/toggles): steel-700 with steel-300 highlights.
+*/
+
+/* Example components */
+.btn-primary {
+  background: var(--brand);
+  color: var(--rivet-ink-950);
+  border: 1px solid var(--rivet-ink-900);
+  border-radius: 999px;
+  padding: 10px 14px;
+}
+.btn-primary:hover {
+  background: var(--rivet-green-300);
+}
+
+.btn-secondary {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 10px 14px;
+}
+.btn-secondary:hover {
+  border-color: var(--brand);
+}
+
+.badge {
+  background: rgba(21, 24, 36, 0.75);
+  border: 1px solid var(--border);
+  color: var(--rivet-cream-200);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+/* Accent states */
+.state-due-soon { color: var(--rivet-cream-400); }
+.state-overdue  { color: var(--rivet-orange-600); }
+.state-done     { color: var(--rivet-green-300); }
