@@ -540,16 +540,29 @@ pub fn app() -> Html {
 
             {
                 if let Some(state) = (*modal_state).clone() {
-                    let on_submit_form = {
+                    let dispatch_modal_submit = {
                         let modal_state = modal_state.clone();
                         let on_modal_submit = on_modal_submit.clone();
-                        Callback::from(move |e: web_sys::SubmitEvent| {
-                            e.prevent_default();
+                        Callback::from(move |_| {
                             if let Some(current) = (*modal_state).clone() {
                                 on_modal_submit.emit(current);
                             } else {
-                                ui_debug("form.submit.handler", "modal state missing");
+                                ui_debug("modal.submit.dispatch", "modal state missing");
                             }
+                        })
+                    };
+                    let on_submit_form = {
+                        let dispatch_modal_submit = dispatch_modal_submit.clone();
+                        Callback::from(move |e: web_sys::SubmitEvent| {
+                            e.prevent_default();
+                            dispatch_modal_submit.emit(());
+                        })
+                    };
+                    let on_save_click = {
+                        let dispatch_modal_submit = dispatch_modal_submit.clone();
+                        Callback::from(move |e: web_sys::MouseEvent| {
+                            e.prevent_default();
+                            dispatch_modal_submit.emit(());
                         })
                     };
                     html! {
@@ -651,8 +664,9 @@ pub fn app() -> Html {
                                         </button>
                                         <button
                                             id="modal-save-btn"
-                                            type="submit"
+                                            type="button"
                                             class="btn"
+                                            onclick={on_save_click}
                                         >
                                             { "Save" }
                                         </button>
