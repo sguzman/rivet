@@ -96,7 +96,7 @@ fn configure_main_window_icon<R: tauri::Runtime>(app: &tauri::App<R>) {
             if let Err(err) = window.set_icon(icon) {
                 error!(error = %err, "failed to set main window icon");
             } else {
-                info!("set main window icon from mascot asset");
+                info!("set main window icon from bundled app icon");
             }
         }
         Err(err) => {
