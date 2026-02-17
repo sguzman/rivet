@@ -56,6 +56,30 @@ color = "#3B7A57"
 values = []
 
 [[keys]]
+id = "cal_source"
+label = "Calendar Source"
+selection = "single"
+allow_custom_values = true
+color = "#E67E22"
+values = []
+
+[[keys]]
+id = "cal_event"
+label = "Calendar Event"
+selection = "single"
+allow_custom_values = true
+color = "#16A085"
+values = []
+
+[[keys]]
+id = "cal_color"
+label = "Calendar Color"
+selection = "single"
+allow_custom_values = true
+color = "#C0392B"
+values = []
+
+[[keys]]
 id = "type"
 label = "Type"
 selection = "single"

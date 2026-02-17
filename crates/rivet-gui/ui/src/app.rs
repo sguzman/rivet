@@ -3971,7 +3971,7 @@ pub fn app() -> Html {
                                                               for state.draft_tags.iter().map(|tag| {
                                                                   let modal_state = modal_state.clone();
                                                                   let tag_to_remove = tag.clone();
-                                                                  let chip_style = tag_chip_style(&tag_schema, tag);
+                                                                  let chip_style = tag_chip_style(&tag_schema, tag, &tag_colors);
                                                                   html! {
                                                                       <span class="tag-chip" style={chip_style}>
                                                                           <span>{ tag }</span>
@@ -5000,20 +5000,6 @@ fn load_tag_schema() -> TagSchema {
   }
 }
 
-fn build_tag_color_map(
-  schema: &TagSchema
-) -> BTreeMap<String, String> {
-  schema
-    .keys
-    .iter()
-    .filter_map(|key| {
-      key.color.as_ref().map(|color| {
-        (key.id.clone(), color.clone())
-      })
-    })
-    .collect()
-}
-
 fn kanban_columns_from_schema(
   schema: &TagSchema
 ) -> Vec<String> {
@@ -5463,7 +5449,8 @@ fn remove_board_tag_for_id(
 
 fn tag_chip_style(
   schema: &TagSchema,
-  tag: &str
+  tag: &str,
+  tag_colors: &BTreeMap<String, String>
 ) -> String {
   let Some((key, _value)) =
     tag.split_once(':')
@@ -5471,32 +5458,82 @@ fn tag_chip_style(
     return String::new();
   };
 
-  let Some(color) =
-    schema.key(key).and_then(|entry| {
+  let color = schema
+    .key(key)
+    .and_then(|entry| {
       entry.color.as_deref()
     })
-  else {
-    return String::new();
-  };
+    .map(ToString::to_string)
+    .or_else(|| {
+      tag_colors.get(key).cloned()
+    })
+    .unwrap_or_else(|| {
+      deterministic_tag_key_color(key)
+    });
 
   format!("--tag-key-color:{color};")
+}
+
+fn deterministic_tag_key_color(
+  key: &str
+) -> String {
+  let mut hash: u32 = 0x811c9dc5;
+  for byte in key.as_bytes() {
+    hash ^= u32::from(*byte);
+    hash = hash.wrapping_mul(16777619);
+  }
+  let hue = hash % 360;
+  format!("hsl({hue} 72% 54%)")
 }
 
 fn tag_badge_style(
   tag: &str,
   tag_colors: &BTreeMap<String, String>
 ) -> String {
-  if let Some((key, _)) =
+  let Some((key, _)) =
     tag.split_once(':')
-    && let Some(color) =
-      tag_colors.get(key)
-  {
-    return format!(
-      "--tag-key-color:{color};"
-    );
-  }
+  else {
+    return String::new();
+  };
 
-  String::new()
+  let color = tag_colors
+    .get(key)
+    .cloned()
+    .unwrap_or_else(|| {
+      deterministic_tag_key_color(key)
+    });
+
+  format!("--tag-key-color:{color};")
+}
+
+fn tag_color_for_schema_key(
+  key: &TagKey
+) -> Option<String> {
+  if let Some(color) =
+    key.color.as_ref()
+  {
+    return Some(color.clone());
+  }
+  if key.id.trim().is_empty() {
+    return None;
+  }
+  Some(deterministic_tag_key_color(
+    &key.id
+  ))
+}
+
+fn build_tag_color_map(
+  schema: &TagSchema
+) -> BTreeMap<String, String> {
+  schema
+    .keys
+    .iter()
+    .filter_map(|key| {
+      tag_color_for_schema_key(key).map(
+        |color| (key.id.clone(), color)
+      )
+    })
+    .collect()
 }
 
 fn calendar_true() -> bool {
