@@ -233,6 +233,12 @@ pub fn app() -> Html {
     use_state(|| None::<String>);
   let active_tag =
     use_state(|| None::<String>);
+  let all_filter_project =
+    use_state(|| None::<String>);
+  let all_filter_tag =
+    use_state(|| None::<String>);
+  let all_filter_completion =
+    use_state(|| "all".to_string());
   let modal_state =
     use_state(|| None::<ModalState>);
   let modal_busy = use_state(|| false);
@@ -270,15 +276,15 @@ pub fn app() -> Html {
         wasm_bindgen_futures::spawn_local(async move {
                     tracing::info!(view = %view, tick, "refreshing task list");
 
-                    let status = if view == "completed" {
-                        TaskStatus::Completed
+                    let status = if view == "all" {
+                        None
                     } else {
-                        TaskStatus::Pending
+                        Some(TaskStatus::Pending)
                     };
 
                     let args = TasksListArgs {
                         query: None,
-                        status: Some(status),
+                        status,
                         project: None,
                         tag: None,
                     };
@@ -346,7 +352,10 @@ pub fn app() -> Html {
       &active_view,
       &query,
       active_project.as_deref(),
-      active_tag.as_deref()
+      active_tag.as_deref(),
+      all_filter_completion.as_str(),
+      all_filter_project.as_deref(),
+      all_filter_tag.as_deref()
     )
   };
 
@@ -372,6 +381,12 @@ pub fn app() -> Html {
     let active_project =
       active_project.clone();
     let active_tag = active_tag.clone();
+    let all_filter_project =
+      all_filter_project.clone();
+    let all_filter_tag =
+      all_filter_tag.clone();
+    let all_filter_completion =
+      all_filter_completion.clone();
     Callback::from(
       move |view: String| {
         active_view.set(view);
@@ -380,6 +395,10 @@ pub fn app() -> Html {
           .set(BTreeSet::new());
         active_project.set(None);
         active_tag.set(None);
+        all_filter_project.set(None);
+        all_filter_tag.set(None);
+        all_filter_completion
+          .set("all".to_string());
       }
     )
   };
@@ -435,6 +454,69 @@ pub fn app() -> Html {
           .set(BTreeSet::new());
       }
     )
+  };
+
+  let on_all_completion_change = {
+    let all_filter_completion =
+      all_filter_completion.clone();
+    Callback::from(
+      move |e: web_sys::Event| {
+        let input: web_sys::HtmlSelectElement =
+          e.target_unchecked_into();
+        all_filter_completion
+          .set(input.value());
+      }
+    )
+  };
+
+  let on_all_project_change = {
+    let all_filter_project =
+      all_filter_project.clone();
+    Callback::from(
+      move |e: web_sys::Event| {
+        let input: web_sys::HtmlSelectElement =
+          e.target_unchecked_into();
+        let value = input.value();
+        if value.is_empty() {
+          all_filter_project.set(None);
+        } else {
+          all_filter_project
+            .set(Some(value));
+        }
+      }
+    )
+  };
+
+  let on_all_tag_change = {
+    let all_filter_tag =
+      all_filter_tag.clone();
+    Callback::from(
+      move |e: web_sys::Event| {
+        let input: web_sys::HtmlSelectElement =
+          e.target_unchecked_into();
+        let value = input.value();
+        if value.is_empty() {
+          all_filter_tag.set(None);
+        } else {
+          all_filter_tag.set(Some(value));
+        }
+      }
+    )
+  };
+
+  let on_all_filters_clear = {
+    let all_filter_project =
+      all_filter_project.clone();
+    let all_filter_tag =
+      all_filter_tag.clone();
+    let all_filter_completion =
+      all_filter_completion.clone();
+    Callback::from(move |_| {
+      all_filter_project.set(None);
+      all_filter_tag.set(None);
+      all_filter_completion
+        .set("all".to_string());
+    })
   };
 
   let on_add_click = {
@@ -883,6 +965,53 @@ pub fn app() -> Html {
                       }}
                   />
               </div>
+              {
+                  if *active_view == "all" {
+                      html! {
+                          <>
+                              <select
+                                  class="tag-select"
+                                  value={(*all_filter_completion).clone()}
+                                  onchange={on_all_completion_change}
+                              >
+                                  <option value="all">{ "All" }</option>
+                                  <option value="open">{ "Open" }</option>
+                                  <option value="pending">{ "Pending" }</option>
+                                  <option value="waiting">{ "Waiting" }</option>
+                                  <option value="completed">{ "Completed" }</option>
+                                  <option value="deleted">{ "Deleted" }</option>
+                              </select>
+                              <select
+                                  class="tag-select"
+                                  value={(*all_filter_project).clone().unwrap_or_default()}
+                                  onchange={on_all_project_change}
+                              >
+                                  <option value="">{ "All Projects" }</option>
+                                  {
+                                      for project_facets.iter().map(|(project, count)| html! {
+                                          <option value={project.clone()}>{ format!("{project} ({count})") }</option>
+                                      })
+                                  }
+                              </select>
+                              <select
+                                  class="tag-select"
+                                  value={(*all_filter_tag).clone().unwrap_or_default()}
+                                  onchange={on_all_tag_change}
+                              >
+                                  <option value="">{ "All Tags" }</option>
+                                  {
+                                      for tag_facets.iter().map(|(tag, count)| html! {
+                                          <option value={tag.clone()}>{ format!("{tag} ({count})") }</option>
+                                      })
+                                  }
+                              </select>
+                              <button class="btn" onclick={on_all_filters_clear}>{ "Clear" }</button>
+                          </>
+                      }
+                  } else {
+                      html! {}
+                  }
+              }
               {
                   if bulk_count > 0 {
                       html! {
@@ -1473,7 +1602,10 @@ fn filter_visible_tasks(
   active_view: &str,
   query: &str,
   active_project: Option<&str>,
-  active_tag: Option<&str>
+  active_tag: Option<&str>,
+  all_filter_completion: &str,
+  all_filter_project: Option<&str>,
+  all_filter_tag: Option<&str>
 ) -> Vec<TaskDto> {
   let q = query.to_ascii_lowercase();
 
@@ -1509,6 +1641,49 @@ fn filter_visible_tasks(
               .any(|value| value == tag)
           } else {
             true
+          }
+        }
+        | "all" => {
+          if let Some(project) =
+            all_filter_project
+            && task.project.as_deref()
+              != Some(project)
+          {
+            return false;
+          }
+
+          if let Some(tag) = all_filter_tag
+            && !task
+              .tags
+              .iter()
+              .any(|value| value == tag)
+          {
+            return false;
+          }
+
+          match all_filter_completion {
+            | "open" => matches!(
+              task.status,
+              TaskStatus::Pending
+                | TaskStatus::Waiting
+            ),
+            | "pending" => {
+              task.status
+                == TaskStatus::Pending
+            }
+            | "waiting" => {
+              task.status
+                == TaskStatus::Waiting
+            }
+            | "completed" => {
+              task.status
+                == TaskStatus::Completed
+            }
+            | "deleted" => {
+              task.status
+                == TaskStatus::Deleted
+            }
+            | _ => true
           }
         }
         | _ => true

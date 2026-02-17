@@ -28,9 +28,9 @@ pub fn sidebar(props: &SidebarProps) -> Html {
         <div class="panel sidebar">
             <div class="header">{ "Views" }</div>
             { make_item("inbox", "Inbox") }
+            { make_item("all", "Tasks") }
             { make_item("projects", "Projects") }
             { make_item("tags", "Tags") }
-            { make_item("completed", "Completed") }
             { make_item("settings", "Settings") }
         </div>
     }
