@@ -1,108 +1,271 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{
+  BTreeMap,
+  BTreeSet
+};
 
 use gloo::console::log;
 use gloo::timers::future::TimeoutFuture;
 use rivet_gui_shared::{
-    TaskCreate, TaskDto, TaskIdArg, TaskPatch, TaskStatus, TaskUpdateArgs, TasksListArgs,
+  TaskCreate,
+  TaskDto,
+  TaskIdArg,
+  TaskPatch,
+  TaskStatus,
+  TaskUpdateArgs,
+  TasksListArgs
 };
+use serde::Deserialize;
 use uuid::Uuid;
 use yew::{
-    Callback, Html, TargetCast, classes, function_component, html, use_effect_with, use_state,
+  Callback,
+  Html,
+  TargetCast,
+  classes,
+  function_component,
+  html,
+  use_effect_with,
+  use_state
 };
 
 use crate::api::invoke_tauri;
-use crate::components::{Details, FacetPanel, Sidebar, TaskList};
+use crate::components::{
+  Details,
+  FacetPanel,
+  Sidebar,
+  TaskList
+};
 
 #[derive(Clone, PartialEq)]
 struct ModalState {
-    mode: ModalMode,
-    draft_desc: String,
-    draft_project: String,
-    draft_tags: String,
-    draft_due: String,
-    error: Option<String>,
+  mode:             ModalMode,
+  draft_desc:       String,
+  draft_project:    String,
+  draft_custom_tag: String,
+  draft_tags:       Vec<String>,
+  picker_key:       Option<String>,
+  picker_value:     Option<String>,
+  draft_due:        String,
+  error:            Option<String>
 }
 
 #[derive(Clone, PartialEq)]
 enum ModalMode {
-    Add,
-    Edit(Uuid),
+  Add,
+  Edit(Uuid)
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(
+  Clone, PartialEq, Deserialize,
+)]
+struct TagSchema {
+  #[serde(default)]
+  version: u32,
+  #[serde(default)]
+  keys:    Vec<TagKey>
+}
+
+#[derive(
+  Clone, PartialEq, Deserialize,
+)]
+struct TagKey {
+  id:                  String,
+  label:               Option<String>,
+  selection:           Option<String>,
+  color:               Option<String>,
+  #[serde(default)]
+  allow_custom_values: bool,
+  #[serde(default)]
+  values:              Vec<String>
+}
+
+impl TagSchema {
+  fn key(
+    &self,
+    id: &str
+  ) -> Option<&TagKey> {
+    self
+      .keys
+      .iter()
+      .find(|key| key.id == id)
+  }
+
+  fn default_picker(
+    &self
+  ) -> (Option<String>, Option<String>)
+  {
+    let Some(key) = self.keys.first()
+    else {
+      return (None, None);
+    };
+    let value =
+      key.values.first().cloned();
+    (Some(key.id.clone()), value)
+  }
+}
+
+impl Default for TagSchema {
+  fn default() -> Self {
+    Self {
+      version: 1,
+      keys:    vec![
+        TagKey {
+          id:                  "area"
+            .to_string(),
+          label:               Some(
+            "Area".to_string()
+          ),
+          selection:           Some(
+            "single".to_string()
+          ),
+          color:               Some(
+            "#4B7BEC".to_string()
+          ),
+          allow_custom_values: false,
+          values:              vec![
+            "software".to_string(),
+            "research".to_string(),
+            "learning".to_string(),
+            "library".to_string(),
+            "admin".to_string(),
+            "family".to_string(),
+            "farm".to_string(),
+            "home".to_string(),
+            "health".to_string(),
+          ]
+        },
+        TagKey {
+          id:                  "stage"
+            .to_string(),
+          label:               Some(
+            "Stage".to_string()
+          ),
+          selection:           Some(
+            "single".to_string()
+          ),
+          color:               Some(
+            "#8854D0".to_string()
+          ),
+          allow_custom_values: false,
+          values:              vec![
+            "inbox".to_string(),
+            "idea".to_string(),
+            "planned".to_string(),
+            "active".to_string(),
+            "waiting".to_string(),
+            "paused".to_string(),
+            "done".to_string(),
+            "archived".to_string(),
+          ]
+        },
+      ]
+    }
+  }
+}
+
+#[derive(
+  Clone, Copy, PartialEq, Eq,
+)]
 enum ThemeMode {
-    Day,
-    Night,
+  Day,
+  Night
 }
 
 impl ThemeMode {
-    fn as_class(self) -> &'static str {
-        match self {
-            Self::Day => "theme-day",
-            Self::Night => "theme-night",
-        }
+  fn as_class(self) -> &'static str {
+    match self {
+      | Self::Day => "theme-day",
+      | Self::Night => "theme-night"
     }
+  }
 
-    fn next(self) -> Self {
-        match self {
-            Self::Day => Self::Night,
-            Self::Night => Self::Day,
-        }
+  fn next(self) -> Self {
+    match self {
+      | Self::Day => Self::Night,
+      | Self::Night => Self::Day
     }
+  }
 
-    fn storage_value(self) -> &'static str {
-        match self {
-            Self::Day => "day",
-            Self::Night => "night",
-        }
+  fn storage_value(
+    self
+  ) -> &'static str {
+    match self {
+      | Self::Day => "day",
+      | Self::Night => "night"
     }
+  }
 
-    fn toggle_label(self) -> &'static str {
-        match self {
-            Self::Day => "Night",
-            Self::Night => "Day",
-        }
+  fn toggle_label(
+    self
+  ) -> &'static str {
+    match self {
+      | Self::Day => "Night",
+      | Self::Night => "Day"
     }
+  }
 }
 
-const THEME_STORAGE_KEY: &str = "rivet.theme";
+const THEME_STORAGE_KEY: &str =
+  "rivet.theme";
+const TAG_SCHEMA_TOML: &str =
+  include_str!("../assets/tags.toml");
 
 #[function_component(App)]
 pub fn app() -> Html {
-    let theme = use_state(load_theme_mode);
-    let active_view = use_state(|| "inbox".to_string());
-    let search = use_state(String::new);
-    let refresh_tick = use_state(|| 0_u64);
+  let theme =
+    use_state(load_theme_mode);
+  let tag_schema =
+    use_state(load_tag_schema);
+  let active_view =
+    use_state(|| "inbox".to_string());
+  let search = use_state(String::new);
+  let refresh_tick =
+    use_state(|| 0_u64);
 
-    let tasks = use_state(Vec::<TaskDto>::new);
-    let selected = use_state(|| None::<Uuid>);
-    let bulk_selected = use_state(BTreeSet::<Uuid>::new);
-    let active_project = use_state(|| None::<String>);
-    let active_tag = use_state(|| None::<String>);
-    let modal_state = use_state(|| None::<ModalState>);
-    let modal_busy = use_state(|| false);
-    let modal_submit_seq = use_state(|| 0_u64);
+  let tasks =
+    use_state(Vec::<TaskDto>::new);
+  let selected =
+    use_state(|| None::<Uuid>);
+  let bulk_selected =
+    use_state(BTreeSet::<Uuid>::new);
+  let active_project =
+    use_state(|| None::<String>);
+  let active_tag =
+    use_state(|| None::<String>);
+  let modal_state =
+    use_state(|| None::<ModalState>);
+  let modal_busy = use_state(|| false);
+  let modal_submit_seq =
+    use_state(|| 0_u64);
 
-    {
-        use_effect_with((), move |_| {
-            ui_debug("app.mounted", "frontend mounted and hooks initialized");
-            || ()
-        });
-    }
+  {
+    use_effect_with((), move |_| {
+      ui_debug(
+        "app.mounted",
+        "frontend mounted and hooks \
+         initialized"
+      );
+      || ()
+    });
+  }
 
-    {
-        let active_view = active_view.clone();
-        let refresh_tick = refresh_tick.clone();
+  {
+    let active_view =
+      active_view.clone();
+    let refresh_tick =
+      refresh_tick.clone();
+    let tasks = tasks.clone();
+
+    use_effect_with(
+      (
+        (*active_view).clone(),
+        *refresh_tick
+      ),
+      move |(view, tick)| {
         let tasks = tasks.clone();
+        let view = view.clone();
+        let tick = *tick;
 
-        use_effect_with(
-            ((*active_view).clone(), *refresh_tick),
-            move |(view, tick)| {
-                let tasks = tasks.clone();
-                let view = view.clone();
-                let tick = *tick;
-
-                wasm_bindgen_futures::spawn_local(async move {
+        wasm_bindgen_futures::spawn_local(async move {
                     tracing::info!(view = %view, tick, "refreshing task list");
 
                     let status = if view == "completed" {
@@ -124,123 +287,173 @@ pub fn app() -> Html {
                     }
                 });
 
-                || ()
-            },
-        );
-    }
+        || ()
+      }
+    );
+  }
 
-    let visible_tasks = {
-        let query = (*search).clone();
-        filter_visible_tasks(
-            &tasks,
-            &active_view,
-            &query,
-            active_project.as_deref(),
-            active_tag.as_deref(),
-        )
-    };
+  let visible_tasks = {
+    let query = (*search).clone();
+    filter_visible_tasks(
+      &tasks,
+      &active_view,
+      &query,
+      active_project.as_deref(),
+      active_tag.as_deref()
+    )
+  };
 
-    let selected_task =
-        (*selected).and_then(|id| visible_tasks.iter().find(|task| task.uuid == id).cloned());
+  let selected_task = (*selected)
+    .and_then(|id| {
+      visible_tasks
+        .iter()
+        .find(|task| task.uuid == id)
+        .cloned()
+    });
 
-    let project_facets = build_project_facets(&tasks);
-    let tag_facets = build_tag_facets(&tasks);
+  let project_facets =
+    build_project_facets(&tasks);
+  let tag_facets =
+    build_tag_facets(&tasks);
 
-    let on_nav = {
-        let active_view = active_view.clone();
-        let selected = selected.clone();
-        let bulk_selected = bulk_selected.clone();
-        let active_project = active_project.clone();
-        let active_tag = active_tag.clone();
-        Callback::from(move |view: String| {
-            active_view.set(view);
-            selected.set(None);
-            bulk_selected.set(BTreeSet::new());
-            active_project.set(None);
-            active_tag.set(None);
-        })
-    };
+  let on_nav = {
+    let active_view =
+      active_view.clone();
+    let selected = selected.clone();
+    let bulk_selected =
+      bulk_selected.clone();
+    let active_project =
+      active_project.clone();
+    let active_tag = active_tag.clone();
+    Callback::from(
+      move |view: String| {
+        active_view.set(view);
+        selected.set(None);
+        bulk_selected
+          .set(BTreeSet::new());
+        active_project.set(None);
+        active_tag.set(None);
+      }
+    )
+  };
 
-    let on_select = {
-        let selected = selected.clone();
-        Callback::from(move |id: Uuid| selected.set(Some(id)))
-    };
+  let on_select = {
+    let selected = selected.clone();
+    Callback::from(move |id: Uuid| {
+      selected.set(Some(id))
+    })
+  };
 
-    let on_toggle_select = {
-        let bulk_selected = bulk_selected.clone();
-        Callback::from(move |id: Uuid| {
-            let mut next = (*bulk_selected).clone();
-            if next.contains(&id) {
-                next.remove(&id);
-            } else {
-                next.insert(id);
-            }
-            bulk_selected.set(next);
-        })
-    };
+  let on_toggle_select = {
+    let bulk_selected =
+      bulk_selected.clone();
+    Callback::from(move |id: Uuid| {
+      let mut next =
+        (*bulk_selected).clone();
+      if next.contains(&id) {
+        next.remove(&id);
+      } else {
+        next.insert(id);
+      }
+      bulk_selected.set(next);
+    })
+  };
 
-    let on_choose_project = {
-        let active_project = active_project.clone();
-        let selected = selected.clone();
-        let bulk_selected = bulk_selected.clone();
-        Callback::from(move |project: Option<String>| {
-            active_project.set(project);
-            selected.set(None);
-            bulk_selected.set(BTreeSet::new());
-        })
-    };
+  let on_choose_project = {
+    let active_project =
+      active_project.clone();
+    let selected = selected.clone();
+    let bulk_selected =
+      bulk_selected.clone();
+    Callback::from(
+      move |project: Option<String>| {
+        active_project.set(project);
+        selected.set(None);
+        bulk_selected
+          .set(BTreeSet::new());
+      }
+    )
+  };
 
-    let on_choose_tag = {
-        let active_tag = active_tag.clone();
-        let selected = selected.clone();
-        let bulk_selected = bulk_selected.clone();
-        Callback::from(move |tag: Option<String>| {
-            active_tag.set(tag);
-            selected.set(None);
-            bulk_selected.set(BTreeSet::new());
-        })
-    };
+  let on_choose_tag = {
+    let active_tag = active_tag.clone();
+    let selected = selected.clone();
+    let bulk_selected =
+      bulk_selected.clone();
+    Callback::from(
+      move |tag: Option<String>| {
+        active_tag.set(tag);
+        selected.set(None);
+        bulk_selected
+          .set(BTreeSet::new());
+      }
+    )
+  };
 
-    let on_add_click = {
-        let modal_state = modal_state.clone();
-        let modal_busy = modal_busy.clone();
-        let modal_submit_seq = modal_submit_seq.clone();
-        Callback::from(move |_| {
-            modal_busy.set(false);
-            modal_submit_seq.set((*modal_submit_seq).wrapping_add(1));
-            modal_state.set(Some(ModalState {
-                mode: ModalMode::Add,
-                draft_desc: String::new(),
-                draft_project: String::new(),
-                draft_tags: String::new(),
-                draft_due: String::new(),
-                error: None,
-            }));
-            ui_debug("action.add_modal.open", "clicked Add Task");
-        })
-    };
+  let on_add_click = {
+    let modal_state =
+      modal_state.clone();
+    let modal_busy = modal_busy.clone();
+    let modal_submit_seq =
+      modal_submit_seq.clone();
+    let tag_schema = tag_schema.clone();
+    Callback::from(move |_| {
+      let (picker_key, picker_value) =
+        tag_schema.default_picker();
+      modal_busy.set(false);
+      modal_submit_seq.set(
+        (*modal_submit_seq)
+          .wrapping_add(1)
+      );
+      modal_state.set(Some(
+        ModalState {
+          mode: ModalMode::Add,
+          draft_desc: String::new(),
+          draft_project: String::new(),
+          draft_custom_tag: String::new(
+          ),
+          draft_tags: vec![],
+          picker_key,
+          picker_value,
+          draft_due: String::new(),
+          error: None
+        }
+      ));
+      ui_debug(
+        "action.add_modal.open",
+        "clicked Add Task"
+      );
+    })
+  };
 
-    let on_toggle_theme = {
-        let theme = theme.clone();
-        Callback::from(move |_| {
-            let next = (*theme).next();
-            save_theme_mode(next);
-            theme.set(next);
-        })
-    };
+  let on_toggle_theme = {
+    let theme = theme.clone();
+    Callback::from(move |_| {
+      let next = (*theme).next();
+      save_theme_mode(next);
+      theme.set(next);
+    })
+  };
 
-    let on_done = {
-        let refresh_tick = refresh_tick.clone();
-        let selected = selected.clone();
-        let bulk_selected = bulk_selected.clone();
-        Callback::from(move |uuid: Uuid| {
-            let refresh_tick = refresh_tick.clone();
-            let selected = selected.clone();
-            let bulk_selected = bulk_selected.clone();
+  let on_done = {
+    let refresh_tick =
+      refresh_tick.clone();
+    let selected = selected.clone();
+    let bulk_selected =
+      bulk_selected.clone();
+    Callback::from(move |uuid: Uuid| {
+      let refresh_tick =
+        refresh_tick.clone();
+      let selected = selected.clone();
+      let bulk_selected =
+        bulk_selected.clone();
 
-            wasm_bindgen_futures::spawn_local(async move {
-                let arg = TaskIdArg { uuid };
-                match invoke_tauri::<TaskDto, _>("task_done", &arg).await {
+      wasm_bindgen_futures::spawn_local(
+        async move {
+          let arg = TaskIdArg {
+            uuid
+          };
+          match invoke_tauri::<TaskDto, _>("task_done", &arg).await {
                     Ok(_) => {
                         selected.set(None);
                         bulk_selected.set(BTreeSet::new());
@@ -248,161 +461,273 @@ pub fn app() -> Html {
                     }
                     Err(err) => tracing::error!(error = %err, "task_done failed"),
                 }
-            });
-        })
-    };
+        }
+      );
+    })
+  };
 
-    let on_delete = {
-        let refresh_tick = refresh_tick.clone();
-        let selected = selected.clone();
-        let bulk_selected = bulk_selected.clone();
-        Callback::from(move |uuid: Uuid| {
-            let refresh_tick = refresh_tick.clone();
-            let selected = selected.clone();
-            let bulk_selected = bulk_selected.clone();
+  let on_delete = {
+    let refresh_tick =
+      refresh_tick.clone();
+    let selected = selected.clone();
+    let bulk_selected =
+      bulk_selected.clone();
+    Callback::from(move |uuid: Uuid| {
+      let refresh_tick =
+        refresh_tick.clone();
+      let selected = selected.clone();
+      let bulk_selected =
+        bulk_selected.clone();
 
-            wasm_bindgen_futures::spawn_local(async move {
-                let arg = TaskIdArg { uuid };
-                match invoke_tauri::<(), _>("task_delete", &arg).await {
-                    Ok(()) => {
-                        selected.set(None);
-                        bulk_selected.set(BTreeSet::new());
-                        refresh_tick.set((*refresh_tick).saturating_add(1));
-                    }
-                    Err(err) => tracing::error!(error = %err, "task_delete failed"),
-                }
-            });
-        })
-    };
-
-    let on_bulk_done = {
-        let bulk_selected = bulk_selected.clone();
-        let refresh_tick = refresh_tick.clone();
-        let selected = selected.clone();
-        Callback::from(move |_| {
-            let ids: Vec<Uuid> = (*bulk_selected).iter().copied().collect();
-            if ids.is_empty() {
-                return;
+      wasm_bindgen_futures::spawn_local(
+        async move {
+          let arg = TaskIdArg {
+            uuid
+          };
+          match invoke_tauri::<(), _>(
+            "task_delete",
+            &arg
+          )
+          .await
+          {
+            | Ok(()) => {
+              selected.set(None);
+              bulk_selected
+                .set(BTreeSet::new());
+              refresh_tick.set(
+                (*refresh_tick)
+                  .saturating_add(1)
+              );
             }
+            | Err(err) => {
+              tracing::error!(error = %err, "task_delete failed")
+            }
+          }
+        }
+      );
+    })
+  };
 
-            let bulk_selected = bulk_selected.clone();
-            let refresh_tick = refresh_tick.clone();
-            let selected = selected.clone();
+  let on_bulk_done = {
+    let bulk_selected =
+      bulk_selected.clone();
+    let refresh_tick =
+      refresh_tick.clone();
+    let selected = selected.clone();
+    Callback::from(move |_| {
+      let ids: Vec<Uuid> =
+        (*bulk_selected)
+          .iter()
+          .copied()
+          .collect();
+      if ids.is_empty() {
+        return;
+      }
 
-            wasm_bindgen_futures::spawn_local(async move {
-                for uuid in ids {
-                    let arg = TaskIdArg { uuid };
-                    if let Err(err) = invoke_tauri::<TaskDto, _>("task_done", &arg).await {
+      let bulk_selected =
+        bulk_selected.clone();
+      let refresh_tick =
+        refresh_tick.clone();
+      let selected = selected.clone();
+
+      wasm_bindgen_futures::spawn_local(
+        async move {
+          for uuid in ids {
+            let arg = TaskIdArg {
+              uuid
+            };
+            if let Err(err) = invoke_tauri::<TaskDto, _>("task_done", &arg).await {
                         tracing::error!(error = %err, %uuid, "bulk task_done failed");
                     }
-                }
+          }
 
-                selected.set(None);
-                bulk_selected.set(BTreeSet::new());
-                refresh_tick.set((*refresh_tick).saturating_add(1));
-            });
-        })
-    };
+          selected.set(None);
+          bulk_selected
+            .set(BTreeSet::new());
+          refresh_tick.set(
+            (*refresh_tick)
+              .saturating_add(1)
+          );
+        }
+      );
+    })
+  };
 
-    let on_bulk_delete = {
-        let bulk_selected = bulk_selected.clone();
-        let refresh_tick = refresh_tick.clone();
-        let selected = selected.clone();
-        Callback::from(move |_| {
-            let ids: Vec<Uuid> = (*bulk_selected).iter().copied().collect();
-            if ids.is_empty() {
-                return;
-            }
+  let on_bulk_delete = {
+    let bulk_selected =
+      bulk_selected.clone();
+    let refresh_tick =
+      refresh_tick.clone();
+    let selected = selected.clone();
+    Callback::from(move |_| {
+      let ids: Vec<Uuid> =
+        (*bulk_selected)
+          .iter()
+          .copied()
+          .collect();
+      if ids.is_empty() {
+        return;
+      }
 
-            let bulk_selected = bulk_selected.clone();
-            let refresh_tick = refresh_tick.clone();
-            let selected = selected.clone();
+      let bulk_selected =
+        bulk_selected.clone();
+      let refresh_tick =
+        refresh_tick.clone();
+      let selected = selected.clone();
 
-            wasm_bindgen_futures::spawn_local(async move {
-                for uuid in ids {
-                    let arg = TaskIdArg { uuid };
-                    if let Err(err) = invoke_tauri::<(), _>("task_delete", &arg).await {
-                        tracing::error!(error = %err, %uuid, "bulk task_delete failed");
-                    }
-                }
-
-                selected.set(None);
-                bulk_selected.set(BTreeSet::new());
-                refresh_tick.set((*refresh_tick).saturating_add(1));
-            });
-        })
-    };
-
-    let on_edit = {
-        let modal_state = modal_state.clone();
-        let modal_busy = modal_busy.clone();
-        let modal_submit_seq = modal_submit_seq.clone();
-        Callback::from(move |task: TaskDto| {
-            modal_busy.set(false);
-            modal_submit_seq.set((*modal_submit_seq).wrapping_add(1));
-            modal_state.set(Some(ModalState {
-                mode: ModalMode::Edit(task.uuid),
-                draft_desc: task.description,
-                draft_project: task.project.unwrap_or_default(),
-                draft_tags: task.tags.join(" "),
-                draft_due: task.due.unwrap_or_default(),
-                error: None,
-            }));
-        })
-    };
-
-    let close_modal = {
-        let modal_state = modal_state.clone();
-        let modal_busy = modal_busy.clone();
-        let modal_submit_seq = modal_submit_seq.clone();
-        Callback::from(move |_| {
-            modal_busy.set(false);
-            modal_submit_seq.set((*modal_submit_seq).wrapping_add(1));
-            modal_state.set(None);
-            ui_debug("action.modal.cancel", "Cancel clicked, closing modal");
-        })
-    };
-
-    let on_modal_close_click = {
-        let close_modal = close_modal.clone();
-        Callback::from(move |_| close_modal.emit(()))
-    };
-
-    let on_modal_submit = {
-        let modal_state = modal_state.clone();
-        let refresh_tick = refresh_tick.clone();
-        let modal_busy = modal_busy.clone();
-        let modal_submit_seq = modal_submit_seq.clone();
-        Callback::from(move |state: ModalState| {
-            if *modal_busy {
-                ui_debug("action.modal.submit.skip", "ignored duplicate while busy");
-                return;
-            }
-            modal_busy.set(true);
-            let submit_seq = (*modal_submit_seq).wrapping_add(1);
-            modal_submit_seq.set(submit_seq);
-            ui_debug(
-                "action.modal.submit",
-                &format!(
-                    "mode={}, desc_len={}",
-                    match state.mode {
-                        ModalMode::Add => "add",
-                        ModalMode::Edit(_) => "edit",
-                    },
-                    state.draft_desc.len()
-                ),
-            );
-            let modal_state = modal_state.clone();
-            let refresh_tick = refresh_tick.clone();
-            let modal_busy = modal_busy.clone();
-            let modal_submit_seq = modal_submit_seq.clone();
-
+      wasm_bindgen_futures::spawn_local(
+        async move {
+          for uuid in ids {
+            let arg = TaskIdArg {
+              uuid
+            };
+            if let Err(err) =
+              invoke_tauri::<(), _>(
+                "task_delete",
+                &arg
+              )
+              .await
             {
-                let modal_state = modal_state.clone();
-                let modal_busy = modal_busy.clone();
-                let modal_submit_seq = modal_submit_seq.clone();
-                let timeout_state = state.clone();
-                wasm_bindgen_futures::spawn_local(async move {
+              tracing::error!(error = %err, %uuid, "bulk task_delete failed");
+            }
+          }
+
+          selected.set(None);
+          bulk_selected
+            .set(BTreeSet::new());
+          refresh_tick.set(
+            (*refresh_tick)
+              .saturating_add(1)
+          );
+        }
+      );
+    })
+  };
+
+  let on_edit = {
+    let modal_state =
+      modal_state.clone();
+    let modal_busy = modal_busy.clone();
+    let modal_submit_seq =
+      modal_submit_seq.clone();
+    let tag_schema = tag_schema.clone();
+    Callback::from(
+      move |task: TaskDto| {
+        let (picker_key, picker_value) =
+          tag_schema.default_picker();
+        modal_busy.set(false);
+        modal_submit_seq.set(
+          (*modal_submit_seq)
+            .wrapping_add(1)
+        );
+        modal_state.set(Some(
+          ModalState {
+            mode: ModalMode::Edit(
+              task.uuid
+            ),
+            draft_desc: task
+              .description,
+            draft_project: task
+              .project
+              .unwrap_or_default(),
+            draft_custom_tag:
+              String::new(),
+            draft_tags: task.tags,
+            picker_key,
+            picker_value,
+            draft_due: task
+              .due
+              .unwrap_or_default(),
+            error: None
+          }
+        ));
+      }
+    )
+  };
+
+  let close_modal = {
+    let modal_state =
+      modal_state.clone();
+    let modal_busy = modal_busy.clone();
+    let modal_submit_seq =
+      modal_submit_seq.clone();
+    Callback::from(move |_| {
+      modal_busy.set(false);
+      modal_submit_seq.set(
+        (*modal_submit_seq)
+          .wrapping_add(1)
+      );
+      modal_state.set(None);
+      ui_debug(
+        "action.modal.cancel",
+        "Cancel clicked, closing modal"
+      );
+    })
+  };
+
+  let on_modal_close_click = {
+    let close_modal =
+      close_modal.clone();
+    Callback::from(move |_| {
+      close_modal.emit(())
+    })
+  };
+
+  let on_modal_submit = {
+    let modal_state =
+      modal_state.clone();
+    let refresh_tick =
+      refresh_tick.clone();
+    let modal_busy = modal_busy.clone();
+    let modal_submit_seq =
+      modal_submit_seq.clone();
+    Callback::from(
+      move |state: ModalState| {
+        if *modal_busy {
+          ui_debug(
+            "action.modal.submit.skip",
+            "ignored duplicate while \
+             busy"
+          );
+          return;
+        }
+        modal_busy.set(true);
+        let submit_seq =
+          (*modal_submit_seq)
+            .wrapping_add(1);
+        modal_submit_seq
+          .set(submit_seq);
+        ui_debug(
+          "action.modal.submit",
+          &format!(
+            "mode={}, desc_len={}",
+            match state.mode {
+              | ModalMode::Add => "add",
+              | ModalMode::Edit(_) =>
+                "edit",
+            },
+            state.draft_desc.len()
+          )
+        );
+        let modal_state =
+          modal_state.clone();
+        let refresh_tick =
+          refresh_tick.clone();
+        let modal_busy =
+          modal_busy.clone();
+        let modal_submit_seq =
+          modal_submit_seq.clone();
+
+        {
+          let modal_state =
+            modal_state.clone();
+          let modal_busy =
+            modal_busy.clone();
+          let modal_submit_seq =
+            modal_submit_seq.clone();
+          let timeout_state =
+            state.clone();
+          wasm_bindgen_futures::spawn_local(async move {
                     TimeoutFuture::new(8_000).await;
                     if *modal_busy && *modal_submit_seq == submit_seq {
                         let mut next = timeout_state;
@@ -415,9 +740,9 @@ pub fn app() -> Html {
                         ui_debug("action.modal.submit.timeout", "save invoke timed out");
                     }
                 });
-            }
+        }
 
-            wasm_bindgen_futures::spawn_local(async move {
+        wasm_bindgen_futures::spawn_local(async move {
                 if state.draft_desc.trim().is_empty() {
                     let mut next = state.clone();
                     next.error = Some("Description is required.".to_string());
@@ -431,7 +756,7 @@ pub fn app() -> Html {
                         let create = TaskCreate {
                             description: state.draft_desc.trim().to_string(),
                             project: optional_text(&state.draft_project),
-                            tags: split_tags(&state.draft_tags),
+                            tags: collect_tags_for_submit(&state),
                             priority: None,
                             due: optional_text(&state.draft_due),
                             wait: None,
@@ -457,7 +782,7 @@ pub fn app() -> Html {
                             patch: TaskPatch {
                                 description: Some(state.draft_desc.trim().to_string()),
                                 project: Some(optional_text(&state.draft_project)),
-                                tags: Some(split_tags(&state.draft_tags)),
+                                tags: Some(collect_tags_for_submit(&state)),
                                 due: Some(optional_text(&state.draft_due)),
                                 ..TaskPatch::default()
                             },
@@ -487,332 +812,703 @@ pub fn app() -> Html {
                 modal_busy.set(false);
                 modal_submit_seq.set(submit_seq.wrapping_add(1));
             });
-        })
-    };
+      }
+    )
+  };
 
-    let bulk_count = (*bulk_selected).len();
+  let bulk_count =
+    (*bulk_selected).len();
 
-    html! {
-        <div class={classes!("app", (*theme).as_class())}>
-            <div class="topbar">
-                <div class="brand">{ "Rivet" }</div>
-                <div class="search">
-                    <input
-                        value={(*search).clone()}
-                        placeholder="Search tasks"
-                        oninput={{
-                            let search = search.clone();
-                            Callback::from(move |e: web_sys::InputEvent| {
-                                let input: web_sys::HtmlInputElement = e.target_unchecked_into();
-                                search.set(input.value());
-                            })
-                        }}
-                    />
-                </div>
-                {
-                    if bulk_count > 0 {
-                        html! {
-                            <>
-                                <button class="btn ok" onclick={on_bulk_done.clone()}>{ format!("Done {bulk_count}") }</button>
-                                <button class="btn danger" onclick={on_bulk_delete.clone()}>{ format!("Delete {bulk_count}") }</button>
-                            </>
-                        }
-                    } else {
-                        html! {}
-                    }
-                }
-                <button class="btn" onclick={on_add_click}>{ "Add Task" }</button>
-                <button class="btn" onclick={on_toggle_theme}>{ (*theme).toggle_label() }</button>
-            </div>
+  html! {
+      <div class={classes!("app", (*theme).as_class())}>
+          <div class="topbar">
+              <div class="brand">{ "Rivet" }</div>
+              <div class="search">
+                  <input
+                      value={(*search).clone()}
+                      placeholder="Search tasks"
+                      oninput={{
+                          let search = search.clone();
+                          Callback::from(move |e: web_sys::InputEvent| {
+                              let input: web_sys::HtmlInputElement = e.target_unchecked_into();
+                              search.set(input.value());
+                          })
+                      }}
+                  />
+              </div>
+              {
+                  if bulk_count > 0 {
+                      html! {
+                          <>
+                              <button class="btn ok" onclick={on_bulk_done.clone()}>{ format!("Done {bulk_count}") }</button>
+                              <button class="btn danger" onclick={on_bulk_delete.clone()}>{ format!("Delete {bulk_count}") }</button>
+                          </>
+                      }
+                  } else {
+                      html! {}
+                  }
+              }
+              <button class="btn" onclick={on_add_click}>{ "Add Task" }</button>
+              <button class="btn" onclick={on_toggle_theme}>{ (*theme).toggle_label() }</button>
+          </div>
 
-            <div class="main">
-                <Sidebar active={(*active_view).clone()} on_nav={on_nav} />
+          <div class="main">
+              <Sidebar active={(*active_view).clone()} on_nav={on_nav} />
 
-                {
-                    if *active_view == "settings" {
-                        html! {
-                            <>
-                                <div class="panel list">
-                                    <div class="header">{ "Settings" }</div>
-                                    <div class="details">
-                                        <div>{ "The desktop UI is a thin client over the core Rivet datastore." }</div>
-                                        <div class="kv"><strong>{ "view" }</strong><div>{ "settings" }</div></div>
-                                        <div class="kv"><strong>{ "status" }</strong><div>{ "core + tauri bridge active" }</div></div>
-                                        <div class="kv"><strong>{ "workflow" }</strong><div>{ "Use context/report commands in CLI for advanced behavior." }</div></div>
-                                    </div>
-                                </div>
-                                <div class="panel">
-                                    <div class="header">{ "Current Data" }</div>
-                                    <div class="details">
-                                        <div class="kv"><strong>{ "tasks loaded" }</strong><div>{ tasks.len() }</div></div>
-                                        <div class="kv"><strong>{ "selected" }</strong><div>{ bulk_count }</div></div>
-                                    </div>
-                                </div>
-                            </>
-                        }
-                    } else {
-                        html! {
-                            <>
-                                <TaskList
-                                    tasks={visible_tasks.clone()}
-                                    selected={*selected}
-                                    selected_ids={(*bulk_selected).clone()}
-                                    on_select={on_select}
-                                    on_toggle_select={on_toggle_select}
-                                />
-                                {
-                                    if *active_view == "projects" && selected_task.is_none() {
-                                        html! {
-                                            <FacetPanel
-                                                title={"Projects".to_string()}
-                                                selected={(*active_project).clone()}
-                                                items={project_facets}
-                                                on_select={on_choose_project}
-                                            />
-                                        }
-                                    } else if *active_view == "tags" && selected_task.is_none() {
-                                        html! {
-                                            <FacetPanel
-                                                title={"Tags".to_string()}
-                                                selected={(*active_tag).clone()}
-                                                items={tag_facets}
-                                                on_select={on_choose_tag}
-                                            />
-                                        }
-                                    } else {
-                                        html! {
-                                            <Details task={selected_task} on_done={on_done} on_delete={on_delete} on_edit={on_edit} />
-                                        }
-                                    }
-                                }
-                            </>
-                        }
-                    }
-                }
-            </div>
+              {
+                  if *active_view == "settings" {
+                      html! {
+                          <>
+                              <div class="panel list">
+                                  <div class="header">{ "Settings" }</div>
+                                  <div class="details">
+                                      <div>{ "The desktop UI is a thin client over the core Rivet datastore." }</div>
+                                      <div class="kv"><strong>{ "view" }</strong><div>{ "settings" }</div></div>
+                                      <div class="kv"><strong>{ "status" }</strong><div>{ "core + tauri bridge active" }</div></div>
+                                      <div class="kv"><strong>{ "workflow" }</strong><div>{ "Use context/report commands in CLI for advanced behavior." }</div></div>
+                                  </div>
+                              </div>
+                              <div class="panel">
+                                  <div class="header">{ "Current Data" }</div>
+                                  <div class="details">
+                                      <div class="kv"><strong>{ "tasks loaded" }</strong><div>{ tasks.len() }</div></div>
+                                      <div class="kv"><strong>{ "selected" }</strong><div>{ bulk_count }</div></div>
+                                  </div>
+                              </div>
+                          </>
+                      }
+                  } else {
+                      html! {
+                          <>
+                              <TaskList
+                                  tasks={visible_tasks.clone()}
+                                  selected={*selected}
+                                  selected_ids={(*bulk_selected).clone()}
+                                  on_select={on_select}
+                                  on_toggle_select={on_toggle_select}
+                              />
+                              {
+                                  if *active_view == "projects" && selected_task.is_none() {
+                                      html! {
+                                          <FacetPanel
+                                              title={"Projects".to_string()}
+                                              selected={(*active_project).clone()}
+                                              items={project_facets}
+                                              on_select={on_choose_project}
+                                          />
+                                      }
+                                  } else if *active_view == "tags" && selected_task.is_none() {
+                                      html! {
+                                          <FacetPanel
+                                              title={"Tags".to_string()}
+                                              selected={(*active_tag).clone()}
+                                              items={tag_facets}
+                                              on_select={on_choose_tag}
+                                          />
+                                      }
+                                  } else {
+                                      html! {
+                                          <Details task={selected_task} on_done={on_done} on_delete={on_delete} on_edit={on_edit} />
+                                      }
+                                  }
+                              }
+                          </>
+                      }
+                  }
+              }
+          </div>
 
-            {
-                if let Some(state) = (*modal_state).clone() {
-                    let submit_state = state.clone();
-                    let is_busy = *modal_busy;
-                    let on_save_click = {
-                        let on_modal_submit = on_modal_submit.clone();
-                        let submit_state = submit_state.clone();
-                        Callback::from(move |_| {
-                            ui_debug("button.save.click", "save click fired");
-                            on_modal_submit.emit(submit_state.clone());
-                        })
-                    };
-                    html! {
-                        <div class="modal-backdrop">
-                            <div class="modal">
-                                <div class="header">
-                                    {
-                                        match state.mode {
-                                            ModalMode::Add => "Add Task",
-                                            ModalMode::Edit(_) => "Edit Task",
-                                        }
-                                    }
-                                </div>
-                                <div class="content">
-                                    {
-                                        if let Some(err) = state.error.clone() {
-                                            html! { <div class="form-error">{ err }</div> }
-                                        } else {
-                                            html! {}
-                                        }
-                                    }
-                                    <div class="field">
-                                        <label>{ "Description" }</label>
-                                        <input
-                                            value={state.draft_desc.clone()}
-                                            oninput={{
-                                                let modal_state = modal_state.clone();
-                                                Callback::from(move |e: web_sys::InputEvent| {
-                                                    let input: web_sys::HtmlInputElement = e.target_unchecked_into();
-                                                    if let Some(mut current) = (*modal_state).clone() {
-                                                        current.draft_desc = input.value();
-                                                        current.error = None;
-                                                        modal_state.set(Some(current));
-                                                    }
-                                                })
-                                            }}
-                                        />
-                                    </div>
-                                    <div class="field">
-                                        <label>{ "Project" }</label>
-                                        <input
-                                            value={state.draft_project.clone()}
-                                            oninput={{
-                                                let modal_state = modal_state.clone();
-                                                Callback::from(move |e: web_sys::InputEvent| {
-                                                    let input: web_sys::HtmlInputElement = e.target_unchecked_into();
-                                                    if let Some(mut current) = (*modal_state).clone() {
-                                                        current.draft_project = input.value();
-                                                        current.error = None;
-                                                        modal_state.set(Some(current));
-                                                    }
-                                                })
-                                            }}
-                                        />
-                                    </div>
-                                    <div class="field">
-                                        <label>{ "Tags (space separated)" }</label>
-                                        <input
-                                            value={state.draft_tags.clone()}
-                                            oninput={{
-                                                let modal_state = modal_state.clone();
-                                                Callback::from(move |e: web_sys::InputEvent| {
-                                                    let input: web_sys::HtmlInputElement = e.target_unchecked_into();
-                                                    if let Some(mut current) = (*modal_state).clone() {
-                                                        current.draft_tags = input.value();
-                                                        current.error = None;
-                                                        modal_state.set(Some(current));
-                                                    }
-                                                })
-                                            }}
-                                        />
-                                    </div>
-                                    <div class="field">
-                                        <label>{ "Due" }</label>
-                                        <input
-                                            value={state.draft_due.clone()}
-                                            placeholder="e.g. tomorrow or 2026-02-20"
-                                            oninput={{
-                                                let modal_state = modal_state.clone();
-                                                Callback::from(move |e: web_sys::InputEvent| {
-                                                    let input: web_sys::HtmlInputElement = e.target_unchecked_into();
-                                                    if let Some(mut current) = (*modal_state).clone() {
-                                                        current.draft_due = input.value();
-                                                        current.error = None;
-                                                        modal_state.set(Some(current));
-                                                    }
-                                                })
-                                            }}
-                                        />
-                                    </div>
-                                    <div class="footer">
-                                        <button
-                                            id="modal-cancel-btn"
-                                            type="button"
-                                            class="btn"
-                                            onclick={on_modal_close_click.clone()}
-                                        >
-                                            { "Cancel" }
-                                        </button>
-                                        <button
-                                            id="modal-save-btn"
-                                            type="button"
-                                            class="btn"
-                                            onclick={on_save_click}
-                                            disabled={is_busy}
-                                        >
-                                            { if is_busy { "Saving..." } else { "Save" } }
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    }
-                } else {
-                    html! {}
-                }
-            }
-        </div>
-    }
+          {
+              if let Some(state) = (*modal_state).clone() {
+                  let submit_state = state.clone();
+                  let is_busy = *modal_busy;
+                  let picker_value_options = state
+                      .picker_key
+                      .as_deref()
+                      .and_then(|id| tag_schema.key(id))
+                      .map(|key| key.values.clone())
+                      .unwrap_or_default();
+                  let on_save_click = {
+                      let on_modal_submit = on_modal_submit.clone();
+                      let submit_state = submit_state.clone();
+                      Callback::from(move |_| {
+                          ui_debug("button.save.click", "save click fired");
+                          on_modal_submit.emit(submit_state.clone());
+                      })
+                  };
+                  let on_add_custom_tag = {
+                      let modal_state = modal_state.clone();
+                      Callback::from(move |_| {
+                          if let Some(mut current) = (*modal_state).clone() {
+                              let custom_tags = split_tags(&current.draft_custom_tag);
+                              if custom_tags.is_empty() {
+                                  return;
+                              }
+
+                              let mut added = 0_usize;
+                              for tag in custom_tags {
+                                  if push_tag_unique(&mut current.draft_tags, tag) {
+                                      added += 1;
+                                  }
+                              }
+                              tracing::debug!(added, "added custom tags");
+                              current.draft_custom_tag.clear();
+                              current.error = None;
+                              modal_state.set(Some(current));
+                          }
+                      })
+                  };
+                  let on_picker_key_change = {
+                      let modal_state = modal_state.clone();
+                      let tag_schema = tag_schema.clone();
+                      Callback::from(move |e: web_sys::Event| {
+                          let select: web_sys::HtmlSelectElement = e.target_unchecked_into();
+                          let key = select.value();
+                          if let Some(mut current) = (*modal_state).clone() {
+                              if key.trim().is_empty() {
+                                  current.picker_key = None;
+                                  current.picker_value = None;
+                              } else {
+                                  current.picker_key = Some(key.clone());
+                                  current.picker_value = first_value_for_key(&tag_schema, &key);
+                              }
+                              current.error = None;
+                              modal_state.set(Some(current));
+                          }
+                      })
+                  };
+                  let on_picker_value_change = {
+                      let modal_state = modal_state.clone();
+                      Callback::from(move |e: web_sys::Event| {
+                          let select: web_sys::HtmlSelectElement = e.target_unchecked_into();
+                          let value = select.value();
+                          if let Some(mut current) = (*modal_state).clone() {
+                              current.picker_value = if value.trim().is_empty() {
+                                  None
+                              } else {
+                                  Some(value)
+                              };
+                              current.error = None;
+                              modal_state.set(Some(current));
+                          }
+                      })
+                  };
+                  let on_add_picker_tag = {
+                      let modal_state = modal_state.clone();
+                      let tag_schema = tag_schema.clone();
+                      Callback::from(move |_| {
+                          if let Some(mut current) = (*modal_state).clone() {
+                              let Some(key) = current.picker_key.clone() else {
+                                  return;
+                              };
+                              let Some(value) = current.picker_value.clone() else {
+                                  return;
+                              };
+
+                              let key = key.trim();
+                              let value = value.trim();
+                              if key.is_empty() || value.is_empty() {
+                                  return;
+                              }
+
+                              let tag = format!("{key}:{value}");
+                              if is_single_select_key(&tag_schema, key) {
+                                  remove_tags_for_key(&mut current.draft_tags, key);
+                              }
+                              if push_tag_unique(&mut current.draft_tags, tag.clone()) {
+                                  tracing::debug!(tag = %tag, "added picker tag");
+                              } else {
+                                  tracing::debug!(tag = %tag, "picker tag already present");
+                              }
+
+                              current.error = None;
+                              modal_state.set(Some(current));
+                          }
+                      })
+                  };
+                  html! {
+                      <div class="modal-backdrop">
+                          <div class="modal">
+                              <div class="header">
+                                  {
+                                      match state.mode {
+                                          ModalMode::Add => "Add Task",
+                                          ModalMode::Edit(_) => "Edit Task",
+                                      }
+                                  }
+                              </div>
+                              <div class="content">
+                                  {
+                                      if let Some(err) = state.error.clone() {
+                                          html! { <div class="form-error">{ err }</div> }
+                                      } else {
+                                          html! {}
+                                      }
+                                  }
+                                  <div class="field">
+                                      <label>{ "Description" }</label>
+                                      <input
+                                          value={state.draft_desc.clone()}
+                                          oninput={{
+                                              let modal_state = modal_state.clone();
+                                              Callback::from(move |e: web_sys::InputEvent| {
+                                                  let input: web_sys::HtmlInputElement = e.target_unchecked_into();
+                                                  if let Some(mut current) = (*modal_state).clone() {
+                                                      current.draft_desc = input.value();
+                                                      current.error = None;
+                                                      modal_state.set(Some(current));
+                                                  }
+                                              })
+                                          }}
+                                      />
+                                  </div>
+                                  <div class="field">
+                                      <label>{ "Project" }</label>
+                                      <input
+                                          value={state.draft_project.clone()}
+                                          oninput={{
+                                              let modal_state = modal_state.clone();
+                                              Callback::from(move |e: web_sys::InputEvent| {
+                                                  let input: web_sys::HtmlInputElement = e.target_unchecked_into();
+                                                  if let Some(mut current) = (*modal_state).clone() {
+                                                      current.draft_project = input.value();
+                                                      current.error = None;
+                                                      modal_state.set(Some(current));
+                                                  }
+                                              })
+                                          }}
+                                      />
+                                  </div>
+                                  <div class="field">
+                                      <label>{ "Custom Tag" }</label>
+                                      <div class="field-inline">
+                                          <input
+                                              value={state.draft_custom_tag.clone()}
+                                              placeholder="e.g. topic:corn or followup"
+                                              oninput={{
+                                                  let modal_state = modal_state.clone();
+                                                  Callback::from(move |e: web_sys::InputEvent| {
+                                                      let input: web_sys::HtmlInputElement = e.target_unchecked_into();
+                                                      if let Some(mut current) = (*modal_state).clone() {
+                                                          current.draft_custom_tag = input.value();
+                                                          current.error = None;
+                                                          modal_state.set(Some(current));
+                                                      }
+                                                  })
+                                              }}
+                                          />
+                                          <button
+                                              type="button"
+                                              class="btn"
+                                              onclick={on_add_custom_tag}
+                                          >
+                                              { "Add" }
+                                          </button>
+                                      </div>
+                                  </div>
+                                  <div class="field">
+                                      <label>{ "Pick Tag (key -> value)" }</label>
+                                      <div class="tag-picker">
+                                          <select
+                                              class="tag-select"
+                                              value={state.picker_key.clone().unwrap_or_default()}
+                                              onchange={on_picker_key_change}
+                                          >
+                                              <option value="">{ "Select key" }</option>
+                                              {
+                                                  for tag_schema.keys.iter().map(|key| {
+                                                      let label = key.label.clone().unwrap_or_else(|| key.id.clone());
+                                                      html! {
+                                                          <option value={key.id.clone()}>
+                                                              { format!("{label} ({})", key.id) }
+                                                          </option>
+                                                      }
+                                                  })
+                                              }
+                                          </select>
+                                          <select
+                                              class="tag-select"
+                                              value={state.picker_value.clone().unwrap_or_default()}
+                                              onchange={on_picker_value_change}
+                                              disabled={state.picker_key.is_none() || picker_value_options.is_empty()}
+                                          >
+                                              <option value="">{ "Select value" }</option>
+                                              {
+                                                  for picker_value_options.iter().map(|value| html! {
+                                                      <option value={value.clone()}>{ value }</option>
+                                                  })
+                                              }
+                                          </select>
+                                          <button
+                                              type="button"
+                                              class="btn tag-plus"
+                                              onclick={on_add_picker_tag}
+                                              disabled={state.picker_key.is_none() || state.picker_value.is_none()}
+                                              title="Add selected key:value tag"
+                                          >
+                                              { "+" }
+                                          </button>
+                                      </div>
+                                  </div>
+                                  <div class="field">
+                                      <label>{ "Selected Tags" }</label>
+                                      <div class="tag-list">
+                                          {
+                                              if state.draft_tags.is_empty() {
+                                                  html! { <span class="tag-empty">{ "No tags selected yet." }</span> }
+                                              } else {
+                                                  html! {
+                                                      <>
+                                                          {
+                                                              for state.draft_tags.iter().map(|tag| {
+                                                                  let modal_state = modal_state.clone();
+                                                                  let tag_to_remove = tag.clone();
+                                                                  let chip_style = tag_chip_style(&tag_schema, tag);
+                                                                  html! {
+                                                                      <span class="tag-chip" style={chip_style}>
+                                                                          <span>{ tag }</span>
+                                                                          <button
+                                                                              type="button"
+                                                                              class="tag-chip-remove"
+                                                                              onclick={Callback::from(move |_| {
+                                                                                  if let Some(mut current) = (*modal_state).clone() {
+                                                                                      current.draft_tags.retain(|value| value != &tag_to_remove);
+                                                                                      current.error = None;
+                                                                                      modal_state.set(Some(current));
+                                                                                  }
+                                                                              })}
+                                                                          >
+                                                                              { "x" }
+                                                                          </button>
+                                                                      </span>
+                                                                  }
+                                                              })
+                                                          }
+                                                      </>
+                                                  }
+                                              }
+                                          }
+                                      </div>
+                                  </div>
+                                  <div class="field">
+                                      <label>{ "Due" }</label>
+                                      <input
+                                          value={state.draft_due.clone()}
+                                          placeholder="e.g. tomorrow or 2026-02-20"
+                                          oninput={{
+                                              let modal_state = modal_state.clone();
+                                              Callback::from(move |e: web_sys::InputEvent| {
+                                                  let input: web_sys::HtmlInputElement = e.target_unchecked_into();
+                                                  if let Some(mut current) = (*modal_state).clone() {
+                                                      current.draft_due = input.value();
+                                                      current.error = None;
+                                                      modal_state.set(Some(current));
+                                                  }
+                                              })
+                                          }}
+                                      />
+                                  </div>
+                                  <div class="footer">
+                                      <button
+                                          id="modal-cancel-btn"
+                                          type="button"
+                                          class="btn"
+                                          onclick={on_modal_close_click.clone()}
+                                      >
+                                          { "Cancel" }
+                                      </button>
+                                      <button
+                                          id="modal-save-btn"
+                                          type="button"
+                                          class="btn"
+                                          onclick={on_save_click}
+                                          disabled={is_busy}
+                                      >
+                                          { if is_busy { "Saving..." } else { "Save" } }
+                                      </button>
+                                  </div>
+                              </div>
+                          </div>
+                      </div>
+                  }
+              } else {
+                  html! {}
+              }
+          }
+      </div>
+  }
 }
 
 fn load_theme_mode() -> ThemeMode {
-    let stored = web_sys::window()
-        .and_then(|window| window.local_storage().ok().flatten())
-        .and_then(|storage| storage.get_item(THEME_STORAGE_KEY).ok().flatten());
+  let stored = web_sys::window()
+    .and_then(|window| {
+      window
+        .local_storage()
+        .ok()
+        .flatten()
+    })
+    .and_then(|storage| {
+      storage
+        .get_item(THEME_STORAGE_KEY)
+        .ok()
+        .flatten()
+    });
 
-    match stored.as_deref() {
-        Some("night") => ThemeMode::Night,
-        _ => ThemeMode::Day,
-    }
+  match stored.as_deref() {
+    | Some("night") => ThemeMode::Night,
+    | _ => ThemeMode::Day
+  }
 }
 
 fn save_theme_mode(theme: ThemeMode) {
-    if let Some(storage) =
-        web_sys::window().and_then(|window| window.local_storage().ok().flatten())
+  if let Some(storage) =
+    web_sys::window().and_then(
+      |window| {
+        window
+          .local_storage()
+          .ok()
+          .flatten()
+      }
+    )
+  {
+    let _ = storage.set_item(
+      THEME_STORAGE_KEY,
+      theme.storage_value()
+    );
+  }
+}
+
+fn load_tag_schema() -> TagSchema {
+  match toml::from_str::<TagSchema>(
+    TAG_SCHEMA_TOML
+  ) {
+    | Ok(schema)
+      if !schema.keys.is_empty() =>
     {
-        let _ = storage.set_item(THEME_STORAGE_KEY, theme.storage_value());
+      tracing::info!(
+        version = schema.version,
+        key_count = schema.keys.len(),
+        "loaded tag schema"
+      );
+      schema
     }
+    | Ok(_) => {
+      tracing::warn!(
+        "tag schema was empty; using \
+         fallback schema"
+      );
+      TagSchema::default()
+    }
+    | Err(error) => {
+      tracing::error!(%error, "failed to parse tag schema; using fallback schema");
+      TagSchema::default()
+    }
+  }
 }
 
-fn optional_text(text: &str) -> Option<String> {
-    let trimmed = text.trim();
-    if trimmed.is_empty() {
-        None
-    } else {
-        Some(trimmed.to_string())
-    }
+fn optional_text(
+  text: &str
+) -> Option<String> {
+  let trimmed = text.trim();
+  if trimmed.is_empty() {
+    None
+  } else {
+    Some(trimmed.to_string())
+  }
 }
 
-fn split_tags(text: &str) -> Vec<String> {
-    text.split_whitespace().map(ToString::to_string).collect()
+fn split_tags(
+  text: &str
+) -> Vec<String> {
+  text
+    .split_whitespace()
+    .map(str::trim)
+    .filter(|value| !value.is_empty())
+    .map(ToString::to_string)
+    .collect()
+}
+
+fn collect_tags_for_submit(
+  state: &ModalState
+) -> Vec<String> {
+  let mut tags =
+    state.draft_tags.clone();
+  for tag in
+    split_tags(&state.draft_custom_tag)
+  {
+    push_tag_unique(&mut tags, tag);
+  }
+  tags
+}
+
+fn push_tag_unique(
+  tags: &mut Vec<String>,
+  tag: String
+) -> bool {
+  let trimmed = tag.trim();
+  if trimmed.is_empty() {
+    return false;
+  }
+
+  if tags
+    .iter()
+    .any(|existing| existing == trimmed)
+  {
+    return false;
+  }
+
+  tags.push(trimmed.to_string());
+  true
+}
+
+fn first_value_for_key(
+  schema: &TagSchema,
+  key: &str
+) -> Option<String> {
+  schema.key(key).and_then(|entry| {
+    entry.values.first().cloned()
+  })
+}
+
+fn is_single_select_key(
+  schema: &TagSchema,
+  key: &str
+) -> bool {
+  schema
+    .key(key)
+    .and_then(|entry| {
+      entry.selection.as_deref()
+    })
+    .is_some_and(|selection| {
+      selection.eq_ignore_ascii_case(
+        "single"
+      )
+    })
+}
+
+fn remove_tags_for_key(
+  tags: &mut Vec<String>,
+  key: &str
+) {
+  tags.retain(|existing| {
+    match existing.split_once(':') {
+      | Some((existing_key, _)) => {
+        existing_key != key
+      }
+      | None => true
+    }
+  });
+}
+
+fn tag_chip_style(
+  schema: &TagSchema,
+  tag: &str
+) -> String {
+  let Some((key, _value)) =
+    tag.split_once(':')
+  else {
+    return String::new();
+  };
+
+  let Some(color) =
+    schema.key(key).and_then(|entry| {
+      entry.color.as_deref()
+    })
+  else {
+    return String::new();
+  };
+
+  format!("--tag-key-color:{color};")
 }
 
 fn filter_visible_tasks(
-    tasks: &[TaskDto],
-    active_view: &str,
-    query: &str,
-    active_project: Option<&str>,
-    active_tag: Option<&str>,
+  tasks: &[TaskDto],
+  active_view: &str,
+  query: &str,
+  active_project: Option<&str>,
+  active_tag: Option<&str>
 ) -> Vec<TaskDto> {
-    let q = query.to_ascii_lowercase();
+  let q = query.to_ascii_lowercase();
 
-    tasks
-        .iter()
-        .filter(|task| {
-            if !q.is_empty() && !task.description.to_ascii_lowercase().contains(&q) {
-                return false;
-            }
+  tasks
+    .iter()
+    .filter(|task| {
+      if !q.is_empty()
+        && !task
+          .description
+          .to_ascii_lowercase()
+          .contains(&q)
+      {
+        return false;
+      }
 
-            match active_view {
-                "projects" => {
-                    if let Some(project) = active_project {
-                        task.project.as_deref() == Some(project)
-                    } else {
-                        true
-                    }
-                }
-                "tags" => {
-                    if let Some(tag) = active_tag {
-                        task.tags.iter().any(|value| value == tag)
-                    } else {
-                        true
-                    }
-                }
-                _ => true,
-            }
-        })
-        .cloned()
-        .collect()
-}
-
-fn build_project_facets(tasks: &[TaskDto]) -> Vec<(String, usize)> {
-    let mut counts = BTreeMap::new();
-    for task in tasks {
-        if let Some(project) = task.project.as_ref() {
-            *counts.entry(project.clone()).or_insert(0_usize) += 1;
+      match active_view {
+        | "projects" => {
+          if let Some(project) =
+            active_project
+          {
+            task.project.as_deref()
+              == Some(project)
+          } else {
+            true
+          }
         }
-    }
-    counts.into_iter().collect()
-}
-
-fn build_tag_facets(tasks: &[TaskDto]) -> Vec<(String, usize)> {
-    let mut counts = BTreeMap::new();
-    for task in tasks {
-        for tag in &task.tags {
-            *counts.entry(tag.clone()).or_insert(0_usize) += 1;
+        | "tags" => {
+          if let Some(tag) = active_tag
+          {
+            task
+              .tags
+              .iter()
+              .any(|value| value == tag)
+          } else {
+            true
+          }
         }
-    }
-    counts.into_iter().collect()
+        | _ => true
+      }
+    })
+    .cloned()
+    .collect()
 }
 
-fn ui_debug(event: &str, detail: &str) {
-    tracing::debug!(event, detail, "ui-debug");
-    log!(format!("[ui-debug] {event}: {detail}"));
+fn build_project_facets(
+  tasks: &[TaskDto]
+) -> Vec<(String, usize)> {
+  let mut counts = BTreeMap::new();
+  for task in tasks {
+    if let Some(project) =
+      task.project.as_ref()
+    {
+      *counts
+        .entry(project.clone())
+        .or_insert(0_usize) += 1;
+    }
+  }
+  counts.into_iter().collect()
+}
+
+fn build_tag_facets(
+  tasks: &[TaskDto]
+) -> Vec<(String, usize)> {
+  let mut counts = BTreeMap::new();
+  for task in tasks {
+    for tag in &task.tags {
+      *counts
+        .entry(tag.clone())
+        .or_insert(0_usize) += 1;
+    }
+  }
+  counts.into_iter().collect()
+}
+
+fn ui_debug(
+  event: &str,
+  detail: &str
+) {
+  tracing::debug!(
+    event, detail, "ui-debug"
+  );
+  log!(format!(
+    "[ui-debug] {event}: {detail}"
+  ));
 }
