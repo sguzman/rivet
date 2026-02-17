@@ -1,10 +1,11 @@
 use std::io::{self, IsTerminal, Write};
 
 use anyhow::anyhow;
-use chrono::{DateTime, Local, Utc};
+use chrono::{DateTime, Utc};
 use unicode_width::UnicodeWidthStr;
 
 use crate::config::Config;
+use crate::datetime::format_project_date;
 use crate::task::Task;
 
 #[derive(Debug, Clone)]
@@ -46,7 +47,7 @@ impl Renderer {
 
             let due = task
                 .due
-                .map(|date| date.with_timezone(&Local).format("%Y-%m-%d").to_string())
+                .map(format_project_date)
                 .unwrap_or_default();
 
             let due = if let Some(task_due) = task.due {

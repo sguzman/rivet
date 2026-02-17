@@ -1,6 +1,229 @@
+use std::fs;
+use std::path::PathBuf;
+use std::sync::OnceLock;
+
 use anyhow::{Context, anyhow};
-use chrono::{DateTime, Duration, Local, NaiveDate, NaiveDateTime, TimeZone, Utc};
+use chrono::{DateTime, Duration, LocalResult, NaiveDate, NaiveDateTime, TimeZone, Utc};
+use chrono_tz::Tz;
 use regex::Regex;
+use serde::Deserialize;
+
+const TIMEZONE_CONFIG_FILE: &str =
+    "rivet-time.toml";
+const TIMEZONE_ENV_VAR: &str =
+    "RIVET_TIMEZONE";
+const TIMEZONE_CONFIG_ENV_VAR: &str =
+    "RIVET_TIME_CONFIG";
+const DEFAULT_PROJECT_TIMEZONE: &str =
+    "America/Mexico_City";
+
+#[derive(Debug, Deserialize)]
+struct TimezoneConfig {
+    timezone: Option<String>,
+    time: Option<TimezoneSection>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TimezoneSection {
+    timezone: Option<String>,
+}
+
+pub fn project_timezone() -> &'static Tz {
+    static PROJECT_TZ: OnceLock<Tz> =
+        OnceLock::new();
+    PROJECT_TZ
+        .get_or_init(resolve_project_timezone)
+}
+
+#[must_use]
+pub fn to_project_date(
+    dt: DateTime<Utc>,
+) -> chrono::NaiveDate {
+    dt.with_timezone(project_timezone())
+        .date_naive()
+}
+
+#[must_use]
+pub fn format_project_date(
+    dt: DateTime<Utc>,
+) -> String {
+    dt.with_timezone(project_timezone())
+        .format("%Y-%m-%d")
+        .to_string()
+}
+
+fn resolve_project_timezone() -> Tz {
+    if let Ok(raw) =
+        std::env::var(TIMEZONE_ENV_VAR)
+    {
+        if let Some(tz) =
+            parse_timezone(&raw, TIMEZONE_ENV_VAR)
+        {
+            return tz;
+        }
+    }
+
+    if let Some(path) =
+        timezone_config_path()
+        && let Some(tz) =
+            load_timezone_from_file(&path)
+    {
+        return tz;
+    }
+
+    parse_timezone(
+        DEFAULT_PROJECT_TIMEZONE,
+        "DEFAULT_PROJECT_TIMEZONE",
+    )
+    .unwrap_or_else(|| {
+        tracing::error!(
+          "failed to parse fallback \
+           timezone; using UTC"
+        );
+        chrono_tz::UTC
+    })
+}
+
+fn timezone_config_path() -> Option<PathBuf> {
+    if let Ok(raw) = std::env::var(
+        TIMEZONE_CONFIG_ENV_VAR,
+    ) {
+        let trimmed = raw.trim();
+        if !trimmed.is_empty() {
+            return Some(PathBuf::from(trimmed));
+        }
+    }
+
+    std::env::current_dir()
+        .ok()
+        .map(|dir| dir.join(TIMEZONE_CONFIG_FILE))
+}
+
+fn load_timezone_from_file(
+    path: &PathBuf,
+) -> Option<Tz> {
+    if !path.exists() {
+        tracing::info!(
+          file = %path.display(),
+          "timezone config file not found"
+        );
+        return None;
+    }
+
+    let raw = match fs::read_to_string(path) {
+        Ok(raw) => raw,
+        Err(err) => {
+            tracing::error!(
+              file = %path.display(),
+              error = %err,
+              "failed reading timezone config file"
+            );
+            return None;
+        }
+    };
+
+    let parsed = match toml::from_str::<
+        TimezoneConfig,
+    >(&raw)
+    {
+        Ok(parsed) => parsed,
+        Err(err) => {
+            tracing::error!(
+              file = %path.display(),
+              error = %err,
+              "failed parsing timezone config file"
+            );
+            return None;
+        }
+    };
+
+    let timezone = parsed
+        .timezone
+        .or_else(|| {
+            parsed
+                .time
+                .and_then(|section| section.timezone)
+        });
+    let Some(timezone) = timezone else {
+        tracing::warn!(
+          file = %path.display(),
+          "timezone config had no timezone field"
+        );
+        return None;
+    };
+
+    parse_timezone(
+        timezone.as_str(),
+        &format!("file:{}", path.display()),
+    )
+}
+
+fn parse_timezone(
+    raw: &str,
+    source: &str,
+) -> Option<Tz> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        tracing::warn!(
+          source,
+          "timezone source was empty"
+        );
+        return None;
+    }
+
+    match trimmed.parse::<Tz>() {
+        Ok(tz) => {
+            tracing::info!(
+              source,
+              timezone = %trimmed,
+              "configured project timezone"
+            );
+            Some(tz)
+        }
+        Err(err) => {
+            tracing::error!(
+              source,
+              timezone = %trimmed,
+              error = %err,
+              "failed to parse timezone id"
+            );
+            None
+        }
+    }
+}
+
+fn to_utc_from_project_local(
+    local_naive: NaiveDateTime,
+    context: &str,
+) -> anyhow::Result<DateTime<Utc>> {
+    match project_timezone()
+        .from_local_datetime(&local_naive)
+    {
+        LocalResult::Single(local_dt) => {
+            Ok(local_dt.with_timezone(&Utc))
+        }
+        LocalResult::Ambiguous(
+            first,
+            second,
+        ) => {
+            tracing::warn!(
+              context,
+              first = %first,
+              second = %second,
+              "ambiguous local datetime; using earliest"
+            );
+            let chosen = if first <= second {
+                first
+            } else {
+                second
+            };
+            Ok(chosen.with_timezone(&Utc))
+        }
+        LocalResult::None => Err(anyhow!(
+            "local datetime does not exist in configured timezone: {context}"
+        )),
+    }
+}
 
 #[tracing::instrument(skip(now), fields(input = input))]
 pub fn parse_date_expr(input: &str, now: DateTime<Utc>) -> anyhow::Result<DateTime<Utc>> {
@@ -10,16 +233,16 @@ pub fn parse_date_expr(input: &str, now: DateTime<Utc>) -> anyhow::Result<DateTi
     match lower.as_str() {
         "now" => return Ok(now),
         "today" => {
-            let local_now = now.with_timezone(&Local);
+            let local_now =
+                now.with_timezone(project_timezone());
             let date = local_now.date_naive();
             let midnight = date
                 .and_hms_opt(0, 0, 0)
                 .ok_or_else(|| anyhow!("failed to construct midnight for today"))?;
-            let local_dt = Local
-                .from_local_datetime(&midnight)
-                .single()
-                .ok_or_else(|| anyhow!("ambiguous local datetime for today"))?;
-            return Ok(local_dt.with_timezone(&Utc));
+            return to_utc_from_project_local(
+                midnight,
+                "today",
+            );
         }
         "tomorrow" => {
             let today = parse_date_expr("today", now)?;
@@ -77,20 +300,18 @@ pub fn parse_date_expr(input: &str, now: DateTime<Utc>) -> anyhow::Result<DateTi
         let midnight = date
             .and_hms_opt(0, 0, 0)
             .ok_or_else(|| anyhow!("failed to construct midnight for date"))?;
-        let local_dt = Local
-            .from_local_datetime(&midnight)
-            .single()
-            .ok_or_else(|| anyhow!("ambiguous local datetime for date"))?;
-        return Ok(local_dt.with_timezone(&Utc));
+        return to_utc_from_project_local(
+            midnight,
+            "date",
+        );
     }
 
     for fmt in ["%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M"] {
         if let Ok(ndt) = NaiveDateTime::parse_from_str(token, fmt) {
-            let local_dt = Local
-                .from_local_datetime(&ndt)
-                .single()
-                .ok_or_else(|| anyhow!("ambiguous local datetime"))?;
-            return Ok(local_dt.with_timezone(&Utc));
+            return to_utc_from_project_local(
+                ndt,
+                fmt,
+            );
         }
     }
 

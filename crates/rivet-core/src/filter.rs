@@ -1,7 +1,7 @@
-use chrono::{DateTime, Days, Local, Utc};
+use chrono::{DateTime, Days, Utc};
 use tracing::trace;
 
-use crate::datetime::parse_date_expr;
+use crate::datetime::{parse_date_expr, to_project_date};
 use crate::task::{Status, Task};
 
 #[derive(Debug, Clone)]
@@ -343,7 +343,7 @@ fn eval_pred(pred: &Pred, task: &Task, now: DateTime<Utc>) -> bool {
 }
 
 fn eval_virtual_tag(virtual_tag: VirtualTag, task: &Task, now: DateTime<Utc>) -> bool {
-    let now_local_date = now.with_timezone(&Local).date_naive();
+    let now_local_date = to_project_date(now);
 
     match virtual_tag {
         VirtualTag::Pending => task.status == Status::Pending && !task.is_waiting(now),
@@ -360,19 +360,19 @@ fn eval_virtual_tag(virtual_tag: VirtualTag, task: &Task, now: DateTime<Utc>) ->
         VirtualTag::Unblocked => task.depends.is_empty(),
         VirtualTag::Due => task
             .due
-            .map(|due| due.with_timezone(&Local).date_naive() <= now_local_date)
+            .map(|due| to_project_date(due) <= now_local_date)
             .unwrap_or(false),
         VirtualTag::Overdue => task.due.map(|due| due < now).unwrap_or(false),
         VirtualTag::Today => task
             .due
-            .map(|due| due.with_timezone(&Local).date_naive() == now_local_date)
+            .map(|due| to_project_date(due) == now_local_date)
             .unwrap_or(false),
         VirtualTag::Tomorrow => {
             let tomorrow = now_local_date
                 .checked_add_days(Days::new(1))
                 .unwrap_or(now_local_date);
             task.due
-                .map(|due| due.with_timezone(&Local).date_naive() == tomorrow)
+                .map(|due| to_project_date(due) == tomorrow)
                 .unwrap_or(false)
         }
     }

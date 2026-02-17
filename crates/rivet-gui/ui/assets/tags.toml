@@ -48,6 +48,14 @@ color = "#4A90E2"
 values = ["todo", "working", "finished"]
 
 [[keys]]
+id = "board"
+label = "Kanban Board"
+selection = "single"
+allow_custom_values = true
+color = "#3B7A57"
+values = []
+
+[[keys]]
 id = "type"
 label = "Type"
 selection = "single"

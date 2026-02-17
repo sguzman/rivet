@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::io::{self, Read};
 
 use anyhow::{Context, anyhow};
-use chrono::{Local, Utc};
+use chrono::Utc;
 use serde::Deserialize;
 use serde_json::Value;
 use tracing::{debug, info, instrument, warn};
@@ -11,7 +11,7 @@ use tracing::{debug, info, instrument, warn};
 use crate::cli::Invocation;
 use crate::config::Config;
 use crate::datastore::DataStore;
-use crate::datetime::parse_date_expr;
+use crate::datetime::{format_project_date, parse_date_expr};
 use crate::filter::Filter;
 use crate::hooks::HookRunner;
 use crate::render::Renderer;
@@ -1508,16 +1508,12 @@ fn format_report_cell(task: &Task, column: ReportColumn, now: chrono::DateTime<U
         ReportColumn::Due => format_report_date(task.due),
         ReportColumn::Scheduled => format_report_date(task.scheduled),
         ReportColumn::Wait => format_report_date(task.wait),
-        ReportColumn::Entry => task
-            .entry
-            .with_timezone(&Local)
-            .format("%Y-%m-%d")
-            .to_string(),
-        ReportColumn::Modified => task
-            .modified
-            .with_timezone(&Local)
-            .format("%Y-%m-%d")
-            .to_string(),
+        ReportColumn::Entry => {
+            format_project_date(task.entry)
+        }
+        ReportColumn::Modified => {
+            format_project_date(task.modified)
+        }
         ReportColumn::End => format_report_date(task.end),
         ReportColumn::Start => format_report_date(task.start),
         ReportColumn::Description => task.description.clone(),
@@ -1526,7 +1522,7 @@ fn format_report_cell(task: &Task, column: ReportColumn, now: chrono::DateTime<U
 }
 
 fn format_report_date(date: Option<chrono::DateTime<Utc>>) -> String {
-    date.map(|value| value.with_timezone(&Local).format("%Y-%m-%d").to_string())
+    date.map(format_project_date)
         .unwrap_or_default()
 }
 

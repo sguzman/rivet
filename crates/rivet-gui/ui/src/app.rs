@@ -14,7 +14,10 @@ use rivet_gui_shared::{
   TaskUpdateArgs,
   TasksListArgs
 };
-use serde::Deserialize;
+use serde::{
+  Deserialize,
+  Serialize
+};
 use uuid::Uuid;
 use yew::{
   Callback,
@@ -41,6 +44,7 @@ struct ModalState {
   mode:             ModalMode,
   draft_desc:       String,
   draft_project:    String,
+  draft_board_name: String,
   draft_custom_tag: String,
   draft_tags:       Vec<String>,
   picker_key:       Option<String>,
@@ -77,6 +81,18 @@ struct TagKey {
   allow_custom_values: bool,
   #[serde(default)]
   values:              Vec<String>
+}
+
+#[derive(
+  Clone,
+  PartialEq,
+  Eq,
+  Serialize,
+  Deserialize,
+)]
+struct KanbanBoardDef {
+  id:   String,
+  name: String
 }
 
 impl TagSchema {
@@ -158,6 +174,42 @@ impl Default for TagSchema {
             "archived".to_string(),
           ]
         },
+        TagKey {
+          id:                  "kanban"
+            .to_string(),
+          label:               Some(
+            "Kanban Lane"
+              .to_string()
+          ),
+          selection:           Some(
+            "single".to_string()
+          ),
+          color:               Some(
+            "#4A90E2".to_string()
+          ),
+          allow_custom_values: false,
+          values:              vec![
+            "todo".to_string(),
+            "working".to_string(),
+            "finished".to_string(),
+          ]
+        },
+        TagKey {
+          id:                  "board"
+            .to_string(),
+          label:               Some(
+            "Kanban Board"
+              .to_string()
+          ),
+          selection:           Some(
+            "single".to_string()
+          ),
+          color:               Some(
+            "#3B7A57".to_string()
+          ),
+          allow_custom_values: true,
+          values:              vec![]
+        },
       ]
     }
   }
@@ -207,18 +259,42 @@ impl ThemeMode {
 
 const THEME_STORAGE_KEY: &str =
   "rivet.theme";
+const WORKSPACE_TAB_STORAGE_KEY:
+  &str = "rivet.workspace_tab";
+const KANBAN_BOARDS_STORAGE_KEY:
+  &str = "rivet.kanban.boards";
+const KANBAN_ACTIVE_BOARD_STORAGE_KEY:
+  &str = "rivet.kanban.active_board";
 const TAG_SCHEMA_TOML: &str =
   include_str!("../assets/tags.toml");
 const KANBAN_TAG_KEY: &str = "kanban";
+const BOARD_TAG_KEY: &str = "board";
 
 #[function_component(App)]
 pub fn app() -> Html {
   let theme =
     use_state(load_theme_mode);
+  let active_tab =
+    use_state(load_workspace_tab);
   let tag_schema =
     use_state(load_tag_schema);
   let active_view =
     use_state(|| "inbox".to_string());
+  let kanban_boards =
+    use_state(load_kanban_boards);
+  let active_kanban_board = {
+    let boards_snapshot =
+      (*kanban_boards).clone();
+    use_state(move || {
+      load_active_kanban_board(
+        &boards_snapshot
+      )
+    })
+  };
+  let dragging_kanban_task =
+    use_state(|| None::<Uuid>);
+  let drag_over_kanban_lane =
+    use_state(|| None::<String>);
   let search = use_state(String::new);
   let refresh_tick =
     use_state(|| 0_u64);
@@ -263,6 +339,97 @@ pub fn app() -> Html {
   }
 
   {
+    let active_tab =
+      active_tab.clone();
+    use_effect_with(
+      (*active_tab).clone(),
+      move |tab| {
+        save_workspace_tab(tab);
+        tracing::debug!(
+          tab = %tab,
+          "persisted workspace tab"
+        );
+        || ()
+      }
+    );
+  }
+
+  {
+    let kanban_boards =
+      kanban_boards.clone();
+    use_effect_with(
+      (*kanban_boards).clone(),
+      move |boards| {
+        save_kanban_boards(boards);
+        tracing::debug!(
+          board_count = boards.len(),
+          "persisted kanban boards"
+        );
+        || ()
+      }
+    );
+  }
+
+  {
+    let active_kanban_board =
+      active_kanban_board.clone();
+    use_effect_with(
+      (*active_kanban_board).clone(),
+      move |active| {
+        save_active_kanban_board(
+          active.as_deref()
+        );
+        tracing::debug!(
+          active_board = ?active,
+          "persisted active kanban \
+           board"
+        );
+        || ()
+      }
+    );
+  }
+
+  {
+    let kanban_boards =
+      kanban_boards.clone();
+    let active_kanban_board =
+      active_kanban_board.clone();
+    use_effect_with(
+      (
+        (*kanban_boards).clone(),
+        (*active_kanban_board).clone()
+      ),
+      move |(boards, active)| {
+        let contains_active = active
+          .as_ref()
+          .is_some_and(|id| {
+            boards.iter().any(
+              |board| &board.id == id
+            )
+          });
+
+        if !contains_active {
+          let next = boards
+            .first()
+            .map(|board| board.id.clone());
+          if next != *active_kanban_board {
+            tracing::info!(
+              active_board = ?active,
+              next_board = ?next,
+              "repairing active kanban \
+               board selection"
+            );
+            active_kanban_board.set(next);
+          }
+        }
+
+        || ()
+      }
+    );
+  }
+
+  {
+    let active_tab = active_tab.clone();
     let active_view =
       active_view.clone();
     let refresh_tick =
@@ -271,18 +438,20 @@ pub fn app() -> Html {
 
     use_effect_with(
       (
+        (*active_tab).clone(),
         (*active_view).clone(),
         *refresh_tick
       ),
-      move |(view, tick)| {
+      move |(tab, view, tick)| {
         let tasks = tasks.clone();
+        let tab = tab.clone();
         let view = view.clone();
         let tick = *tick;
 
         wasm_bindgen_futures::spawn_local(async move {
-                    tracing::info!(view = %view, tick, "refreshing task list");
+                    tracing::info!(tab = %tab, view = %view, tick, "refreshing task list");
 
-                    let status = if view == "all" || view == "kanban" {
+                    let status = if tab == "kanban" || view == "all" {
                         None
                     } else {
                         Some(TaskStatus::Pending)
@@ -351,7 +520,7 @@ pub fn app() -> Html {
     );
   }
 
-  let visible_tasks = {
+  let task_visible_tasks = {
     let query = (*search).clone();
     filter_visible_tasks(
       &tasks,
@@ -367,9 +536,44 @@ pub fn app() -> Html {
     )
   };
 
+  let kanban_visible_tasks = {
+    let query = (*search).clone();
+    let base =
+      filter_visible_tasks(
+        &tasks,
+        "kanban",
+        &query,
+        None,
+        None,
+        all_filter_completion
+          .as_str(),
+        all_filter_project.as_deref(),
+        all_filter_tag.as_deref(),
+        all_filter_priority.as_str(),
+        all_filter_due.as_str()
+      );
+
+    if let Some(board_id) =
+      (*active_kanban_board).clone()
+    {
+      base
+        .into_iter()
+        .filter(|task| {
+          task_has_tag_value(
+            &task.tags,
+            BOARD_TAG_KEY,
+            &board_id
+          )
+        })
+        .collect()
+    } else {
+      Vec::new()
+    }
+  };
+
   let selected_task = (*selected)
     .and_then(|id| {
-      visible_tasks
+      task_visible_tasks
         .iter()
         .find(|task| task.uuid == id)
         .cloned()
@@ -416,6 +620,39 @@ pub fn app() -> Html {
         all_filter_due.set("all".to_string());
       }
     )
+  };
+
+  let on_select_tasks_tab = {
+    let active_tab = active_tab.clone();
+    let selected = selected.clone();
+    let bulk_selected =
+      bulk_selected.clone();
+    let dragging_kanban_task =
+      dragging_kanban_task.clone();
+    let drag_over_kanban_lane =
+      drag_over_kanban_lane.clone();
+    Callback::from(move |_| {
+      active_tab.set("tasks".to_string());
+      selected.set(None);
+      bulk_selected
+        .set(BTreeSet::new());
+      dragging_kanban_task.set(None);
+      drag_over_kanban_lane.set(None);
+    })
+  };
+
+  let on_select_kanban_tab = {
+    let active_tab = active_tab.clone();
+    let selected = selected.clone();
+    let bulk_selected =
+      bulk_selected.clone();
+    Callback::from(move |_| {
+      active_tab
+        .set("kanban".to_string());
+      selected.set(None);
+      bulk_selected
+        .set(BTreeSet::new());
+    })
   };
 
   let on_select = {
@@ -612,6 +849,319 @@ pub fn app() -> Html {
     )
   };
 
+  let on_select_kanban_board = {
+    let active_kanban_board =
+      active_kanban_board.clone();
+    let selected = selected.clone();
+    Callback::from(
+      move |board_id: String| {
+        tracing::info!(
+          board_id = %board_id,
+          "selected kanban board"
+        );
+        active_kanban_board
+          .set(Some(board_id));
+        selected.set(None);
+      }
+    )
+  };
+
+  let on_create_kanban_board = {
+    let kanban_boards =
+      kanban_boards.clone();
+    let active_kanban_board =
+      active_kanban_board.clone();
+    Callback::from(move |_| {
+      let Some(window) =
+        web_sys::window()
+      else {
+        tracing::error!(
+          "window unavailable; cannot \
+           create board"
+        );
+        return;
+      };
+
+      let raw_name = match window
+        .prompt_with_message(
+          "New board name:"
+        ) {
+        | Ok(value) => value,
+        | Err(err) => {
+          tracing::error!(
+            ?err,
+            "prompt failed when \
+             creating board"
+          );
+          None
+        }
+      };
+
+      let Some(name) = raw_name.map(
+        |value| value.trim().to_string()
+      ) else {
+        return;
+      };
+
+      if name.is_empty() {
+        tracing::warn!(
+          "ignored empty kanban board \
+           name"
+        );
+        return;
+      }
+
+      let mut next =
+        (*kanban_boards).clone();
+      let unique_name =
+        make_unique_board_name(
+          &next, &name
+        );
+      let board_id =
+        Uuid::new_v4().to_string();
+      tracing::info!(
+        board_id = %board_id,
+        name = %unique_name,
+        "creating kanban board"
+      );
+      next.push(KanbanBoardDef {
+        id: board_id.clone(),
+        name: unique_name
+      });
+
+      kanban_boards.set(next);
+      active_kanban_board
+        .set(Some(board_id));
+    })
+  };
+
+  let on_rename_kanban_board = {
+    let kanban_boards =
+      kanban_boards.clone();
+    let active_kanban_board =
+      active_kanban_board.clone();
+    Callback::from(move |_| {
+      let Some(board_id) =
+        (*active_kanban_board).clone()
+      else {
+        tracing::warn!(
+          "rename board clicked with \
+           no active board"
+        );
+        return;
+      };
+
+      let Some(current) = (*kanban_boards)
+        .iter()
+        .find(|board| {
+          board.id == board_id
+        })
+        .cloned()
+      else {
+        tracing::warn!(
+          %board_id,
+          "active board not found \
+           for rename"
+        );
+        return;
+      };
+
+      let Some(window) =
+        web_sys::window()
+      else {
+        tracing::error!(
+          "window unavailable; cannot \
+           rename board"
+        );
+        return;
+      };
+
+      let prompt = format!(
+        "Rename board '{}':",
+        current.name
+      );
+      let raw_name = match window
+        .prompt_with_message(&prompt)
+      {
+        | Ok(value) => value,
+        | Err(err) => {
+          tracing::error!(
+            ?err,
+            "prompt failed when \
+             renaming board"
+          );
+          None
+        }
+      };
+
+      let Some(name) = raw_name.map(
+        |value| value.trim().to_string()
+      ) else {
+        return;
+      };
+
+      if name.is_empty() {
+        tracing::warn!(
+          %board_id,
+          "ignored empty rename \
+           request"
+        );
+        return;
+      }
+
+      let mut next =
+        (*kanban_boards).clone();
+      let unique_name =
+        make_unique_board_name_except(
+          &next,
+          &name,
+          &board_id
+        );
+      for board in &mut next {
+        if board.id == board_id {
+          board.name =
+            unique_name.clone();
+        }
+      }
+
+      tracing::info!(
+        %board_id,
+        name = %unique_name,
+        "renamed kanban board"
+      );
+      kanban_boards.set(next);
+    })
+  };
+
+  let on_delete_kanban_board = {
+    let kanban_boards =
+      kanban_boards.clone();
+    let active_kanban_board =
+      active_kanban_board.clone();
+    let facet_tasks =
+      facet_tasks.clone();
+    let refresh_tick =
+      refresh_tick.clone();
+    Callback::from(move |_| {
+      let Some(board_id) =
+        (*active_kanban_board).clone()
+      else {
+        tracing::warn!(
+          "delete board clicked with \
+           no active board"
+        );
+        return;
+      };
+
+      let Some(board) = (*kanban_boards)
+        .iter()
+        .find(|entry| {
+          entry.id == board_id
+        })
+        .cloned()
+      else {
+        tracing::warn!(
+          %board_id,
+          "active board not found \
+           for deletion"
+        );
+        return;
+      };
+
+      let confirmed = web_sys::window()
+        .and_then(|window| {
+          window
+            .confirm_with_message(
+              &format!(
+                "Delete board '{}'?\n\
+                 This removes board \
+                 assignment from \
+                 pending tasks using \
+                 this board.",
+                board.name
+              )
+            )
+            .ok()
+        })
+        .unwrap_or(false);
+
+      if !confirmed {
+        tracing::info!(
+          %board_id,
+          "board deletion canceled"
+        );
+        return;
+      }
+
+      let mut next_boards =
+        (*kanban_boards).clone();
+      next_boards.retain(
+        |entry| entry.id != board_id
+      );
+
+      let next_active = next_boards
+        .first()
+        .map(|entry| entry.id.clone());
+      tracing::warn!(
+        %board_id,
+        next_active = ?next_active,
+        "deleted kanban board"
+      );
+      kanban_boards.set(next_boards);
+      active_kanban_board
+        .set(next_active);
+
+      let tasks_to_clean: Vec<TaskDto> =
+        (*facet_tasks)
+          .iter()
+          .filter(|task| {
+            matches!(
+              task.status,
+              TaskStatus::Pending
+                | TaskStatus::Waiting
+            ) && task_has_tag_value(
+              &task.tags,
+              BOARD_TAG_KEY,
+              &board_id
+            )
+          })
+          .cloned()
+          .collect();
+
+      let refresh_tick =
+        refresh_tick.clone();
+      wasm_bindgen_futures::spawn_local(
+        async move {
+          for task in tasks_to_clean {
+            let mut next_tags =
+              task.tags.clone();
+            remove_board_tag_for_id(
+              &mut next_tags,
+              &board_id
+            );
+
+            let update = TaskUpdateArgs {
+              uuid: task.uuid,
+              patch: TaskPatch {
+                tags: Some(next_tags),
+                ..TaskPatch::default()
+              }
+            };
+
+            if let Err(err) = invoke_tauri::<TaskDto, _>("task_update", &update).await {
+                        tracing::error!(error = %err, task = %task.uuid, board_id = %board_id, "failed clearing deleted board tag");
+                    }
+          }
+
+          refresh_tick.set(
+            (*refresh_tick)
+              .saturating_add(1)
+          );
+        }
+      );
+    })
+  };
+
   let on_add_click = {
     let modal_state =
       modal_state.clone();
@@ -619,9 +1169,32 @@ pub fn app() -> Html {
     let modal_submit_seq =
       modal_submit_seq.clone();
     let tag_schema = tag_schema.clone();
+    let active_tab = active_tab.clone();
+    let kanban_boards =
+      kanban_boards.clone();
+    let active_kanban_board =
+      active_kanban_board.clone();
     Callback::from(move |_| {
       let (picker_key, picker_value) =
         tag_schema.default_picker();
+      let draft_board_name =
+        if *active_tab == "kanban" {
+          (*active_kanban_board)
+            .as_ref()
+            .and_then(|board_id| {
+              kanban_boards
+                .iter()
+                .find(|board| {
+                  &board.id == board_id
+                })
+                .map(|board| {
+                  board.name.clone()
+                })
+            })
+            .unwrap_or_default()
+        } else {
+          String::new()
+        };
       modal_busy.set(false);
       modal_submit_seq.set(
         (*modal_submit_seq)
@@ -632,6 +1205,7 @@ pub fn app() -> Html {
           mode: ModalMode::Add,
           draft_desc: String::new(),
           draft_project: String::new(),
+          draft_board_name,
           draft_custom_tag: String::new(
           ),
           draft_tags: vec![],
@@ -734,8 +1308,15 @@ pub fn app() -> Html {
     let tasks = tasks.clone();
     let refresh_tick =
       refresh_tick.clone();
+    let dragging_kanban_task =
+      dragging_kanban_task.clone();
+    let drag_over_kanban_lane =
+      drag_over_kanban_lane.clone();
     Callback::from(
       move |(uuid, lane): (Uuid, String)| {
+        dragging_kanban_task.set(None);
+        drag_over_kanban_lane.set(None);
+
         let Some(task) = (*tasks)
           .iter()
           .find(|task| task.uuid == uuid)
@@ -749,6 +1330,20 @@ pub fn app() -> Html {
           );
           return;
         };
+
+        if !matches!(
+          task.status,
+          TaskStatus::Pending
+            | TaskStatus::Waiting
+        ) {
+          tracing::warn!(
+            %uuid,
+            status = ?task.status,
+            "kanban move ignored for \
+             non-pending task"
+          );
+          return;
+        }
 
         let mut next_tags =
           task.tags.clone();
@@ -799,6 +1394,49 @@ pub fn app() -> Html {
         );
       }
     )
+  };
+
+  let on_kanban_drag_start = {
+    let dragging_kanban_task =
+      dragging_kanban_task.clone();
+    Callback::from(move |uuid: Uuid| {
+      tracing::debug!(
+        %uuid,
+        "kanban drag start"
+      );
+      dragging_kanban_task
+        .set(Some(uuid));
+    })
+  };
+
+  let on_kanban_drag_end = {
+    let dragging_kanban_task =
+      dragging_kanban_task.clone();
+    let drag_over_kanban_lane =
+      drag_over_kanban_lane.clone();
+    Callback::from(move |_| {
+      tracing::debug!("kanban drag end");
+      dragging_kanban_task.set(None);
+      drag_over_kanban_lane.set(None);
+    })
+  };
+
+  let on_kanban_drag_over_lane = {
+    let drag_over_kanban_lane =
+      drag_over_kanban_lane.clone();
+    Callback::from(move |lane: String| {
+      if (*drag_over_kanban_lane)
+        .as_deref()
+        != Some(lane.as_str())
+      {
+        tracing::debug!(
+          lane = %lane,
+          "kanban drag over lane"
+        );
+        drag_over_kanban_lane
+          .set(Some(lane));
+      }
+    })
   };
 
   let on_bulk_done = {
@@ -904,10 +1542,18 @@ pub fn app() -> Html {
     let modal_submit_seq =
       modal_submit_seq.clone();
     let tag_schema = tag_schema.clone();
+    let kanban_boards =
+      kanban_boards.clone();
     Callback::from(
       move |task: TaskDto| {
         let (picker_key, picker_value) =
           tag_schema.default_picker();
+        let draft_board_name =
+          board_name_from_task_tags(
+            &kanban_boards,
+            &task.tags
+          )
+          .unwrap_or_default();
         modal_busy.set(false);
         modal_submit_seq.set(
           (*modal_submit_seq)
@@ -923,6 +1569,7 @@ pub fn app() -> Html {
             draft_project: task
               .project
               .unwrap_or_default(),
+            draft_board_name,
             draft_custom_tag:
               String::new(),
             draft_tags: task.tags,
@@ -974,6 +1621,8 @@ pub fn app() -> Html {
     let modal_busy = modal_busy.clone();
     let modal_submit_seq =
       modal_submit_seq.clone();
+    let kanban_boards =
+      kanban_boards.clone();
     Callback::from(
       move |state: ModalState| {
         if *modal_busy {
@@ -1010,6 +1659,8 @@ pub fn app() -> Html {
           modal_busy.clone();
         let modal_submit_seq =
           modal_submit_seq.clone();
+        let kanban_boards =
+          kanban_boards.clone();
 
         {
           let modal_state =
@@ -1044,12 +1695,31 @@ pub fn app() -> Html {
                     return;
                 }
 
+                let board_tag = match resolve_board_tag_for_submit(
+                    &kanban_boards,
+                    &state.draft_board_name,
+                ) {
+                    Ok(value) => value,
+                    Err(message) => {
+                        let mut next = state.clone();
+                        next.error = Some(message);
+                        modal_state.set(Some(next));
+                        modal_busy.set(false);
+                        modal_submit_seq.set(submit_seq.wrapping_add(1));
+                        return;
+                    }
+                };
+
                 match state.mode {
                     ModalMode::Add => {
                         let create = TaskCreate {
                             description: state.draft_desc.trim().to_string(),
                             project: optional_text(&state.draft_project),
-                            tags: collect_tags_for_submit(&state),
+                            tags: collect_tags_for_submit(
+                                &state,
+                                board_tag.clone(),
+                                true,
+                            ),
                             priority: None,
                             due: optional_text(&state.draft_due),
                             wait: None,
@@ -1075,7 +1745,11 @@ pub fn app() -> Html {
                             patch: TaskPatch {
                                 description: Some(state.draft_desc.trim().to_string()),
                                 project: Some(optional_text(&state.draft_project)),
-                                tags: Some(collect_tags_for_submit(&state)),
+                                tags: Some(collect_tags_for_submit(
+                                    &state,
+                                    board_tag,
+                                    false,
+                                )),
                                 due: Some(optional_text(&state.draft_due)),
                                 ..TaskPatch::default()
                             },
@@ -1111,6 +1785,17 @@ pub fn app() -> Html {
 
   let bulk_count =
     (*bulk_selected).len();
+  let active_kanban_board_name =
+    (*active_kanban_board)
+      .as_ref()
+      .and_then(|board_id| {
+        kanban_boards
+          .iter()
+          .find(|board| {
+            &board.id == board_id
+          })
+          .map(|board| board.name.clone())
+      });
 
   html! {
       <div class={classes!("app", (*theme).as_class())}>
@@ -1145,13 +1830,170 @@ pub fn app() -> Html {
               <button class="btn" onclick={on_toggle_theme}>{ (*theme).toggle_label() }</button>
           </div>
 
-          <div class="main">
-              <Sidebar active={(*active_view).clone()} on_nav={on_nav} />
+          <div class="workspace-tabs">
+              <button
+                  class={if *active_tab == "tasks" { "workspace-tab active" } else { "workspace-tab" }}
+                  onclick={on_select_tasks_tab}
+              >
+                  { "Tasks" }
+              </button>
+              <button
+                  class={if *active_tab == "kanban" { "workspace-tab active" } else { "workspace-tab" }}
+                  onclick={on_select_kanban_tab}
+              >
+                  { "Kanban" }
+              </button>
+          </div>
 
+          <div class="main">
               {
-                  if *active_view == "settings" {
+                  if *active_tab == "kanban" {
                       html! {
                           <>
+                              <div class="panel board-sidebar">
+                                  <div class="header">{ "Kanban Boards" }</div>
+                                  <div class="details">
+                                      <div class="actions">
+                                          <button class="btn" onclick={on_create_kanban_board}>{ "New Board" }</button>
+                                          <button class="btn" onclick={on_rename_kanban_board.clone()} disabled={(*active_kanban_board).is_none()}>{ "Rename" }</button>
+                                          <button class="btn danger" onclick={on_delete_kanban_board.clone()} disabled={(*active_kanban_board).is_none()}>{ "Delete" }</button>
+                                      </div>
+                                      {
+                                          if kanban_boards.is_empty() {
+                                              html! { <div style="color:var(--muted);">{ "No boards yet. Create one to begin." }</div> }
+                                          } else {
+                                              html! {
+                                                  <div class="board-list">
+                                                      {
+                                                          for kanban_boards.iter().map(|board| {
+                                                              let board_id = board.id.clone();
+                                                              let board_label = board.name.clone();
+                                                              let is_active = (*active_kanban_board).as_deref() == Some(board_id.as_str());
+                                                              let class = if is_active { "board-item active" } else { "board-item" };
+                                                              html! {
+                                                                  <div class={class} onclick={{
+                                                                      let on_select_kanban_board = on_select_kanban_board.clone();
+                                                                      Callback::from(move |_| on_select_kanban_board.emit(board_id.clone()))
+                                                                  }}>
+                                                                      { board_label }
+                                                                  </div>
+                                                              }
+                                                          })
+                                                      }
+                                                  </div>
+                                              }
+                                          }
+                                      }
+                                  </div>
+                              </div>
+
+                              <KanbanBoard
+                                  tasks={kanban_visible_tasks.clone()}
+                                  board_name={active_kanban_board_name.clone()}
+                                  dragging_task={*dragging_kanban_task}
+                                  drag_over_lane={(*drag_over_kanban_lane).clone()}
+                                  on_move={on_kanban_move}
+                                  on_drag_start={on_kanban_drag_start}
+                                  on_drag_end={on_kanban_drag_end}
+                                  on_drag_over_lane={on_kanban_drag_over_lane}
+                                  on_edit={on_edit.clone()}
+                                  on_done={on_done.clone()}
+                                  on_delete={on_delete.clone()}
+                              />
+
+                              <div class="panel">
+                                  <div class="header">{ "Kanban Filters" }</div>
+                                  <div class="details">
+                                      <div class="kv">
+                                          <strong>{ "board" }</strong>
+                                          <div>{ active_kanban_board_name.clone().unwrap_or_else(|| "None".to_string()) }</div>
+                                      </div>
+                                      <div class="kv">
+                                          <strong>{ "cards shown" }</strong>
+                                          <div>{ kanban_visible_tasks.len() }</div>
+                                      </div>
+                                      <div class="field">
+                                          <label>{ "Completion" }</label>
+                                          <select
+                                              class="tag-select"
+                                              value={(*all_filter_completion).clone()}
+                                              onchange={on_all_completion_change}
+                                          >
+                                              <option value="all">{ "All" }</option>
+                                              <option value="open">{ "Open (Pending + Waiting)" }</option>
+                                              <option value="pending">{ "Pending" }</option>
+                                              <option value="waiting">{ "Waiting" }</option>
+                                              <option value="completed">{ "Completed" }</option>
+                                              <option value="deleted">{ "Deleted" }</option>
+                                          </select>
+                                      </div>
+                                      <div class="field">
+                                          <label>{ "Project" }</label>
+                                          <select
+                                              class="tag-select"
+                                              value={(*all_filter_project).clone().unwrap_or_default()}
+                                              onchange={on_all_project_change}
+                                          >
+                                              <option value="">{ "All Projects" }</option>
+                                              {
+                                                  for project_facets.iter().map(|(project, count)| html! {
+                                                      <option value={project.clone()}>{ format!("{project} ({count})") }</option>
+                                                  })
+                                              }
+                                          </select>
+                                      </div>
+                                      <div class="field">
+                                          <label>{ "Tag" }</label>
+                                          <select
+                                              class="tag-select"
+                                              value={(*all_filter_tag).clone().unwrap_or_default()}
+                                              onchange={on_all_tag_change}
+                                          >
+                                              <option value="">{ "All Tags" }</option>
+                                              {
+                                                  for tag_facets.iter().map(|(tag, count)| html! {
+                                                      <option value={tag.clone()}>{ format!("{tag} ({count})") }</option>
+                                                  })
+                                              }
+                                          </select>
+                                      </div>
+                                      <div class="field">
+                                          <label>{ "Priority" }</label>
+                                          <select
+                                              class="tag-select"
+                                              value={(*all_filter_priority).clone()}
+                                              onchange={on_all_priority_change}
+                                          >
+                                              <option value="all">{ "All Priorities" }</option>
+                                              <option value="low">{ "Low" }</option>
+                                              <option value="medium">{ "Medium" }</option>
+                                              <option value="high">{ "High" }</option>
+                                              <option value="none">{ "None" }</option>
+                                          </select>
+                                      </div>
+                                      <div class="field">
+                                          <label>{ "Due" }</label>
+                                          <select
+                                              class="tag-select"
+                                              value={(*all_filter_due).clone()}
+                                              onchange={on_all_due_change}
+                                          >
+                                              <option value="all">{ "All" }</option>
+                                              <option value="has_due">{ "Has Due Date" }</option>
+                                              <option value="no_due">{ "No Due Date" }</option>
+                                          </select>
+                                      </div>
+                                      <div class="actions">
+                                          <button class="btn" onclick={on_all_filters_clear.clone()}>{ "Clear Filters" }</button>
+                                      </div>
+                                  </div>
+                              </div>
+                          </>
+                      }
+                  } else if *active_view == "settings" {
+                      html! {
+                          <>
+                              <Sidebar active={(*active_view).clone()} on_nav={on_nav.clone()} />
                               <div class="panel list">
                                   <div class="header">{ "Settings" }</div>
                                   <div class="details">
@@ -1171,216 +2013,124 @@ pub fn app() -> Html {
                           </>
                       }
                   } else {
-                      if *active_view == "kanban" {
-                          html! {
-                              <>
-                                  <KanbanBoard
-                                      tasks={visible_tasks.clone()}
-                                      on_move={on_kanban_move}
-                                      on_edit={on_edit.clone()}
-                                      on_done={on_done.clone()}
-                                      on_delete={on_delete.clone()}
-                                  />
-                                  <div class="panel">
-                                      <div class="header">{ "Kanban Filters" }</div>
-                                      <div class="details">
-                                          <div class="field">
-                                              <label>{ "Completion" }</label>
-                                              <select
-                                                  class="tag-select"
-                                                  value={(*all_filter_completion).clone()}
-                                                  onchange={on_all_completion_change}
-                                              >
-                                                  <option value="all">{ "All" }</option>
-                                                  <option value="open">{ "Open (Pending + Waiting)" }</option>
-                                                  <option value="pending">{ "Pending" }</option>
-                                                  <option value="waiting">{ "Waiting" }</option>
-                                                  <option value="completed">{ "Completed" }</option>
-                                                  <option value="deleted">{ "Deleted" }</option>
-                                              </select>
-                                          </div>
-                                          <div class="field">
-                                              <label>{ "Project" }</label>
-                                              <select
-                                                  class="tag-select"
-                                                  value={(*all_filter_project).clone().unwrap_or_default()}
-                                                  onchange={on_all_project_change}
-                                              >
-                                                  <option value="">{ "All Projects" }</option>
-                                                  {
-                                                      for project_facets.iter().map(|(project, count)| html! {
-                                                          <option value={project.clone()}>{ format!("{project} ({count})") }</option>
-                                                      })
-                                                  }
-                                              </select>
-                                          </div>
-                                          <div class="field">
-                                              <label>{ "Tag" }</label>
-                                              <select
-                                                  class="tag-select"
-                                                  value={(*all_filter_tag).clone().unwrap_or_default()}
-                                                  onchange={on_all_tag_change}
-                                              >
-                                                  <option value="">{ "All Tags" }</option>
-                                                  {
-                                                      for tag_facets.iter().map(|(tag, count)| html! {
-                                                          <option value={tag.clone()}>{ format!("{tag} ({count})") }</option>
-                                                      })
-                                                  }
-                                              </select>
-                                          </div>
-                                          <div class="field">
-                                              <label>{ "Priority" }</label>
-                                              <select
-                                                  class="tag-select"
-                                                  value={(*all_filter_priority).clone()}
-                                                  onchange={on_all_priority_change}
-                                              >
-                                                  <option value="all">{ "All Priorities" }</option>
-                                                  <option value="low">{ "Low" }</option>
-                                                  <option value="medium">{ "Medium" }</option>
-                                                  <option value="high">{ "High" }</option>
-                                                  <option value="none">{ "None" }</option>
-                                              </select>
-                                          </div>
-                                          <div class="field">
-                                              <label>{ "Due" }</label>
-                                              <select
-                                                  class="tag-select"
-                                                  value={(*all_filter_due).clone()}
-                                                  onchange={on_all_due_change}
-                                              >
-                                                  <option value="all">{ "All" }</option>
-                                                  <option value="has_due">{ "Has Due Date" }</option>
-                                                  <option value="no_due">{ "No Due Date" }</option>
-                                              </select>
-                                          </div>
-                                          <div class="actions">
-                                              <button class="btn" onclick={on_all_filters_clear.clone()}>{ "Clear Filters" }</button>
-                                          </div>
-                                      </div>
-                                  </div>
-                              </>
-                          }
-                      } else {
-                          html! {
-                              <>
-                                  <TaskList
-                                      tasks={visible_tasks.clone()}
-                                      selected={*selected}
-                                      selected_ids={(*bulk_selected).clone()}
-                                      on_select={on_select}
-                                      on_toggle_select={on_toggle_select}
-                                  />
-                                  {
-                                      if *active_view == "projects" && selected_task.is_none() {
-                                          html! {
-                                              <FacetPanel
-                                                  title={"Projects".to_string()}
-                                                  selected={(*active_project).clone()}
-                                                  items={project_facets}
-                                                  on_select={on_choose_project}
-                                              />
-                                          }
-                                      } else if *active_view == "all" && selected_task.is_none() {
-                                          html! {
-                                              <div class="panel">
-                                                  <div class="header">{ "Task Filters" }</div>
-                                                  <div class="details">
-                                                      <div class="field">
-                                                          <label>{ "Completion" }</label>
-                                                          <select
-                                                              class="tag-select"
-                                                              value={(*all_filter_completion).clone()}
-                                                              onchange={on_all_completion_change}
-                                                          >
-                                                              <option value="all">{ "All" }</option>
-                                                              <option value="open">{ "Open (Pending + Waiting)" }</option>
-                                                              <option value="pending">{ "Pending" }</option>
-                                                              <option value="waiting">{ "Waiting" }</option>
-                                                              <option value="completed">{ "Completed" }</option>
-                                                              <option value="deleted">{ "Deleted" }</option>
-                                                          </select>
-                                                      </div>
-                                                      <div class="field">
-                                                          <label>{ "Project" }</label>
-                                                          <select
-                                                              class="tag-select"
-                                                              value={(*all_filter_project).clone().unwrap_or_default()}
-                                                              onchange={on_all_project_change}
-                                                          >
-                                                              <option value="">{ "All Projects" }</option>
-                                                              {
-                                                                  for project_facets.iter().map(|(project, count)| html! {
-                                                                      <option value={project.clone()}>{ format!("{project} ({count})") }</option>
-                                                                  })
-                                                              }
-                                                          </select>
-                                                      </div>
-                                                      <div class="field">
-                                                          <label>{ "Tag" }</label>
-                                                          <select
-                                                              class="tag-select"
-                                                              value={(*all_filter_tag).clone().unwrap_or_default()}
-                                                              onchange={on_all_tag_change}
-                                                          >
-                                                              <option value="">{ "All Tags" }</option>
-                                                              {
-                                                                  for tag_facets.iter().map(|(tag, count)| html! {
-                                                                      <option value={tag.clone()}>{ format!("{tag} ({count})") }</option>
-                                                                  })
-                                                              }
-                                                          </select>
-                                                      </div>
-                                                      <div class="field">
-                                                          <label>{ "Priority" }</label>
-                                                          <select
-                                                              class="tag-select"
-                                                              value={(*all_filter_priority).clone()}
-                                                              onchange={on_all_priority_change}
-                                                          >
-                                                              <option value="all">{ "All Priorities" }</option>
-                                                              <option value="low">{ "Low" }</option>
-                                                              <option value="medium">{ "Medium" }</option>
-                                                              <option value="high">{ "High" }</option>
-                                                              <option value="none">{ "None" }</option>
-                                                          </select>
-                                                      </div>
-                                                      <div class="field">
-                                                          <label>{ "Due" }</label>
-                                                          <select
-                                                              class="tag-select"
-                                                              value={(*all_filter_due).clone()}
-                                                              onchange={on_all_due_change}
-                                                          >
-                                                              <option value="all">{ "All" }</option>
-                                                              <option value="has_due">{ "Has Due Date" }</option>
-                                                              <option value="no_due">{ "No Due Date" }</option>
-                                                          </select>
-                                                      </div>
-                                                      <div class="actions">
-                                                          <button class="btn" onclick={on_all_filters_clear.clone()}>{ "Clear Filters" }</button>
-                                                      </div>
+                      html! {
+                          <>
+                              <Sidebar active={(*active_view).clone()} on_nav={on_nav.clone()} />
+                              <TaskList
+                                  tasks={task_visible_tasks.clone()}
+                                  selected={*selected}
+                                  selected_ids={(*bulk_selected).clone()}
+                                  on_select={on_select}
+                                  on_toggle_select={on_toggle_select}
+                              />
+                              {
+                                  if *active_view == "projects" && selected_task.is_none() {
+                                      html! {
+                                          <FacetPanel
+                                              title={"Projects".to_string()}
+                                              selected={(*active_project).clone()}
+                                              items={project_facets}
+                                              on_select={on_choose_project}
+                                          />
+                                      }
+                                  } else if *active_view == "all" && selected_task.is_none() {
+                                      html! {
+                                          <div class="panel">
+                                              <div class="header">{ "Task Filters" }</div>
+                                              <div class="details">
+                                                  <div class="field">
+                                                      <label>{ "Completion" }</label>
+                                                      <select
+                                                          class="tag-select"
+                                                          value={(*all_filter_completion).clone()}
+                                                          onchange={on_all_completion_change}
+                                                      >
+                                                          <option value="all">{ "All" }</option>
+                                                          <option value="open">{ "Open (Pending + Waiting)" }</option>
+                                                          <option value="pending">{ "Pending" }</option>
+                                                          <option value="waiting">{ "Waiting" }</option>
+                                                          <option value="completed">{ "Completed" }</option>
+                                                          <option value="deleted">{ "Deleted" }</option>
+                                                      </select>
+                                                  </div>
+                                                  <div class="field">
+                                                      <label>{ "Project" }</label>
+                                                      <select
+                                                          class="tag-select"
+                                                          value={(*all_filter_project).clone().unwrap_or_default()}
+                                                          onchange={on_all_project_change}
+                                                      >
+                                                          <option value="">{ "All Projects" }</option>
+                                                          {
+                                                              for project_facets.iter().map(|(project, count)| html! {
+                                                                  <option value={project.clone()}>{ format!("{project} ({count})") }</option>
+                                                              })
+                                                          }
+                                                      </select>
+                                                  </div>
+                                                  <div class="field">
+                                                      <label>{ "Tag" }</label>
+                                                      <select
+                                                          class="tag-select"
+                                                          value={(*all_filter_tag).clone().unwrap_or_default()}
+                                                          onchange={on_all_tag_change}
+                                                      >
+                                                          <option value="">{ "All Tags" }</option>
+                                                          {
+                                                              for tag_facets.iter().map(|(tag, count)| html! {
+                                                                  <option value={tag.clone()}>{ format!("{tag} ({count})") }</option>
+                                                              })
+                                                          }
+                                                      </select>
+                                                  </div>
+                                                  <div class="field">
+                                                      <label>{ "Priority" }</label>
+                                                      <select
+                                                          class="tag-select"
+                                                          value={(*all_filter_priority).clone()}
+                                                          onchange={on_all_priority_change}
+                                                      >
+                                                          <option value="all">{ "All Priorities" }</option>
+                                                          <option value="low">{ "Low" }</option>
+                                                          <option value="medium">{ "Medium" }</option>
+                                                          <option value="high">{ "High" }</option>
+                                                          <option value="none">{ "None" }</option>
+                                                      </select>
+                                                  </div>
+                                                  <div class="field">
+                                                      <label>{ "Due" }</label>
+                                                      <select
+                                                          class="tag-select"
+                                                          value={(*all_filter_due).clone()}
+                                                          onchange={on_all_due_change}
+                                                      >
+                                                          <option value="all">{ "All" }</option>
+                                                          <option value="has_due">{ "Has Due Date" }</option>
+                                                          <option value="no_due">{ "No Due Date" }</option>
+                                                      </select>
+                                                  </div>
+                                                  <div class="actions">
+                                                      <button class="btn" onclick={on_all_filters_clear.clone()}>{ "Clear Filters" }</button>
                                                   </div>
                                               </div>
-                                          }
-                                      } else if *active_view == "tags" && selected_task.is_none() {
-                                          html! {
-                                              <FacetPanel
-                                                  title={"Tags".to_string()}
-                                                  selected={(*active_tag).clone()}
-                                                  items={tag_facets}
-                                                  on_select={on_choose_tag}
-                                              />
-                                          }
-                                      } else {
-                                          html! {
-                                              <Details task={selected_task} on_done={on_done} on_delete={on_delete} on_edit={on_edit} />
-                                          }
+                                          </div>
+                                      }
+                                  } else if *active_view == "tags" && selected_task.is_none() {
+                                      html! {
+                                          <FacetPanel
+                                              title={"Tags".to_string()}
+                                              selected={(*active_tag).clone()}
+                                              items={tag_facets}
+                                              on_select={on_choose_tag}
+                                          />
+                                      }
+                                  } else {
+                                      html! {
+                                          <Details task={selected_task} on_done={on_done} on_delete={on_delete} on_edit={on_edit} />
                                       }
                                   }
-                              </>
-                          }
+                              }
+                          </>
                       }
                   }
               }
@@ -1390,6 +2140,10 @@ pub fn app() -> Html {
               if let Some(state) = (*modal_state).clone() {
                   let submit_state = state.clone();
                   let is_busy = *modal_busy;
+                  let board_name_options: Vec<String> = kanban_boards
+                      .iter()
+                      .map(|board| board.name.clone())
+                      .collect();
                   let picker_value_options = state
                       .picker_key
                       .as_deref()
@@ -1548,6 +2302,32 @@ pub fn app() -> Html {
                                       />
                                   </div>
                                   <div class="field">
+                                      <label>{ "Kanban Board (optional)" }</label>
+                                      <input
+                                          list="kanban-board-options"
+                                          value={state.draft_board_name.clone()}
+                                          placeholder="Assign to a board (required for Kanban visibility)"
+                                          oninput={{
+                                              let modal_state = modal_state.clone();
+                                              Callback::from(move |e: web_sys::InputEvent| {
+                                                  let input: web_sys::HtmlInputElement = e.target_unchecked_into();
+                                                  if let Some(mut current) = (*modal_state).clone() {
+                                                      current.draft_board_name = input.value();
+                                                      current.error = None;
+                                                      modal_state.set(Some(current));
+                                                  }
+                                              })
+                                          }}
+                                      />
+                                      <datalist id="kanban-board-options">
+                                          {
+                                              for board_name_options.iter().map(|name| html! {
+                                                  <option value={name.clone()} />
+                                              })
+                                          }
+                                      </datalist>
+                                  </div>
+                                  <div class="field">
                                       <label>{ "Custom Tag" }</label>
                                       <div class="field-inline">
                                           <input
@@ -1584,7 +2364,7 @@ pub fn app() -> Html {
                                           >
                                               <option value="">{ "Select key" }</option>
                                               {
-                                                  for tag_schema.keys.iter().map(|key| {
+                                                  for tag_schema.keys.iter().filter(|key| key.id != BOARD_TAG_KEY).map(|key| {
                                                       let label = key.label.clone().unwrap_or_else(|| key.id.clone());
                                                       html! {
                                                           <option value={key.id.clone()}>
@@ -1746,6 +2526,268 @@ fn save_theme_mode(theme: ThemeMode) {
   }
 }
 
+fn load_workspace_tab() -> String {
+  let stored = web_sys::window()
+    .and_then(|window| {
+      window
+        .local_storage()
+        .ok()
+        .flatten()
+    })
+    .and_then(|storage| {
+      storage
+        .get_item(
+          WORKSPACE_TAB_STORAGE_KEY
+        )
+        .ok()
+        .flatten()
+    });
+
+  match stored.as_deref() {
+    | Some("kanban") => {
+      "kanban".to_string()
+    }
+    | _ => "tasks".to_string()
+  }
+}
+
+fn save_workspace_tab(tab: &str) {
+  if let Some(storage) =
+    web_sys::window().and_then(
+      |window| {
+        window
+          .local_storage()
+          .ok()
+          .flatten()
+      }
+    )
+  {
+    let _ = storage.set_item(
+      WORKSPACE_TAB_STORAGE_KEY,
+      tab
+    );
+  }
+}
+
+fn load_kanban_boards(
+) -> Vec<KanbanBoardDef> {
+  let stored = web_sys::window()
+    .and_then(|window| {
+      window
+        .local_storage()
+        .ok()
+        .flatten()
+    })
+    .and_then(|storage| {
+      storage
+        .get_item(
+          KANBAN_BOARDS_STORAGE_KEY
+        )
+        .ok()
+        .flatten()
+    });
+
+  if let Some(raw) = stored {
+    match serde_json::from_str::<
+      Vec<KanbanBoardDef>,
+    >(&raw)
+    {
+      | Ok(mut boards) => {
+        boards
+          .retain(|board| {
+            !board.id.trim().is_empty()
+              && !board.name.trim().is_empty()
+          });
+        if !boards.is_empty() {
+          return boards;
+        }
+      }
+      | Err(err) => {
+        tracing::error!(
+          error = %err,
+          "failed parsing kanban \
+           boards from storage"
+        );
+      }
+    }
+  }
+
+  vec![KanbanBoardDef {
+    id:   Uuid::new_v4().to_string(),
+    name: "Main".to_string()
+  }]
+}
+
+fn save_kanban_boards(
+  boards: &[KanbanBoardDef]
+) {
+  if let Some(storage) =
+    web_sys::window().and_then(
+      |window| {
+        window
+          .local_storage()
+          .ok()
+          .flatten()
+      }
+    )
+    && let Ok(json) =
+      serde_json::to_string(boards)
+  {
+    let _ = storage.set_item(
+      KANBAN_BOARDS_STORAGE_KEY,
+      &json
+    );
+  }
+}
+
+fn load_active_kanban_board(
+  boards: &[KanbanBoardDef]
+) -> Option<String> {
+  let stored = web_sys::window()
+    .and_then(|window| {
+      window
+        .local_storage()
+        .ok()
+        .flatten()
+    })
+    .and_then(|storage| {
+      storage
+        .get_item(
+          KANBAN_ACTIVE_BOARD_STORAGE_KEY
+        )
+        .ok()
+        .flatten()
+    });
+
+  if let Some(id) = stored
+    && boards
+      .iter()
+      .any(|board| board.id == id)
+  {
+    return Some(id);
+  }
+
+  boards
+    .first()
+    .map(|board| board.id.clone())
+}
+
+fn save_active_kanban_board(
+  board_id: Option<&str>
+) {
+  if let Some(storage) =
+    web_sys::window().and_then(
+      |window| {
+        window
+          .local_storage()
+          .ok()
+          .flatten()
+      }
+    )
+  {
+    match board_id {
+      | Some(id) => {
+        let _ = storage.set_item(
+          KANBAN_ACTIVE_BOARD_STORAGE_KEY,
+          id
+        );
+      }
+      | None => {
+        let _ = storage.remove_item(
+          KANBAN_ACTIVE_BOARD_STORAGE_KEY
+        );
+      }
+    }
+  }
+}
+
+fn make_unique_board_name(
+  boards: &[KanbanBoardDef],
+  requested: &str
+) -> String {
+  make_unique_board_name_except(
+    boards,
+    requested,
+    ""
+  )
+}
+
+fn make_unique_board_name_except(
+  boards: &[KanbanBoardDef],
+  requested: &str,
+  except_board_id: &str
+) -> String {
+  let base = requested.trim();
+  if base.is_empty() {
+    return "Board".to_string();
+  }
+
+  let mut candidate =
+    base.to_string();
+  let mut suffix =
+    2_u32;
+  while boards.iter().any(|board| {
+    board.id != except_board_id
+      && board
+        .name
+        .eq_ignore_ascii_case(
+          &candidate
+        )
+  }) {
+    candidate =
+      format!("{base} {suffix}");
+    suffix = suffix
+      .saturating_add(1);
+  }
+
+  candidate
+}
+
+fn board_name_from_task_tags(
+  boards: &[KanbanBoardDef],
+  tags: &[String]
+) -> Option<String> {
+  let board_id =
+    first_tag_value(tags, BOARD_TAG_KEY)?;
+  boards
+    .iter()
+    .find(|board| {
+      board.id == board_id
+    })
+    .map(|board| board.name.clone())
+}
+
+fn resolve_board_tag_for_submit(
+  boards: &[KanbanBoardDef],
+  board_name_input: &str
+) -> Result<
+  Option<String>,
+  String,
+> {
+  let trimmed =
+    board_name_input.trim();
+  if trimmed.is_empty() {
+    return Ok(None);
+  }
+
+  let Some(board) =
+    boards.iter().find(|board| {
+      board.name
+        .eq_ignore_ascii_case(trimmed)
+    })
+  else {
+    return Err(format!(
+      "Unknown board '{trimmed}'. Pick \
+       an existing board."
+    ));
+  };
+
+  Ok(Some(format!(
+    "{BOARD_TAG_KEY}:{}",
+    board.id
+  )))
+}
+
 fn load_tag_schema() -> TagSchema {
   match toml::from_str::<TagSchema>(
     TAG_SCHEMA_TOML
@@ -1797,7 +2839,9 @@ fn split_tags(
 }
 
 fn collect_tags_for_submit(
-  state: &ModalState
+  state: &ModalState,
+  board_tag: Option<String>,
+  ensure_kanban_lane: bool
 ) -> Vec<String> {
   let mut tags =
     state.draft_tags.clone();
@@ -1806,6 +2850,28 @@ fn collect_tags_for_submit(
   {
     push_tag_unique(&mut tags, tag);
   }
+
+  remove_tags_for_key(
+    &mut tags,
+    BOARD_TAG_KEY
+  );
+  if let Some(tag) = board_tag {
+    push_tag_unique(&mut tags, tag);
+  }
+
+  if ensure_kanban_lane
+    && !tags.iter().any(|tag| {
+      tag.starts_with(
+        &format!("{KANBAN_TAG_KEY}:")
+      )
+    })
+  {
+    push_tag_unique(
+      &mut tags,
+      format!("{KANBAN_TAG_KEY}:todo")
+    );
+  }
+
   tags
 }
 
@@ -1862,6 +2928,56 @@ fn remove_tags_for_key(
     match existing.split_once(':') {
       | Some((existing_key, _)) => {
         existing_key != key
+      }
+      | None => true
+    }
+  });
+}
+
+fn first_tag_value<'a>(
+  tags: &'a [String],
+  key: &str
+) -> Option<&'a str> {
+  tags.iter().find_map(
+    |tag| match tag.split_once(':') {
+      | Some((
+        existing_key,
+        value
+      )) if existing_key == key => {
+        Some(value)
+      }
+      | _ => None
+    }
+  )
+}
+
+fn task_has_tag_value(
+  tags: &[String],
+  key: &str,
+  value: &str
+) -> bool {
+  tags.iter().any(|tag| {
+    matches!(
+      tag.split_once(':'),
+      Some((existing_key, existing_value))
+        if existing_key == key
+          && existing_value == value
+    )
+  })
+}
+
+fn remove_board_tag_for_id(
+  tags: &mut Vec<String>,
+  board_id: &str
+) {
+  tags.retain(|tag| {
+    match tag.split_once(':') {
+      | Some((
+        key,
+        value
+      )) => {
+        !(key == BOARD_TAG_KEY
+          && value == board_id)
       }
       | None => true
     }

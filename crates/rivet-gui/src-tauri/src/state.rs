@@ -12,6 +12,9 @@ use rivet_gui_shared::{
 use tracing::{debug, instrument};
 use uuid::Uuid;
 
+const KANBAN_LANE_KEY: &str = "kanban";
+const DEFAULT_KANBAN_LANE: &str = "todo";
+
 pub struct AppState {
     store: Mutex<DataStore>,
 }
@@ -79,6 +82,7 @@ impl AppState {
         let mut task = Task::new_pending(create.description, now, next_id);
         task.project = create.project;
         task.tags = create.tags;
+        ensure_default_kanban_lane_tag(&mut task.tags);
         task.priority = create.priority.map(priority_to_core);
 
         if let Some(due) = create.due {
@@ -274,4 +278,17 @@ fn apply_patch(
     debug!(uuid = %task.uuid, id = ?task.id, "task patch applied");
 
     Ok(())
+}
+
+fn ensure_default_kanban_lane_tag(tags: &mut Vec<String>) {
+    if tags.iter().any(|tag| {
+        tag.split_once(':')
+            .is_some_and(|(key, _)| key == KANBAN_LANE_KEY)
+    }) {
+        return;
+    }
+
+    tags.push(format!(
+        "{KANBAN_LANE_KEY}:{DEFAULT_KANBAN_LANE}"
+    ));
 }

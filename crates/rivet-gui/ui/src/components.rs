@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 use rivet_gui_shared::{TaskDto, TaskStatus};
 use uuid::Uuid;
 use web_sys::DragEvent;
-use yew::{Callback, Html, Properties, function_component, html};
+use yew::{Callback, Html, Properties, classes, function_component, html};
 
 #[derive(Properties, PartialEq)]
 pub struct SidebarProps {
@@ -29,7 +29,6 @@ pub fn sidebar(props: &SidebarProps) -> Html {
         <div class="panel sidebar">
             <div class="header">{ "Views" }</div>
             { make_item("inbox", "Task View") }
-            { make_item("kanban", "Kanban") }
             { make_item("all", "All Tasks") }
             { make_item("projects", "Projects") }
             { make_item("tags", "Tags") }
@@ -239,7 +238,13 @@ pub fn facet_panel(props: &FacetPanelProps) -> Html {
 #[derive(Properties, PartialEq)]
 pub struct KanbanBoardProps {
     pub tasks: Vec<TaskDto>,
+    pub board_name: Option<String>,
+    pub dragging_task: Option<Uuid>,
+    pub drag_over_lane: Option<String>,
     pub on_move: Callback<(Uuid, String)>,
+    pub on_drag_start: Callback<Uuid>,
+    pub on_drag_end: Callback<()>,
+    pub on_drag_over_lane: Callback<String>,
     pub on_edit: Callback<TaskDto>,
     pub on_done: Callback<Uuid>,
     pub on_delete: Callback<Uuid>,
@@ -253,9 +258,14 @@ pub fn kanban_board(props: &KanbanBoardProps) -> Html {
         ("finished", "Finished"),
     ];
 
+    let board_label = props
+        .board_name
+        .clone()
+        .unwrap_or_else(|| "No board selected".to_string());
+
     html! {
         <div class="panel kanban-panel">
-            <div class="header">{ "Kanban" }</div>
+            <div class="header">{ format!("Kanban: {board_label}") }</div>
             <div class="kanban-board">
                 {
                     for columns.into_iter().map(|(column_key, column_title)| {
@@ -266,14 +276,29 @@ pub fn kanban_board(props: &KanbanBoardProps) -> Html {
                             .cloned()
                             .collect();
                         let on_move = props.on_move.clone();
+                        let on_drag_over_lane = props.on_drag_over_lane.clone();
                         let column_key_string = column_key.to_string();
+                        let lane_for_dragover = column_key_string.clone();
+                        let lane_for_dragenter = column_key_string.clone();
+                        let is_drop_hint = props.drag_over_lane.as_deref() == Some(column_key);
 
                         let ondragover = Callback::from(move |event: DragEvent| {
                             event.prevent_default();
+                            event.stop_propagation();
+                            on_drag_over_lane.emit(lane_for_dragover.clone());
                         });
 
+                        let on_drag_over_lane_enter = props.on_drag_over_lane.clone();
+                        let ondragenter = Callback::from(move |event: DragEvent| {
+                            event.prevent_default();
+                            event.stop_propagation();
+                            on_drag_over_lane_enter.emit(lane_for_dragenter.clone());
+                        });
+
+                        let on_drag_end = props.on_drag_end.clone();
                         let ondrop = Callback::from(move |event: DragEvent| {
                             event.prevent_default();
+                            event.stop_propagation();
                             if let Some(data_transfer) = event.data_transfer() {
                                 match data_transfer.get_data("text/plain") {
                                     Ok(raw_uuid) => {
@@ -286,10 +311,11 @@ pub fn kanban_board(props: &KanbanBoardProps) -> Html {
                                     Err(error) => tracing::warn!(?error, "failed reading drag data"),
                                 }
                             }
+                            on_drag_end.emit(());
                         });
 
                         html! {
-                            <div class="kanban-column" {ondragover} {ondrop}>
+                            <div class={classes!("kanban-column", is_drop_hint.then_some("drop-hint"))} {ondragover} {ondragenter} {ondrop}>
                                 <div class="kanban-column-header">
                                     <span>{ column_title }</span>
                                     <span class="badge">{ cards.len() }</span>
@@ -308,15 +334,36 @@ pub fn kanban_board(props: &KanbanBoardProps) -> Html {
                                                             let on_edit = props.on_edit.clone();
                                                             let on_done = props.on_done.clone();
                                                             let on_delete = props.on_delete.clone();
+                                                            let on_move = props.on_move.clone();
+                                                            let on_drag_start = props.on_drag_start.clone();
+                                                            let on_drag_end = props.on_drag_end.clone();
+                                                            let is_dragging = props.dragging_task == Some(task_id);
 
                                                             let ondragstart = Callback::from(move |event: DragEvent| {
                                                                 if let Some(data_transfer) = event.data_transfer() {
                                                                     let _ = data_transfer.set_data("text/plain", &task_id.to_string());
+                                                                    data_transfer.set_drop_effect("move");
                                                                 }
+                                                                on_drag_start.emit(task_id);
                                                             });
 
+                                                            let ondragend = Callback::from(move |_| {
+                                                                on_drag_end.emit(());
+                                                            });
+
+                                                            let next_lane = match column_key {
+                                                                "todo" => "working",
+                                                                "working" => "finished",
+                                                                _ => "todo",
+                                                            };
+                                                            let next_lane_label = match next_lane {
+                                                                "working" => "Move to Working",
+                                                                "finished" => "Move to Finished",
+                                                                _ => "Move to To Do",
+                                                            };
+
                                                             html! {
-                                                                <div class="kanban-card" draggable="true" {ondragstart}>
+                                                                <div class={classes!("kanban-card", is_dragging.then_some("dragging"))} draggable="true" {ondragstart} {ondragend}>
                                                                     <div class="kanban-card-title">{ &task.description }</div>
                                                                     <div class="kanban-card-meta">
                                                                         <span class="badge">
@@ -338,6 +385,7 @@ pub fn kanban_board(props: &KanbanBoardProps) -> Html {
                                                                     </div>
                                                                     <div class="kanban-card-actions">
                                                                         <button class="btn" onclick={move |_| on_edit.emit(task_for_edit.clone())}>{ "Edit" }</button>
+                                                                        <button class="btn" onclick={move |_| on_move.emit((task_id, next_lane.to_string()))}>{ next_lane_label }</button>
                                                                         {
                                                                             if matches!(task.status, TaskStatus::Pending | TaskStatus::Waiting) {
                                                                                 html! { <button class="btn ok" onclick={move |_| on_done.emit(task_id)}>{ "Done" }</button> }
