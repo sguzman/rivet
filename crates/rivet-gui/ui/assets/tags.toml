@@ -41,6 +41,13 @@ values = [
 ]
 
 [[keys]]
+id = "kanban"
+label = "Kanban Lane"
+selection = "single"
+color = "#4A90E2"
+values = ["todo", "working", "finished"]
+
+[[keys]]
 id = "type"
 label = "Type"
 selection = "single"

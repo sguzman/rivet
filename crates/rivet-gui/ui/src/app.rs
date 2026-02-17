@@ -31,6 +31,7 @@ use crate::api::invoke_tauri;
 use crate::components::{
   Details,
   FacetPanel,
+  KanbanBoard,
   Sidebar,
   TaskList
 };
@@ -208,6 +209,7 @@ const THEME_STORAGE_KEY: &str =
   "rivet.theme";
 const TAG_SCHEMA_TOML: &str =
   include_str!("../assets/tags.toml");
+const KANBAN_TAG_KEY: &str = "kanban";
 
 #[function_component(App)]
 pub fn app() -> Html {
@@ -280,7 +282,7 @@ pub fn app() -> Html {
         wasm_bindgen_futures::spawn_local(async move {
                     tracing::info!(view = %view, tick, "refreshing task list");
 
-                    let status = if view == "all" {
+                    let status = if view == "all" || view == "kanban" {
                         None
                     } else {
                         Some(TaskStatus::Pending)
@@ -728,6 +730,77 @@ pub fn app() -> Html {
     })
   };
 
+  let on_kanban_move = {
+    let tasks = tasks.clone();
+    let refresh_tick =
+      refresh_tick.clone();
+    Callback::from(
+      move |(uuid, lane): (Uuid, String)| {
+        let Some(task) = (*tasks)
+          .iter()
+          .find(|task| task.uuid == uuid)
+          .cloned()
+        else {
+          tracing::warn!(
+            %uuid,
+            "kanban move ignored because \
+             task is not in current \
+             snapshot"
+          );
+          return;
+        };
+
+        let mut next_tags =
+          task.tags.clone();
+        remove_tags_for_key(
+          &mut next_tags,
+          KANBAN_TAG_KEY
+        );
+        push_tag_unique(
+          &mut next_tags,
+          format!("{KANBAN_TAG_KEY}:{lane}")
+        );
+
+        tracing::info!(
+          %uuid,
+          lane = %lane,
+          tag_count = next_tags.len(),
+          "moving task in kanban by \
+           rewriting lane tag"
+        );
+
+        let update = TaskUpdateArgs {
+          uuid,
+          patch: TaskPatch {
+            tags: Some(next_tags),
+            ..TaskPatch::default()
+          }
+        };
+
+        let refresh_tick =
+          refresh_tick.clone();
+        wasm_bindgen_futures::spawn_local(
+          async move {
+            match invoke_tauri::<TaskDto, _>(
+              "task_update",
+              &update
+            )
+            .await
+            {
+              | Ok(_) => {
+                refresh_tick.set(
+                  (*refresh_tick)
+                    .saturating_add(1)
+                );
+              }
+              | Err(err) => tracing::error!(error = %err, %uuid, "kanban move task_update failed")
+            }
+          }
+        );
+      }
+    )
+  };
+
   let on_bulk_done = {
     let bulk_selected =
       bulk_selected.clone();
@@ -1098,123 +1171,216 @@ pub fn app() -> Html {
                           </>
                       }
                   } else {
-                      html! {
-                          <>
-                              <TaskList
-                                  tasks={visible_tasks.clone()}
-                                  selected={*selected}
-                                  selected_ids={(*bulk_selected).clone()}
-                                  on_select={on_select}
-                                  on_toggle_select={on_toggle_select}
-                              />
-                              {
-                                  if *active_view == "projects" && selected_task.is_none() {
-                                      html! {
-                                          <FacetPanel
-                                              title={"Projects".to_string()}
-                                              selected={(*active_project).clone()}
-                                              items={project_facets}
-                                              on_select={on_choose_project}
-                                          />
-                                      }
-                                  } else if *active_view == "all" && selected_task.is_none() {
-                                      html! {
-                                          <div class="panel">
-                                              <div class="header">{ "Task Filters" }</div>
-                                              <div class="details">
-                                                  <div class="field">
-                                                      <label>{ "Completion" }</label>
-                                                      <select
-                                                          class="tag-select"
-                                                          value={(*all_filter_completion).clone()}
-                                                          onchange={on_all_completion_change}
-                                                      >
-                                                          <option value="all">{ "All" }</option>
-                                                          <option value="open">{ "Open (Pending + Waiting)" }</option>
-                                                          <option value="pending">{ "Pending" }</option>
-                                                          <option value="waiting">{ "Waiting" }</option>
-                                                          <option value="completed">{ "Completed" }</option>
-                                                          <option value="deleted">{ "Deleted" }</option>
-                                                      </select>
-                                                  </div>
-                                                  <div class="field">
-                                                      <label>{ "Project" }</label>
-                                                      <select
-                                                          class="tag-select"
-                                                          value={(*all_filter_project).clone().unwrap_or_default()}
-                                                          onchange={on_all_project_change}
-                                                      >
-                                                          <option value="">{ "All Projects" }</option>
-                                                          {
-                                                              for project_facets.iter().map(|(project, count)| html! {
-                                                                  <option value={project.clone()}>{ format!("{project} ({count})") }</option>
-                                                              })
-                                                          }
-                                                      </select>
-                                                  </div>
-                                                  <div class="field">
-                                                      <label>{ "Tag" }</label>
-                                                      <select
-                                                          class="tag-select"
-                                                          value={(*all_filter_tag).clone().unwrap_or_default()}
-                                                          onchange={on_all_tag_change}
-                                                      >
-                                                          <option value="">{ "All Tags" }</option>
-                                                          {
-                                                              for tag_facets.iter().map(|(tag, count)| html! {
-                                                                  <option value={tag.clone()}>{ format!("{tag} ({count})") }</option>
-                                                              })
-                                                          }
-                                                      </select>
-                                                  </div>
-                                                  <div class="field">
-                                                      <label>{ "Priority" }</label>
-                                                      <select
-                                                          class="tag-select"
-                                                          value={(*all_filter_priority).clone()}
-                                                          onchange={on_all_priority_change}
-                                                      >
-                                                          <option value="all">{ "All Priorities" }</option>
-                                                          <option value="low">{ "Low" }</option>
-                                                          <option value="medium">{ "Medium" }</option>
-                                                          <option value="high">{ "High" }</option>
-                                                          <option value="none">{ "None" }</option>
-                                                      </select>
-                                                  </div>
-                                                  <div class="field">
-                                                      <label>{ "Due" }</label>
-                                                      <select
-                                                          class="tag-select"
-                                                          value={(*all_filter_due).clone()}
-                                                          onchange={on_all_due_change}
-                                                      >
-                                                          <option value="all">{ "All" }</option>
-                                                          <option value="has_due">{ "Has Due Date" }</option>
-                                                          <option value="no_due">{ "No Due Date" }</option>
-                                                      </select>
-                                                  </div>
-                                                  <div class="actions">
-                                                      <button class="btn" onclick={on_all_filters_clear.clone()}>{ "Clear Filters" }</button>
+                      if *active_view == "kanban" {
+                          html! {
+                              <>
+                                  <KanbanBoard
+                                      tasks={visible_tasks.clone()}
+                                      on_move={on_kanban_move}
+                                      on_edit={on_edit.clone()}
+                                      on_done={on_done.clone()}
+                                      on_delete={on_delete.clone()}
+                                  />
+                                  <div class="panel">
+                                      <div class="header">{ "Kanban Filters" }</div>
+                                      <div class="details">
+                                          <div class="field">
+                                              <label>{ "Completion" }</label>
+                                              <select
+                                                  class="tag-select"
+                                                  value={(*all_filter_completion).clone()}
+                                                  onchange={on_all_completion_change}
+                                              >
+                                                  <option value="all">{ "All" }</option>
+                                                  <option value="open">{ "Open (Pending + Waiting)" }</option>
+                                                  <option value="pending">{ "Pending" }</option>
+                                                  <option value="waiting">{ "Waiting" }</option>
+                                                  <option value="completed">{ "Completed" }</option>
+                                                  <option value="deleted">{ "Deleted" }</option>
+                                              </select>
+                                          </div>
+                                          <div class="field">
+                                              <label>{ "Project" }</label>
+                                              <select
+                                                  class="tag-select"
+                                                  value={(*all_filter_project).clone().unwrap_or_default()}
+                                                  onchange={on_all_project_change}
+                                              >
+                                                  <option value="">{ "All Projects" }</option>
+                                                  {
+                                                      for project_facets.iter().map(|(project, count)| html! {
+                                                          <option value={project.clone()}>{ format!("{project} ({count})") }</option>
+                                                      })
+                                                  }
+                                              </select>
+                                          </div>
+                                          <div class="field">
+                                              <label>{ "Tag" }</label>
+                                              <select
+                                                  class="tag-select"
+                                                  value={(*all_filter_tag).clone().unwrap_or_default()}
+                                                  onchange={on_all_tag_change}
+                                              >
+                                                  <option value="">{ "All Tags" }</option>
+                                                  {
+                                                      for tag_facets.iter().map(|(tag, count)| html! {
+                                                          <option value={tag.clone()}>{ format!("{tag} ({count})") }</option>
+                                                      })
+                                                  }
+                                              </select>
+                                          </div>
+                                          <div class="field">
+                                              <label>{ "Priority" }</label>
+                                              <select
+                                                  class="tag-select"
+                                                  value={(*all_filter_priority).clone()}
+                                                  onchange={on_all_priority_change}
+                                              >
+                                                  <option value="all">{ "All Priorities" }</option>
+                                                  <option value="low">{ "Low" }</option>
+                                                  <option value="medium">{ "Medium" }</option>
+                                                  <option value="high">{ "High" }</option>
+                                                  <option value="none">{ "None" }</option>
+                                              </select>
+                                          </div>
+                                          <div class="field">
+                                              <label>{ "Due" }</label>
+                                              <select
+                                                  class="tag-select"
+                                                  value={(*all_filter_due).clone()}
+                                                  onchange={on_all_due_change}
+                                              >
+                                                  <option value="all">{ "All" }</option>
+                                                  <option value="has_due">{ "Has Due Date" }</option>
+                                                  <option value="no_due">{ "No Due Date" }</option>
+                                              </select>
+                                          </div>
+                                          <div class="actions">
+                                              <button class="btn" onclick={on_all_filters_clear.clone()}>{ "Clear Filters" }</button>
+                                          </div>
+                                      </div>
+                                  </div>
+                              </>
+                          }
+                      } else {
+                          html! {
+                              <>
+                                  <TaskList
+                                      tasks={visible_tasks.clone()}
+                                      selected={*selected}
+                                      selected_ids={(*bulk_selected).clone()}
+                                      on_select={on_select}
+                                      on_toggle_select={on_toggle_select}
+                                  />
+                                  {
+                                      if *active_view == "projects" && selected_task.is_none() {
+                                          html! {
+                                              <FacetPanel
+                                                  title={"Projects".to_string()}
+                                                  selected={(*active_project).clone()}
+                                                  items={project_facets}
+                                                  on_select={on_choose_project}
+                                              />
+                                          }
+                                      } else if *active_view == "all" && selected_task.is_none() {
+                                          html! {
+                                              <div class="panel">
+                                                  <div class="header">{ "Task Filters" }</div>
+                                                  <div class="details">
+                                                      <div class="field">
+                                                          <label>{ "Completion" }</label>
+                                                          <select
+                                                              class="tag-select"
+                                                              value={(*all_filter_completion).clone()}
+                                                              onchange={on_all_completion_change}
+                                                          >
+                                                              <option value="all">{ "All" }</option>
+                                                              <option value="open">{ "Open (Pending + Waiting)" }</option>
+                                                              <option value="pending">{ "Pending" }</option>
+                                                              <option value="waiting">{ "Waiting" }</option>
+                                                              <option value="completed">{ "Completed" }</option>
+                                                              <option value="deleted">{ "Deleted" }</option>
+                                                          </select>
+                                                      </div>
+                                                      <div class="field">
+                                                          <label>{ "Project" }</label>
+                                                          <select
+                                                              class="tag-select"
+                                                              value={(*all_filter_project).clone().unwrap_or_default()}
+                                                              onchange={on_all_project_change}
+                                                          >
+                                                              <option value="">{ "All Projects" }</option>
+                                                              {
+                                                                  for project_facets.iter().map(|(project, count)| html! {
+                                                                      <option value={project.clone()}>{ format!("{project} ({count})") }</option>
+                                                                  })
+                                                              }
+                                                          </select>
+                                                      </div>
+                                                      <div class="field">
+                                                          <label>{ "Tag" }</label>
+                                                          <select
+                                                              class="tag-select"
+                                                              value={(*all_filter_tag).clone().unwrap_or_default()}
+                                                              onchange={on_all_tag_change}
+                                                          >
+                                                              <option value="">{ "All Tags" }</option>
+                                                              {
+                                                                  for tag_facets.iter().map(|(tag, count)| html! {
+                                                                      <option value={tag.clone()}>{ format!("{tag} ({count})") }</option>
+                                                                  })
+                                                              }
+                                                          </select>
+                                                      </div>
+                                                      <div class="field">
+                                                          <label>{ "Priority" }</label>
+                                                          <select
+                                                              class="tag-select"
+                                                              value={(*all_filter_priority).clone()}
+                                                              onchange={on_all_priority_change}
+                                                          >
+                                                              <option value="all">{ "All Priorities" }</option>
+                                                              <option value="low">{ "Low" }</option>
+                                                              <option value="medium">{ "Medium" }</option>
+                                                              <option value="high">{ "High" }</option>
+                                                              <option value="none">{ "None" }</option>
+                                                          </select>
+                                                      </div>
+                                                      <div class="field">
+                                                          <label>{ "Due" }</label>
+                                                          <select
+                                                              class="tag-select"
+                                                              value={(*all_filter_due).clone()}
+                                                              onchange={on_all_due_change}
+                                                          >
+                                                              <option value="all">{ "All" }</option>
+                                                              <option value="has_due">{ "Has Due Date" }</option>
+                                                              <option value="no_due">{ "No Due Date" }</option>
+                                                          </select>
+                                                      </div>
+                                                      <div class="actions">
+                                                          <button class="btn" onclick={on_all_filters_clear.clone()}>{ "Clear Filters" }</button>
+                                                      </div>
                                                   </div>
                                               </div>
-                                          </div>
-                                      }
-                                  } else if *active_view == "tags" && selected_task.is_none() {
-                                      html! {
-                                          <FacetPanel
-                                              title={"Tags".to_string()}
-                                              selected={(*active_tag).clone()}
-                                              items={tag_facets}
-                                              on_select={on_choose_tag}
-                                          />
-                                      }
-                                  } else {
-                                      html! {
-                                          <Details task={selected_task} on_done={on_done} on_delete={on_delete} on_edit={on_edit} />
+                                          }
+                                      } else if *active_view == "tags" && selected_task.is_none() {
+                                          html! {
+                                              <FacetPanel
+                                                  title={"Tags".to_string()}
+                                                  selected={(*active_tag).clone()}
+                                                  items={tag_facets}
+                                                  on_select={on_choose_tag}
+                                              />
+                                          }
+                                      } else {
+                                          html! {
+                                              <Details task={selected_task} on_done={on_done} on_delete={on_delete} on_edit={on_edit} />
+                                          }
                                       }
                                   }
-                              }
-                          </>
+                              </>
+                          }
                       }
                   }
               }
@@ -1771,7 +1937,7 @@ fn filter_visible_tasks(
             true
           }
         }
-        | "all" => {
+        | "all" | "kanban" => {
           if let Some(project) =
             all_filter_project
             && task.project.as_deref()

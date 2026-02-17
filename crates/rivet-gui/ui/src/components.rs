@@ -2,6 +2,7 @@ use std::collections::BTreeSet;
 
 use rivet_gui_shared::{TaskDto, TaskStatus};
 use uuid::Uuid;
+use web_sys::DragEvent;
 use yew::{Callback, Html, Properties, function_component, html};
 
 #[derive(Properties, PartialEq)]
@@ -27,8 +28,9 @@ pub fn sidebar(props: &SidebarProps) -> Html {
     html! {
         <div class="panel sidebar">
             <div class="header">{ "Views" }</div>
-            { make_item("inbox", "Inbox") }
-            { make_item("all", "Tasks") }
+            { make_item("inbox", "Task View") }
+            { make_item("kanban", "Kanban") }
+            { make_item("all", "All Tasks") }
             { make_item("projects", "Projects") }
             { make_item("tags", "Tags") }
             { make_item("settings", "Settings") }
@@ -232,4 +234,148 @@ pub fn facet_panel(props: &FacetPanelProps) -> Html {
             </div>
         </div>
     }
+}
+
+#[derive(Properties, PartialEq)]
+pub struct KanbanBoardProps {
+    pub tasks: Vec<TaskDto>,
+    pub on_move: Callback<(Uuid, String)>,
+    pub on_edit: Callback<TaskDto>,
+    pub on_done: Callback<Uuid>,
+    pub on_delete: Callback<Uuid>,
+}
+
+#[function_component(KanbanBoard)]
+pub fn kanban_board(props: &KanbanBoardProps) -> Html {
+    let columns = [
+        ("todo", "To Do"),
+        ("working", "Working On It"),
+        ("finished", "Finished"),
+    ];
+
+    html! {
+        <div class="panel kanban-panel">
+            <div class="header">{ "Kanban" }</div>
+            <div class="kanban-board">
+                {
+                    for columns.into_iter().map(|(column_key, column_title)| {
+                        let cards: Vec<TaskDto> = props
+                            .tasks
+                            .iter()
+                            .filter(|task| kanban_lane_for_task(task) == column_key)
+                            .cloned()
+                            .collect();
+                        let on_move = props.on_move.clone();
+                        let column_key_string = column_key.to_string();
+
+                        let ondragover = Callback::from(move |event: DragEvent| {
+                            event.prevent_default();
+                        });
+
+                        let ondrop = Callback::from(move |event: DragEvent| {
+                            event.prevent_default();
+                            if let Some(data_transfer) = event.data_transfer() {
+                                match data_transfer.get_data("text/plain") {
+                                    Ok(raw_uuid) => {
+                                        if let Ok(uuid) = Uuid::parse_str(raw_uuid.trim()) {
+                                            on_move.emit((uuid, column_key_string.clone()));
+                                        } else {
+                                            tracing::warn!(raw_uuid, "failed to parse dragged task uuid");
+                                        }
+                                    }
+                                    Err(error) => tracing::warn!(?error, "failed reading drag data"),
+                                }
+                            }
+                        });
+
+                        html! {
+                            <div class="kanban-column" {ondragover} {ondrop}>
+                                <div class="kanban-column-header">
+                                    <span>{ column_title }</span>
+                                    <span class="badge">{ cards.len() }</span>
+                                </div>
+                                <div class="kanban-column-body">
+                                    {
+                                        if cards.is_empty() {
+                                            html! { <div class="kanban-empty">{ "No tasks" }</div> }
+                                        } else {
+                                            html! {
+                                                <>
+                                                    {
+                                                        for cards.into_iter().map(|task| {
+                                                            let task_id = task.uuid;
+                                                            let task_for_edit = task.clone();
+                                                            let on_edit = props.on_edit.clone();
+                                                            let on_done = props.on_done.clone();
+                                                            let on_delete = props.on_delete.clone();
+
+                                                            let ondragstart = Callback::from(move |event: DragEvent| {
+                                                                if let Some(data_transfer) = event.data_transfer() {
+                                                                    let _ = data_transfer.set_data("text/plain", &task_id.to_string());
+                                                                }
+                                                            });
+
+                                                            html! {
+                                                                <div class="kanban-card" draggable="true" {ondragstart}>
+                                                                    <div class="kanban-card-title">{ &task.description }</div>
+                                                                    <div class="kanban-card-meta">
+                                                                        <span class="badge">
+                                                                            {
+                                                                                if let Some(project) = task.project.clone() {
+                                                                                    format!("project:{project}")
+                                                                                } else {
+                                                                                    "project:—".to_string()
+                                                                                }
+                                                                            }
+                                                                        </span>
+                                                                        {
+                                                                            if let Some(due) = task.due.clone() {
+                                                                                html! { <span class="badge">{ format!("due:{due}") }</span> }
+                                                                            } else {
+                                                                                html! {}
+                                                                            }
+                                                                        }
+                                                                    </div>
+                                                                    <div class="kanban-card-actions">
+                                                                        <button class="btn" onclick={move |_| on_edit.emit(task_for_edit.clone())}>{ "Edit" }</button>
+                                                                        {
+                                                                            if matches!(task.status, TaskStatus::Pending | TaskStatus::Waiting) {
+                                                                                html! { <button class="btn ok" onclick={move |_| on_done.emit(task_id)}>{ "Done" }</button> }
+                                                                            } else {
+                                                                                html! {}
+                                                                            }
+                                                                        }
+                                                                        <button class="btn danger" onclick={move |_| on_delete.emit(task_id)}>{ "Delete" }</button>
+                                                                    </div>
+                                                                </div>
+                                                            }
+                                                        })
+                                                    }
+                                                </>
+                                            }
+                                        }
+                                    }
+                                </div>
+                            </div>
+                        }
+                    })
+                }
+            </div>
+        </div>
+    }
+}
+
+fn kanban_lane_for_task(task: &TaskDto) -> &'static str {
+    for tag in &task.tags {
+        if let Some((key, value)) = tag.split_once(':')
+            && key == "kanban"
+        {
+            return match value {
+                "working" => "working",
+                "finished" => "finished",
+                _ => "todo",
+            };
+        }
+    }
+    "todo"
 }
