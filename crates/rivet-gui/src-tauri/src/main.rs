@@ -151,23 +151,55 @@ fn configure_main_window_icon<
     return;
   };
 
-  match tauri::image::Image::from_bytes(
-    include_bytes!("../icons/icon.png")
-  ) {
-    | Ok(icon) => {
-      if let Err(err) =
-        window.set_icon(icon)
-      {
-        error!(error = %err, "failed to set main window icon");
-      } else {
-        info!(
-          "set main window icon from \
-           bundled app icon"
+  let candidates: [(&str, &[u8]); 2] = [
+    (
+      "favicon-32x32",
+      &include_bytes!(
+        "../icons/favicon-32x32.png"
+      )[..]
+    ),
+    (
+      "icon",
+      &include_bytes!(
+        "../icons/icon.png"
+      )[..]
+    )
+  ];
+
+  for (name, bytes) in candidates {
+    match tauri::image::Image::from_bytes(
+      bytes
+    ) {
+      | Ok(icon) => {
+        match window.set_icon(icon) {
+          | Ok(()) => {
+            info!(
+              icon = name,
+              "set main window icon"
+            );
+            return;
+          }
+          | Err(err) => {
+            error!(
+              icon = name,
+              error = %err,
+              "failed to apply main window icon candidate"
+            );
+          }
+        }
+      }
+      | Err(err) => {
+        error!(
+          icon = name,
+          error = %err,
+          "failed to decode window icon candidate"
         );
       }
     }
-    | Err(err) => {
-      error!(error = %err, "failed to decode main window icon bytes");
-    }
   }
+
+  warn!(
+    "unable to set main window icon \
+     from available icon candidates"
+  );
 }

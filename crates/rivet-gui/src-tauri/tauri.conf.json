@@ -22,5 +22,13 @@
     "security": {
       "csp": null
     }
+  },
+  "bundle": {
+    "icon": [
+      "icons/favicon-32x32.png",
+      "icons/icon.png",
+      "icons/icon.ico",
+      "icons/icon.icns"
+    ]
   }
 }

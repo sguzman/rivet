@@ -48,13 +48,35 @@ body {
   color: var(--text);
 }
 
+.app.modal-open {
+  height: 100vh;
+  overflow: hidden;
+}
+
 .window-chrome {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
   padding: 0 6px;
   border-bottom: 1px solid var(--border);
   background: var(--topbar-bg);
+}
+
+.window-brand {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--title);
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.window-mascot {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  display: block;
 }
 
 .window-controls {
@@ -1030,6 +1052,8 @@ body {
   padding: 16px;
   z-index: 2000;
   pointer-events: auto;
+  overflow: auto;
+  overscroll-behavior: contain;
 }
 
 .modal {
@@ -1042,6 +1066,9 @@ body {
   z-index: 2001;
   pointer-events: auto;
   box-shadow: var(--panel-shadow);
+  max-height: calc(100vh - 32px);
+  display: flex;
+  flex-direction: column;
 }
 
 .modal.modal-sm {
@@ -1060,6 +1087,14 @@ body {
   display: grid;
   gap: 14px;
   padding: 18px;
+  overflow-y: auto;
+  min-height: 0;
+  overscroll-behavior: contain;
+}
+
+.modal .footer {
+  position: sticky;
+  bottom: 0;
 }
 
 .footer {
@@ -1111,5 +1146,9 @@ body {
   .workspace-tab-list,
   .workspace-actions {
     justify-content: flex-start;
+  }
+
+  .window-brand span {
+    display: none;
   }
 }

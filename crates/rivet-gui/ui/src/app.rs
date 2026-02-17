@@ -337,14 +337,13 @@ enum CalendarViewMode {
 }
 
 impl CalendarViewMode {
-  fn all() -> [Self; 6] {
+  fn all() -> [Self; 5] {
     [
       Self::Year,
       Self::Quarter,
       Self::Month,
       Self::Week,
-      Self::Day,
-      Self::List
+      Self::Day
     ]
   }
 
@@ -1169,10 +1168,12 @@ pub fn app() -> Html {
       calendar_week_start,
       &calendar_config
     );
-  let calendar_upcoming_tasks =
-    collect_calendar_upcoming_tasks(
+  let calendar_period_tasks =
+    collect_calendar_period_tasks(
       &calendar_due_tasks,
+      *calendar_view,
       *calendar_focus_date,
+      calendar_week_start,
       &calendar_config
     );
   let calendar_title =
@@ -2993,6 +2994,12 @@ pub fn app() -> Html {
 
   let bulk_count =
     (*bulk_selected).len();
+  let is_any_modal_open = (*modal_state)
+    .is_some()
+    || *kanban_create_open
+    || *kanban_rename_open
+    || (*external_calendar_modal)
+      .is_some();
   let active_kanban_board_name =
     (*active_kanban_board)
       .as_ref()
@@ -3008,8 +3015,12 @@ pub fn app() -> Html {
       });
 
   html! {
-      <div class={classes!("app", (*theme).as_class())}>
+      <div class={classes!("app", (*theme).as_class(), is_any_modal_open.then_some("modal-open"))}>
           <div class="window-chrome" data-tauri-drag-region="true">
+              <div class="window-brand">
+                  <img class="window-mascot" src="assets/icons/mascot-square.png" alt="Rivet mascot" />
+                  <span>{ "Rivet" }</span>
+              </div>
               <div class="window-controls" data-tauri-drag-region="false">
                   <button class="window-btn" type="button" onclick={on_window_minimize} title="Minimize">{ "_" }</button>
                   <button class="window-btn" type="button" onclick={on_window_toggle_maximize} title="Maximize/Restore">{ "[ ]" }</button>
@@ -3229,20 +3240,20 @@ pub fn app() -> Html {
                                   </div>
 
                                   <div class="panel">
-                                      <div class="header">{ "Upcoming Task List" }</div>
+                                      <div class="header">{ "Tasks In Current Period" }</div>
                                       <div class="details calendar-task-list">
                                           {
-                                              if calendar_upcoming_tasks.is_empty() {
+                                              if calendar_period_tasks.is_empty() {
                                                   html! {
                                                       <div class="calendar-empty">
-                                                          { "No upcoming due tasks in configured window." }
+                                                          { "No tasks due in this calendar period." }
                                                       </div>
                                                   }
                                               } else {
                                                   html! {
                                                       <>
                                                           {
-                                                              for calendar_upcoming_tasks.iter().map(|entry| {
+                                                              for calendar_period_tasks.iter().map(|entry| {
                                                                   let due_label = format_calendar_due_datetime(entry, calendar_timezone);
                                                                   html! {
                                                                       <div class="calendar-task-item">
@@ -5665,6 +5676,14 @@ fn load_calendar_view_mode()
     .and_then(
       CalendarViewMode::from_key
     )
+    .map(|view| {
+      match view {
+        | CalendarViewMode::List => {
+          CalendarViewMode::Month
+        }
+        | other => other
+      }
+    })
     .unwrap_or(CalendarViewMode::Month)
 }
 
@@ -6188,6 +6207,29 @@ fn collect_calendar_upcoming_tasks(
     .take(
       config.policies.task_list_limit
     )
+    .cloned()
+    .collect()
+}
+
+fn collect_calendar_period_tasks(
+  due_tasks: &[CalendarDueTask],
+  view: CalendarViewMode,
+  focus: NaiveDate,
+  week_start: Weekday,
+  config: &CalendarConfig
+) -> Vec<CalendarDueTask> {
+  let (start, end) =
+    calendar_date_window(
+      view, focus, week_start, config
+    );
+
+  due_tasks
+    .iter()
+    .filter(|entry| {
+      let day =
+        entry.due_local.date_naive();
+      day >= start && day <= end
+    })
     .cloned()
     .collect()
 }
