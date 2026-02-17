@@ -567,3 +567,44 @@ fn ensure_default_kanban_lane_tag(
      {DEFAULT_KANBAN_LANE}"
   ));
 }
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn ensure_default_kanban_lane_tag_adds_default_when_missing()
+   {
+    let mut tags =
+      vec!["area:software".to_string()];
+    ensure_default_kanban_lane_tag(
+      &mut tags
+    );
+    assert!(tags.iter().any(|tag| {
+      tag == "kanban:todo"
+    }));
+  }
+
+  #[test]
+  fn ensure_default_kanban_lane_tag_does_not_duplicate_existing_lane()
+   {
+    let mut tags = vec![
+      "kanban:working".to_string(),
+      "area:software".to_string(),
+    ];
+    ensure_default_kanban_lane_tag(
+      &mut tags
+    );
+
+    let lane_tags = tags
+      .iter()
+      .filter(|tag| {
+        tag.starts_with("kanban:")
+      })
+      .count();
+    assert_eq!(lane_tags, 1);
+    assert!(tags.iter().any(|tag| {
+      tag == "kanban:working"
+    }));
+  }
+}
