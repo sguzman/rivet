@@ -173,6 +173,12 @@ body {
   padding: 14px;
 }
 
+.right-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
 .panel {
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -389,6 +395,13 @@ body {
   padding: 2px 7px;
   color: var(--muted);
   font-family: var(--mono);
+}
+
+.badge.tag-badge {
+  --tag-key-color: var(--accent);
+  border-color: color-mix(in srgb, var(--tag-key-color) 52%, var(--border));
+  background: color-mix(in srgb, var(--tag-key-color) 12%, var(--panel));
+  color: var(--text);
 }
 
 .details {

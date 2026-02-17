@@ -44,7 +44,7 @@ struct ModalState {
   mode:             ModalMode,
   draft_desc:       String,
   draft_project:    String,
-  draft_board_name: String,
+  draft_board_id:   Option<String>,
   draft_custom_tag: String,
   draft_tags:       Vec<String>,
   picker_key:       Option<String>,
@@ -279,7 +279,7 @@ pub fn app() -> Html {
   let tag_schema =
     use_state(load_tag_schema);
   let active_view =
-    use_state(|| "inbox".to_string());
+    use_state(|| "all".to_string());
   let kanban_boards =
     use_state(load_kanban_boards);
   let active_kanban_board = {
@@ -295,6 +295,10 @@ pub fn app() -> Html {
     use_state(|| None::<Uuid>);
   let drag_over_kanban_lane =
     use_state(|| None::<String>);
+  let kanban_rename_open =
+    use_state(|| false);
+  let kanban_rename_input =
+    use_state(String::new);
   let search = use_state(String::new);
   let refresh_tick =
     use_state(|| 0_u64);
@@ -535,14 +539,26 @@ pub fn app() -> Html {
       all_filter_due.as_str()
     )
   };
+  let tag_colors =
+    build_tag_color_map(&tag_schema);
+  let kanban_columns =
+    kanban_columns_from_schema(
+      &tag_schema
+    );
+  let default_kanban_lane =
+    kanban_columns
+      .first()
+      .cloned()
+      .unwrap_or_else(|| {
+        "todo".to_string()
+      });
 
   let kanban_visible_tasks = {
-    let query = (*search).clone();
     let base =
       filter_visible_tasks(
         &tasks,
         "kanban",
-        &query,
+        "",
         None,
         None,
         all_filter_completion
@@ -587,6 +603,7 @@ pub fn app() -> Html {
   let on_nav = {
     let active_view =
       active_view.clone();
+    let search = search.clone();
     let selected = selected.clone();
     let bulk_selected =
       bulk_selected.clone();
@@ -605,6 +622,9 @@ pub fn app() -> Html {
       all_filter_due.clone();
     Callback::from(
       move |view: String| {
+        if view != "all" {
+          search.set(String::new());
+        }
         active_view.set(view);
         selected.set(None);
         bulk_selected
@@ -935,11 +955,15 @@ pub fn app() -> Html {
     })
   };
 
-  let on_rename_kanban_board = {
+  let on_open_rename_kanban_board = {
     let kanban_boards =
       kanban_boards.clone();
     let active_kanban_board =
       active_kanban_board.clone();
+    let kanban_rename_input =
+      kanban_rename_input.clone();
+    let kanban_rename_open =
+      kanban_rename_open.clone();
     Callback::from(move |_| {
       let Some(board_id) =
         (*active_kanban_board).clone()
@@ -961,44 +985,61 @@ pub fn app() -> Html {
         tracing::warn!(
           %board_id,
           "active board not found \
-           for rename"
+           for rename modal"
         );
         return;
       };
 
-      let Some(window) =
-        web_sys::window()
+      kanban_rename_input
+        .set(current.name);
+      kanban_rename_open.set(true);
+    })
+  };
+
+  let on_close_rename_kanban_board = {
+    let kanban_rename_open =
+      kanban_rename_open.clone();
+    Callback::from(move |_| {
+      kanban_rename_open.set(false);
+    })
+  };
+
+  let on_rename_kanban_input = {
+    let kanban_rename_input =
+      kanban_rename_input.clone();
+    Callback::from(
+      move |e: web_sys::InputEvent| {
+        let input: web_sys::HtmlInputElement =
+          e.target_unchecked_into();
+        kanban_rename_input
+          .set(input.value());
+      }
+    )
+  };
+
+  let on_submit_rename_kanban_board = {
+    let kanban_boards =
+      kanban_boards.clone();
+    let active_kanban_board =
+      active_kanban_board.clone();
+    let kanban_rename_open =
+      kanban_rename_open.clone();
+    let kanban_rename_input =
+      kanban_rename_input.clone();
+    Callback::from(move |_| {
+      let Some(board_id) =
+        (*active_kanban_board).clone()
       else {
-        tracing::error!(
-          "window unavailable; cannot \
-           rename board"
+        tracing::warn!(
+          "rename board clicked with \
+           no active board"
         );
         return;
       };
 
-      let prompt = format!(
-        "Rename board '{}':",
-        current.name
-      );
-      let raw_name = match window
-        .prompt_with_message(&prompt)
-      {
-        | Ok(value) => value,
-        | Err(err) => {
-          tracing::error!(
-            ?err,
-            "prompt failed when \
-             renaming board"
-          );
-          None
-        }
-      };
-
-      let Some(name) = raw_name.map(
-        |value| value.trim().to_string()
-      ) else {
-        return;
-      };
+      let name = (*kanban_rename_input)
+        .trim()
+        .to_string();
 
       if name.is_empty() {
         tracing::warn!(
@@ -1030,6 +1071,7 @@ pub fn app() -> Html {
         "renamed kanban board"
       );
       kanban_boards.set(next);
+      kanban_rename_open.set(false);
     })
   };
 
@@ -1170,30 +1212,17 @@ pub fn app() -> Html {
       modal_submit_seq.clone();
     let tag_schema = tag_schema.clone();
     let active_tab = active_tab.clone();
-    let kanban_boards =
-      kanban_boards.clone();
     let active_kanban_board =
       active_kanban_board.clone();
     Callback::from(move |_| {
       let (picker_key, picker_value) =
         tag_schema.default_picker();
-      let draft_board_name =
+      let draft_board_id =
         if *active_tab == "kanban" {
           (*active_kanban_board)
-            .as_ref()
-            .and_then(|board_id| {
-              kanban_boards
-                .iter()
-                .find(|board| {
-                  &board.id == board_id
-                })
-                .map(|board| {
-                  board.name.clone()
-                })
-            })
-            .unwrap_or_default()
+            .clone()
         } else {
-          String::new()
+          None
         };
       modal_busy.set(false);
       modal_submit_seq.set(
@@ -1205,7 +1234,7 @@ pub fn app() -> Html {
           mode: ModalMode::Add,
           draft_desc: String::new(),
           draft_project: String::new(),
-          draft_board_name,
+          draft_board_id,
           draft_custom_tag: String::new(
           ),
           draft_tags: vec![],
@@ -1306,6 +1335,10 @@ pub fn app() -> Html {
 
   let on_kanban_move = {
     let tasks = tasks.clone();
+    let kanban_columns =
+      kanban_columns.clone();
+    let default_kanban_lane =
+      default_kanban_lane.clone();
     let refresh_tick =
       refresh_tick.clone();
     let dragging_kanban_task =
@@ -1316,6 +1349,22 @@ pub fn app() -> Html {
       move |(uuid, lane): (Uuid, String)| {
         dragging_kanban_task.set(None);
         drag_over_kanban_lane.set(None);
+
+        let target_lane = if kanban_columns
+          .iter()
+          .any(|column| column == &lane)
+        {
+          lane
+        } else {
+          tracing::warn!(
+            lane = %lane,
+            fallback = %default_kanban_lane,
+            "unknown kanban lane during \
+             move; falling back to \
+             default lane"
+          );
+          default_kanban_lane.clone()
+        };
 
         let Some(task) = (*tasks)
           .iter()
@@ -1353,12 +1402,14 @@ pub fn app() -> Html {
         );
         push_tag_unique(
           &mut next_tags,
-          format!("{KANBAN_TAG_KEY}:{lane}")
+          format!(
+            "{KANBAN_TAG_KEY}:{target_lane}"
+          )
         );
 
         tracing::info!(
           %uuid,
-          lane = %lane,
+          lane = %target_lane,
           tag_count = next_tags.len(),
           "moving task in kanban by \
            rewriting lane tag"
@@ -1548,12 +1599,20 @@ pub fn app() -> Html {
       move |task: TaskDto| {
         let (picker_key, picker_value) =
           tag_schema.default_picker();
-        let draft_board_name =
-          board_name_from_task_tags(
+        let draft_board_id =
+          board_id_from_task_tags(
             &kanban_boards,
             &task.tags
-          )
-          .unwrap_or_default();
+          );
+        let filtered_tags = task
+          .tags
+          .into_iter()
+          .filter(|tag| {
+            !tag.starts_with(
+              &format!("{BOARD_TAG_KEY}:")
+            )
+          })
+          .collect();
         modal_busy.set(false);
         modal_submit_seq.set(
           (*modal_submit_seq)
@@ -1569,10 +1628,10 @@ pub fn app() -> Html {
             draft_project: task
               .project
               .unwrap_or_default(),
-            draft_board_name,
+            draft_board_id,
             draft_custom_tag:
               String::new(),
-            draft_tags: task.tags,
+            draft_tags: filtered_tags,
             picker_key,
             picker_value,
             draft_due: task
@@ -1623,6 +1682,8 @@ pub fn app() -> Html {
       modal_submit_seq.clone();
     let kanban_boards =
       kanban_boards.clone();
+    let default_kanban_lane =
+      default_kanban_lane.clone();
     Callback::from(
       move |state: ModalState| {
         if *modal_busy {
@@ -1661,6 +1722,8 @@ pub fn app() -> Html {
           modal_submit_seq.clone();
         let kanban_boards =
           kanban_boards.clone();
+        let default_kanban_lane =
+          default_kanban_lane.clone();
 
         {
           let modal_state =
@@ -1695,20 +1758,15 @@ pub fn app() -> Html {
                     return;
                 }
 
-                let board_tag = match resolve_board_tag_for_submit(
-                    &kanban_boards,
-                    &state.draft_board_name,
-                ) {
-                    Ok(value) => value,
-                    Err(message) => {
-                        let mut next = state.clone();
-                        next.error = Some(message);
-                        modal_state.set(Some(next));
-                        modal_busy.set(false);
-                        modal_submit_seq.set(submit_seq.wrapping_add(1));
-                        return;
-                    }
-                };
+                let board_tag = state
+                    .draft_board_id
+                    .clone()
+                    .and_then(|board_id| {
+                        kanban_boards
+                            .iter()
+                            .find(|board| board.id == board_id)
+                            .map(|board| format!("{BOARD_TAG_KEY}:{}", board.id))
+                    });
 
                 match state.mode {
                     ModalMode::Add => {
@@ -1719,6 +1777,7 @@ pub fn app() -> Html {
                                 &state,
                                 board_tag.clone(),
                                 true,
+                                &default_kanban_lane,
                             ),
                             priority: None,
                             due: optional_text(&state.draft_due),
@@ -1749,6 +1808,7 @@ pub fn app() -> Html {
                                     &state,
                                     board_tag,
                                     false,
+                                    &default_kanban_lane,
                                 )),
                                 due: Some(optional_text(&state.draft_due)),
                                 ..TaskPatch::default()
@@ -1801,19 +1861,6 @@ pub fn app() -> Html {
       <div class={classes!("app", (*theme).as_class())}>
           <div class="topbar">
               <div class="brand">{ "Rivet" }</div>
-              <div class="search">
-                  <input
-                      value={(*search).clone()}
-                      placeholder="Search tasks"
-                      oninput={{
-                          let search = search.clone();
-                          Callback::from(move |e: web_sys::InputEvent| {
-                              let input: web_sys::HtmlInputElement = e.target_unchecked_into();
-                              search.set(input.value());
-                          })
-                      }}
-                  />
-              </div>
               {
                   if bulk_count > 0 {
                       html! {
@@ -1855,7 +1902,7 @@ pub fn app() -> Html {
                                   <div class="details">
                                       <div class="actions">
                                           <button class="btn" onclick={on_create_kanban_board}>{ "New Board" }</button>
-                                          <button class="btn" onclick={on_rename_kanban_board.clone()} disabled={(*active_kanban_board).is_none()}>{ "Rename" }</button>
+                                          <button class="btn" onclick={on_open_rename_kanban_board.clone()} disabled={(*active_kanban_board).is_none()}>{ "Rename" }</button>
                                           <button class="btn danger" onclick={on_delete_kanban_board.clone()} disabled={(*active_kanban_board).is_none()}>{ "Delete" }</button>
                                       </div>
                                       {
@@ -1889,7 +1936,9 @@ pub fn app() -> Html {
 
                               <KanbanBoard
                                   tasks={kanban_visible_tasks.clone()}
+                                  columns={kanban_columns.clone()}
                                   board_name={active_kanban_board_name.clone()}
+                                  tag_colors={tag_colors.clone()}
                                   dragging_task={*dragging_kanban_task}
                                   drag_over_lane={(*drag_over_kanban_lane).clone()}
                                   on_move={on_kanban_move}
@@ -2018,6 +2067,7 @@ pub fn app() -> Html {
                               <Sidebar active={(*active_view).clone()} on_nav={on_nav.clone()} />
                               <TaskList
                                   tasks={task_visible_tasks.clone()}
+                                  tag_colors={tag_colors.clone()}
                                   selected={*selected}
                                   selected_ids={(*bulk_selected).clone()}
                                   on_select={on_select}
@@ -2033,86 +2083,109 @@ pub fn app() -> Html {
                                               on_select={on_choose_project}
                                           />
                                       }
-                                  } else if *active_view == "all" && selected_task.is_none() {
+                                  } else if *active_view == "all" {
                                       html! {
-                                          <div class="panel">
-                                              <div class="header">{ "Task Filters" }</div>
-                                              <div class="details">
-                                                  <div class="field">
-                                                      <label>{ "Completion" }</label>
-                                                      <select
-                                                          class="tag-select"
-                                                          value={(*all_filter_completion).clone()}
-                                                          onchange={on_all_completion_change}
-                                                      >
-                                                          <option value="all">{ "All" }</option>
-                                                          <option value="open">{ "Open (Pending + Waiting)" }</option>
-                                                          <option value="pending">{ "Pending" }</option>
-                                                          <option value="waiting">{ "Waiting" }</option>
-                                                          <option value="completed">{ "Completed" }</option>
-                                                          <option value="deleted">{ "Deleted" }</option>
-                                                      </select>
-                                                  </div>
-                                                  <div class="field">
-                                                      <label>{ "Project" }</label>
-                                                      <select
-                                                          class="tag-select"
-                                                          value={(*all_filter_project).clone().unwrap_or_default()}
-                                                          onchange={on_all_project_change}
-                                                      >
-                                                          <option value="">{ "All Projects" }</option>
-                                                          {
-                                                              for project_facets.iter().map(|(project, count)| html! {
-                                                                  <option value={project.clone()}>{ format!("{project} ({count})") }</option>
-                                                              })
-                                                          }
-                                                      </select>
-                                                  </div>
-                                                  <div class="field">
-                                                      <label>{ "Tag" }</label>
-                                                      <select
-                                                          class="tag-select"
-                                                          value={(*all_filter_tag).clone().unwrap_or_default()}
-                                                          onchange={on_all_tag_change}
-                                                      >
-                                                          <option value="">{ "All Tags" }</option>
-                                                          {
-                                                              for tag_facets.iter().map(|(tag, count)| html! {
-                                                                  <option value={tag.clone()}>{ format!("{tag} ({count})") }</option>
-                                                              })
-                                                          }
-                                                      </select>
-                                                  </div>
-                                                  <div class="field">
-                                                      <label>{ "Priority" }</label>
-                                                      <select
-                                                          class="tag-select"
-                                                          value={(*all_filter_priority).clone()}
-                                                          onchange={on_all_priority_change}
-                                                      >
-                                                          <option value="all">{ "All Priorities" }</option>
-                                                          <option value="low">{ "Low" }</option>
-                                                          <option value="medium">{ "Medium" }</option>
-                                                          <option value="high">{ "High" }</option>
-                                                          <option value="none">{ "None" }</option>
-                                                      </select>
-                                                  </div>
-                                                  <div class="field">
-                                                      <label>{ "Due" }</label>
-                                                      <select
-                                                          class="tag-select"
-                                                          value={(*all_filter_due).clone()}
-                                                          onchange={on_all_due_change}
-                                                      >
-                                                          <option value="all">{ "All" }</option>
-                                                          <option value="has_due">{ "Has Due Date" }</option>
-                                                          <option value="no_due">{ "No Due Date" }</option>
-                                                      </select>
-                                                  </div>
-                                                  <div class="actions">
-                                                      <button class="btn" onclick={on_all_filters_clear.clone()}>{ "Clear Filters" }</button>
+                                          <div class="right-stack">
+                                              <div class="panel">
+                                                  <div class="header">{ "Task Filters" }</div>
+                                                  <div class="details">
+                                                      <div class="field">
+                                                          <label>{ "Search Tasks" }</label>
+                                                          <input
+                                                              value={(*search).clone()}
+                                                              placeholder="Search tasks"
+                                                              oninput={{
+                                                                  let search = search.clone();
+                                                                  Callback::from(move |e: web_sys::InputEvent| {
+                                                                      let input: web_sys::HtmlInputElement = e.target_unchecked_into();
+                                                                      search.set(input.value());
+                                                                  })
+                                                              }}
+                                                          />
+                                                      </div>
+                                                      <div class="field">
+                                                          <label>{ "Completion" }</label>
+                                                          <select
+                                                              class="tag-select"
+                                                              value={(*all_filter_completion).clone()}
+                                                              onchange={on_all_completion_change}
+                                                          >
+                                                              <option value="all">{ "All" }</option>
+                                                              <option value="open">{ "Open (Pending + Waiting)" }</option>
+                                                              <option value="pending">{ "Pending" }</option>
+                                                              <option value="waiting">{ "Waiting" }</option>
+                                                              <option value="completed">{ "Completed" }</option>
+                                                              <option value="deleted">{ "Deleted" }</option>
+                                                          </select>
+                                                      </div>
+                                                      <div class="field">
+                                                          <label>{ "Project" }</label>
+                                                          <select
+                                                              class="tag-select"
+                                                              value={(*all_filter_project).clone().unwrap_or_default()}
+                                                              onchange={on_all_project_change}
+                                                          >
+                                                              <option value="">{ "All Projects" }</option>
+                                                              {
+                                                                  for project_facets.iter().map(|(project, count)| html! {
+                                                                      <option value={project.clone()}>{ format!("{project} ({count})") }</option>
+                                                                  })
+                                                              }
+                                                          </select>
+                                                      </div>
+                                                      <div class="field">
+                                                          <label>{ "Tag" }</label>
+                                                          <select
+                                                              class="tag-select"
+                                                              value={(*all_filter_tag).clone().unwrap_or_default()}
+                                                              onchange={on_all_tag_change}
+                                                          >
+                                                              <option value="">{ "All Tags" }</option>
+                                                              {
+                                                                  for tag_facets.iter().map(|(tag, count)| html! {
+                                                                      <option value={tag.clone()}>{ format!("{tag} ({count})") }</option>
+                                                                  })
+                                                              }
+                                                          </select>
+                                                      </div>
+                                                      <div class="field">
+                                                          <label>{ "Priority" }</label>
+                                                          <select
+                                                              class="tag-select"
+                                                              value={(*all_filter_priority).clone()}
+                                                              onchange={on_all_priority_change}
+                                                          >
+                                                              <option value="all">{ "All Priorities" }</option>
+                                                              <option value="low">{ "Low" }</option>
+                                                              <option value="medium">{ "Medium" }</option>
+                                                              <option value="high">{ "High" }</option>
+                                                              <option value="none">{ "None" }</option>
+                                                          </select>
+                                                      </div>
+                                                      <div class="field">
+                                                          <label>{ "Due" }</label>
+                                                          <select
+                                                              class="tag-select"
+                                                              value={(*all_filter_due).clone()}
+                                                              onchange={on_all_due_change}
+                                                          >
+                                                              <option value="all">{ "All" }</option>
+                                                              <option value="has_due">{ "Has Due Date" }</option>
+                                                              <option value="no_due">{ "No Due Date" }</option>
+                                                          </select>
+                                                      </div>
+                                                      <div class="actions">
+                                                          <button class="btn" onclick={on_all_filters_clear.clone()}>{ "Clear Filters" }</button>
+                                                      </div>
                                                   </div>
                                               </div>
+                                              <Details
+                                                  task={selected_task.clone()}
+                                                  tag_colors={tag_colors.clone()}
+                                                  on_done={on_done.clone()}
+                                                  on_delete={on_delete.clone()}
+                                                  on_edit={on_edit.clone()}
+                                              />
                                           </div>
                                       }
                                   } else if *active_view == "tags" && selected_task.is_none() {
@@ -2126,7 +2199,13 @@ pub fn app() -> Html {
                                       }
                                   } else {
                                       html! {
-                                          <Details task={selected_task} on_done={on_done} on_delete={on_delete} on_edit={on_edit} />
+                                          <Details
+                                              task={selected_task.clone()}
+                                              tag_colors={tag_colors.clone()}
+                                              on_done={on_done.clone()}
+                                              on_delete={on_delete.clone()}
+                                              on_edit={on_edit.clone()}
+                                          />
                                       }
                                   }
                               }
@@ -2140,9 +2219,9 @@ pub fn app() -> Html {
               if let Some(state) = (*modal_state).clone() {
                   let submit_state = state.clone();
                   let is_busy = *modal_busy;
-                  let board_name_options: Vec<String> = kanban_boards
+                  let board_options: Vec<(String, String)> = kanban_boards
                       .iter()
-                      .map(|board| board.name.clone())
+                      .map(|board| (board.id.clone(), board.name.clone()))
                       .collect();
                   let picker_value_options = state
                       .picker_key
@@ -2248,6 +2327,22 @@ pub fn app() -> Html {
                           }
                       })
                   };
+                  let on_board_change = {
+                      let modal_state = modal_state.clone();
+                      Callback::from(move |e: web_sys::Event| {
+                          let select: web_sys::HtmlSelectElement = e.target_unchecked_into();
+                          let value = select.value();
+                          if let Some(mut current) = (*modal_state).clone() {
+                              current.draft_board_id = if value.trim().is_empty() {
+                                  None
+                              } else {
+                                  Some(value)
+                              };
+                              current.error = None;
+                              modal_state.set(Some(current));
+                          }
+                      })
+                  };
                   html! {
                       <div class="modal-backdrop">
                           <div class="modal">
@@ -2303,29 +2398,18 @@ pub fn app() -> Html {
                                   </div>
                                   <div class="field">
                                       <label>{ "Kanban Board (optional)" }</label>
-                                      <input
-                                          list="kanban-board-options"
-                                          value={state.draft_board_name.clone()}
-                                          placeholder="Assign to a board (required for Kanban visibility)"
-                                          oninput={{
-                                              let modal_state = modal_state.clone();
-                                              Callback::from(move |e: web_sys::InputEvent| {
-                                                  let input: web_sys::HtmlInputElement = e.target_unchecked_into();
-                                                  if let Some(mut current) = (*modal_state).clone() {
-                                                      current.draft_board_name = input.value();
-                                                      current.error = None;
-                                                      modal_state.set(Some(current));
-                                                  }
-                                              })
-                                          }}
-                                      />
-                                      <datalist id="kanban-board-options">
+                                      <select
+                                          class="tag-select"
+                                          value={state.draft_board_id.clone().unwrap_or_default()}
+                                          onchange={on_board_change}
+                                      >
+                                          <option value="">{ "No board (won't appear on Kanban)" }</option>
                                           {
-                                              for board_name_options.iter().map(|name| html! {
-                                                  <option value={name.clone()} />
+                                              for board_options.iter().map(|(board_id, board_name)| html! {
+                                                  <option value={board_id.clone()}>{ board_name.clone() }</option>
                                               })
                                           }
-                                      </datalist>
+                                      </select>
                                   </div>
                                   <div class="field">
                                       <label>{ "Custom Tag" }</label>
@@ -2473,6 +2557,40 @@ pub fn app() -> Html {
                                           disabled={is_busy}
                                       >
                                           { if is_busy { "Saving..." } else { "Save" } }
+                                      </button>
+                                  </div>
+                              </div>
+                          </div>
+                      </div>
+                  }
+              } else {
+                  html! {}
+              }
+          }
+
+          {
+              if *kanban_rename_open {
+                  html! {
+                      <div class="modal-backdrop" onclick={on_close_rename_kanban_board.clone()}>
+                          <div class="modal" onclick={Callback::from(|e: yew::MouseEvent| e.stop_propagation())}>
+                              <div class="header">{ "Rename Kanban Board" }</div>
+                              <div class="content">
+                                  <div class="field">
+                                      <label>{ "Board Name" }</label>
+                                      <input
+                                          value={(*kanban_rename_input).clone()}
+                                          oninput={on_rename_kanban_input}
+                                      />
+                                  </div>
+                                  <div class="footer">
+                                      <button type="button" class="btn" onclick={on_close_rename_kanban_board.clone()}>{ "Cancel" }</button>
+                                      <button
+                                          type="button"
+                                          class="btn"
+                                          onclick={on_submit_rename_kanban_board}
+                                          disabled={(*kanban_rename_input).trim().is_empty()}
+                                      >
+                                          { "Save" }
                                       </button>
                                   </div>
                               </div>
@@ -2743,49 +2861,19 @@ fn make_unique_board_name_except(
   candidate
 }
 
-fn board_name_from_task_tags(
+fn board_id_from_task_tags(
   boards: &[KanbanBoardDef],
   tags: &[String]
 ) -> Option<String> {
   let board_id =
-    first_tag_value(tags, BOARD_TAG_KEY)?;
+    first_tag_value(tags, BOARD_TAG_KEY)?
+      .to_string();
   boards
     .iter()
     .find(|board| {
       board.id == board_id
     })
-    .map(|board| board.name.clone())
-}
-
-fn resolve_board_tag_for_submit(
-  boards: &[KanbanBoardDef],
-  board_name_input: &str
-) -> Result<
-  Option<String>,
-  String,
-> {
-  let trimmed =
-    board_name_input.trim();
-  if trimmed.is_empty() {
-    return Ok(None);
-  }
-
-  let Some(board) =
-    boards.iter().find(|board| {
-      board.name
-        .eq_ignore_ascii_case(trimmed)
-    })
-  else {
-    return Err(format!(
-      "Unknown board '{trimmed}'. Pick \
-       an existing board."
-    ));
-  };
-
-  Ok(Some(format!(
-    "{BOARD_TAG_KEY}:{}",
-    board.id
-  )))
+    .map(|board| board.id.clone())
 }
 
 fn load_tag_schema() -> TagSchema {
@@ -2816,6 +2904,58 @@ fn load_tag_schema() -> TagSchema {
   }
 }
 
+fn build_tag_color_map(
+  schema: &TagSchema
+) -> BTreeMap<
+  String,
+  String,
+> {
+  schema
+    .keys
+    .iter()
+    .filter_map(|key| {
+      key.color
+        .as_ref()
+        .map(|color| {
+          (
+            key.id.clone(),
+            color.clone()
+          )
+        })
+    })
+    .collect()
+}
+
+fn kanban_columns_from_schema(
+  schema: &TagSchema
+) -> Vec<String> {
+  let values = schema
+    .key(KANBAN_TAG_KEY)
+    .map(|entry| {
+      entry
+        .values
+        .iter()
+        .map(|value| {
+          value.trim().to_string()
+        })
+        .filter(|value| {
+          !value.is_empty()
+        })
+        .collect::<Vec<_>>()
+    })
+    .unwrap_or_default();
+
+  if values.is_empty() {
+    vec![
+      "todo".to_string(),
+      "working".to_string(),
+      "finished".to_string(),
+    ]
+  } else {
+    values
+  }
+}
+
 fn optional_text(
   text: &str
 ) -> Option<String> {
@@ -2841,7 +2981,8 @@ fn split_tags(
 fn collect_tags_for_submit(
   state: &ModalState,
   board_tag: Option<String>,
-  ensure_kanban_lane: bool
+  ensure_kanban_lane: bool,
+  default_kanban_lane: &str
 ) -> Vec<String> {
   let mut tags =
     state.draft_tags.clone();
@@ -2868,7 +3009,10 @@ fn collect_tags_for_submit(
   {
     push_tag_unique(
       &mut tags,
-      format!("{KANBAN_TAG_KEY}:todo")
+      format!(
+        "{KANBAN_TAG_KEY}:{}",
+        default_kanban_lane
+      )
     );
   }
 

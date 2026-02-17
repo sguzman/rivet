@@ -1,4 +1,7 @@
-use std::collections::BTreeSet;
+use std::collections::{
+    BTreeMap,
+    BTreeSet,
+};
 
 use rivet_gui_shared::{TaskDto, TaskStatus};
 use uuid::Uuid;
@@ -28,8 +31,7 @@ pub fn sidebar(props: &SidebarProps) -> Html {
     html! {
         <div class="panel sidebar">
             <div class="header">{ "Views" }</div>
-            { make_item("inbox", "Task View") }
-            { make_item("all", "All Tasks") }
+            { make_item("all", "Tasks") }
             { make_item("projects", "Projects") }
             { make_item("tags", "Tags") }
             { make_item("settings", "Settings") }
@@ -40,6 +42,7 @@ pub fn sidebar(props: &SidebarProps) -> Html {
 #[derive(Properties, PartialEq)]
 pub struct TaskListProps {
     pub tasks: Vec<TaskDto>,
+    pub tag_colors: BTreeMap<String, String>,
     pub selected: Option<Uuid>,
     pub selected_ids: BTreeSet<Uuid>,
     pub on_select: Callback<Uuid>,
@@ -88,7 +91,7 @@ pub fn task_list(props: &TaskListProps) -> Html {
                                     <span class="badge">{ format!("project:{meta_project}") }</span>
                                     {
                                         for task.tags.iter().take(4).map(|tag| html! {
-                                            <span class="badge">{ format!("#{tag}") }</span>
+                                            <span class="badge tag-badge" style={tag_badge_style(tag, &props.tag_colors)}>{ format!("#{tag}") }</span>
                                         })
                                     }
                                 </div>
@@ -113,6 +116,7 @@ pub fn task_list(props: &TaskListProps) -> Html {
 #[derive(Properties, PartialEq)]
 pub struct DetailsProps {
     pub task: Option<TaskDto>,
+    pub tag_colors: BTreeMap<String, String>,
     pub on_done: Callback<Uuid>,
     pub on_delete: Callback<Uuid>,
     pub on_edit: Callback<TaskDto>,
@@ -159,7 +163,11 @@ pub fn details(props: &DetailsProps) -> Html {
                             } else {
                                 html! {
                                     <>
-                                        { for task.tags.iter().map(|tag| html!{ <span class="badge" style="margin-right:6px;">{ format!("#{tag}") }</span> }) }
+                                        {
+                                            for task.tags.iter().map(|tag| html!{
+                                                <span class="badge tag-badge" style={format!("margin-right:6px;{}", tag_badge_style(tag, &props.tag_colors))}>{ format!("#{tag}") }</span>
+                                            })
+                                        }
                                     </>
                                 }
                             }
@@ -238,7 +246,9 @@ pub fn facet_panel(props: &FacetPanelProps) -> Html {
 #[derive(Properties, PartialEq)]
 pub struct KanbanBoardProps {
     pub tasks: Vec<TaskDto>,
+    pub columns: Vec<String>,
     pub board_name: Option<String>,
+    pub tag_colors: BTreeMap<String, String>,
     pub dragging_task: Option<Uuid>,
     pub drag_over_lane: Option<String>,
     pub on_move: Callback<(Uuid, String)>,
@@ -252,11 +262,19 @@ pub struct KanbanBoardProps {
 
 #[function_component(KanbanBoard)]
 pub fn kanban_board(props: &KanbanBoardProps) -> Html {
-    let columns = [
-        ("todo", "To Do"),
-        ("working", "Working On It"),
-        ("finished", "Finished"),
-    ];
+    let columns = if props.columns.is_empty() {
+        vec![
+            "todo".to_string(),
+            "working".to_string(),
+            "finished".to_string(),
+        ]
+    } else {
+        props.columns.clone()
+    };
+    let default_lane = columns
+        .first()
+        .cloned()
+        .unwrap_or_else(|| "todo".to_string());
 
     let board_label = props
         .board_name
@@ -268,11 +286,21 @@ pub fn kanban_board(props: &KanbanBoardProps) -> Html {
             <div class="header">{ format!("Kanban: {board_label}") }</div>
             <div class="kanban-board">
                 {
-                    for columns.into_iter().map(|(column_key, column_title)| {
+                    for columns.iter().enumerate().map(|(column_idx, column_key)| {
+                        let column_key = column_key.clone();
+                        let column_title = humanize_lane(&column_key);
+                        let columns_for_filter = columns.clone();
+                        let default_lane_for_filter = default_lane.clone();
                         let cards: Vec<TaskDto> = props
                             .tasks
                             .iter()
-                            .filter(|task| kanban_lane_for_task(task) == column_key)
+                            .filter(|task| {
+                                kanban_lane_for_task(
+                                    task,
+                                    &columns_for_filter,
+                                    &default_lane_for_filter,
+                                ) == column_key
+                            })
                             .cloned()
                             .collect();
                         let on_move = props.on_move.clone();
@@ -280,7 +308,7 @@ pub fn kanban_board(props: &KanbanBoardProps) -> Html {
                         let column_key_string = column_key.to_string();
                         let lane_for_dragover = column_key_string.clone();
                         let lane_for_dragenter = column_key_string.clone();
-                        let is_drop_hint = props.drag_over_lane.as_deref() == Some(column_key);
+                        let is_drop_hint = props.drag_over_lane.as_deref() == Some(column_key.as_str());
 
                         let ondragover = Callback::from(move |event: DragEvent| {
                             event.prevent_default();
@@ -317,7 +345,7 @@ pub fn kanban_board(props: &KanbanBoardProps) -> Html {
                         html! {
                             <div class={classes!("kanban-column", is_drop_hint.then_some("drop-hint"))} {ondragover} {ondragenter} {ondrop}>
                                 <div class="kanban-column-header">
-                                    <span>{ column_title }</span>
+                                    <span>{ column_title.clone() }</span>
                                     <span class="badge">{ cards.len() }</span>
                                 </div>
                                 <div class="kanban-column-body">
@@ -337,6 +365,7 @@ pub fn kanban_board(props: &KanbanBoardProps) -> Html {
                                                             let on_move = props.on_move.clone();
                                                             let on_drag_start = props.on_drag_start.clone();
                                                             let on_drag_end = props.on_drag_end.clone();
+                                                            let tag_colors = props.tag_colors.clone();
                                                             let is_dragging = props.dragging_task == Some(task_id);
 
                                                             let ondragstart = Callback::from(move |event: DragEvent| {
@@ -351,16 +380,17 @@ pub fn kanban_board(props: &KanbanBoardProps) -> Html {
                                                                 on_drag_end.emit(());
                                                             });
 
-                                                            let next_lane = match column_key {
-                                                                "todo" => "working",
-                                                                "working" => "finished",
-                                                                _ => "todo",
+                                                            let next_lane = {
+                                                                if columns.is_empty() {
+                                                                    column_key.clone()
+                                                                } else {
+                                                                    columns[(column_idx + 1) % columns.len()].clone()
+                                                                }
                                                             };
-                                                            let next_lane_label = match next_lane {
-                                                                "working" => "Move to Working",
-                                                                "finished" => "Move to Finished",
-                                                                _ => "Move to To Do",
-                                                            };
+                                                            let next_lane_label = format!(
+                                                                "Move to {}",
+                                                                humanize_lane(&next_lane)
+                                                            );
 
                                                             html! {
                                                                 <div class={classes!("kanban-card", is_dragging.then_some("dragging"))} draggable="true" {ondragstart} {ondragend}>
@@ -383,9 +413,16 @@ pub fn kanban_board(props: &KanbanBoardProps) -> Html {
                                                                             }
                                                                         }
                                                                     </div>
+                                                                    <div class="kanban-card-meta">
+                                                                        {
+                                                                            for task.tags.iter().take(3).map(|tag| html! {
+                                                                                <span class="badge tag-badge" style={tag_badge_style(tag, &tag_colors)}>{ format!("#{tag}") }</span>
+                                                                            })
+                                                                        }
+                                                                    </div>
                                                                     <div class="kanban-card-actions">
                                                                         <button class="btn" onclick={move |_| on_edit.emit(task_for_edit.clone())}>{ "Edit" }</button>
-                                                                        <button class="btn" onclick={move |_| on_move.emit((task_id, next_lane.to_string()))}>{ next_lane_label }</button>
+                                                                        <button class="btn" onclick={move |_| on_move.emit((task_id, next_lane.clone()))}>{ next_lane_label }</button>
                                                                         {
                                                                             if matches!(task.status, TaskStatus::Pending | TaskStatus::Waiting) {
                                                                                 html! { <button class="btn ok" onclick={move |_| on_done.emit(task_id)}>{ "Done" }</button> }
@@ -413,17 +450,52 @@ pub fn kanban_board(props: &KanbanBoardProps) -> Html {
     }
 }
 
-fn kanban_lane_for_task(task: &TaskDto) -> &'static str {
+fn kanban_lane_for_task(
+    task: &TaskDto,
+    columns: &[String],
+    default_lane: &str,
+) -> String {
     for tag in &task.tags {
         if let Some((key, value)) = tag.split_once(':')
             && key == "kanban"
         {
-            return match value {
-                "working" => "working",
-                "finished" => "finished",
-                _ => "todo",
-            };
+            if columns.iter().any(|column| column == value) {
+                return value.to_string();
+            }
+            return default_lane.to_string();
         }
     }
-    "todo"
+    default_lane.to_string()
+}
+
+fn humanize_lane(value: &str) -> String {
+    value
+        .split(['-', '_'])
+        .filter(|part| !part.is_empty())
+        .map(|part| {
+            let mut chars = part.chars();
+            match chars.next() {
+                Some(first) => {
+                    let mut out = first.to_ascii_uppercase().to_string();
+                    out.push_str(&chars.as_str().to_ascii_lowercase());
+                    out
+                }
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn tag_badge_style(
+    tag: &str,
+    tag_colors: &BTreeMap<String, String>,
+) -> String {
+    if let Some((key, _)) = tag.split_once(':')
+        && let Some(color) = tag_colors.get(key)
+    {
+        return format!("--tag-key-color:{color};");
+    }
+
+    String::new()
 }
