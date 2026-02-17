@@ -239,6 +239,10 @@ pub fn app() -> Html {
     use_state(|| None::<String>);
   let all_filter_completion =
     use_state(|| "all".to_string());
+  let all_filter_priority =
+    use_state(|| "all".to_string());
+  let all_filter_due =
+    use_state(|| "all".to_string());
   let modal_state =
     use_state(|| None::<ModalState>);
   let modal_busy = use_state(|| false);
@@ -355,7 +359,9 @@ pub fn app() -> Html {
       active_tag.as_deref(),
       all_filter_completion.as_str(),
       all_filter_project.as_deref(),
-      all_filter_tag.as_deref()
+      all_filter_tag.as_deref(),
+      all_filter_priority.as_str(),
+      all_filter_due.as_str()
     )
   };
 
@@ -387,6 +393,10 @@ pub fn app() -> Html {
       all_filter_tag.clone();
     let all_filter_completion =
       all_filter_completion.clone();
+    let all_filter_priority =
+      all_filter_priority.clone();
+    let all_filter_due =
+      all_filter_due.clone();
     Callback::from(
       move |view: String| {
         active_view.set(view);
@@ -399,6 +409,9 @@ pub fn app() -> Html {
         all_filter_tag.set(None);
         all_filter_completion
           .set("all".to_string());
+        all_filter_priority
+          .set("all".to_string());
+        all_filter_due.set("all".to_string());
       }
     )
   };
@@ -539,12 +552,62 @@ pub fn app() -> Html {
       all_filter_tag.clone();
     let all_filter_completion =
       all_filter_completion.clone();
+    let all_filter_priority =
+      all_filter_priority.clone();
+    let all_filter_due =
+      all_filter_due.clone();
     Callback::from(move |_| {
       all_filter_project.set(None);
       all_filter_tag.set(None);
       all_filter_completion
         .set("all".to_string());
+      all_filter_priority
+        .set("all".to_string());
+      all_filter_due.set("all".to_string());
     })
+  };
+
+  let on_all_priority_change = {
+    let all_filter_priority =
+      all_filter_priority.clone();
+    Callback::from(
+      move |e: web_sys::Event| {
+        if let Some(input) =
+          e.target_dyn_into::<
+            web_sys::HtmlSelectElement
+          >()
+        {
+          all_filter_priority
+            .set(input.value());
+        } else {
+          tracing::warn!(
+            "all priority filter event \
+             had non-select target"
+          );
+        }
+      }
+    )
+  };
+
+  let on_all_due_change = {
+    let all_filter_due =
+      all_filter_due.clone();
+    Callback::from(
+      move |e: web_sys::Event| {
+        if let Some(input) =
+          e.target_dyn_into::<
+            web_sys::HtmlSelectElement
+          >()
+        {
+          all_filter_due.set(input.value());
+        } else {
+          tracing::warn!(
+            "all due filter event had \
+             non-select target"
+          );
+        }
+      }
+    )
   };
 
   let on_add_click = {
@@ -994,53 +1057,6 @@ pub fn app() -> Html {
                   />
               </div>
               {
-                  if *active_view == "all" {
-                      html! {
-                          <>
-                              <select
-                                  class="tag-select"
-                                  value={(*all_filter_completion).clone()}
-                                  onchange={on_all_completion_change}
-                              >
-                                  <option value="all">{ "All" }</option>
-                                  <option value="open">{ "Open" }</option>
-                                  <option value="pending">{ "Pending" }</option>
-                                  <option value="waiting">{ "Waiting" }</option>
-                                  <option value="completed">{ "Completed" }</option>
-                                  <option value="deleted">{ "Deleted" }</option>
-                              </select>
-                              <select
-                                  class="tag-select"
-                                  value={(*all_filter_project).clone().unwrap_or_default()}
-                                  onchange={on_all_project_change}
-                              >
-                                  <option value="">{ "All Projects" }</option>
-                                  {
-                                      for project_facets.iter().map(|(project, count)| html! {
-                                          <option value={project.clone()}>{ format!("{project} ({count})") }</option>
-                                      })
-                                  }
-                              </select>
-                              <select
-                                  class="tag-select"
-                                  value={(*all_filter_tag).clone().unwrap_or_default()}
-                                  onchange={on_all_tag_change}
-                              >
-                                  <option value="">{ "All Tags" }</option>
-                                  {
-                                      for tag_facets.iter().map(|(tag, count)| html! {
-                                          <option value={tag.clone()}>{ format!("{tag} ({count})") }</option>
-                                      })
-                                  }
-                              </select>
-                              <button class="btn" onclick={on_all_filters_clear}>{ "Clear" }</button>
-                          </>
-                      }
-                  } else {
-                      html! {}
-                  }
-              }
-              {
                   if bulk_count > 0 {
                       html! {
                           <>
@@ -1100,6 +1116,88 @@ pub fn app() -> Html {
                                               items={project_facets}
                                               on_select={on_choose_project}
                                           />
+                                      }
+                                  } else if *active_view == "all" && selected_task.is_none() {
+                                      html! {
+                                          <div class="panel">
+                                              <div class="header">{ "Task Filters" }</div>
+                                              <div class="details">
+                                                  <div class="field">
+                                                      <label>{ "Completion" }</label>
+                                                      <select
+                                                          class="tag-select"
+                                                          value={(*all_filter_completion).clone()}
+                                                          onchange={on_all_completion_change}
+                                                      >
+                                                          <option value="all">{ "All" }</option>
+                                                          <option value="open">{ "Open (Pending + Waiting)" }</option>
+                                                          <option value="pending">{ "Pending" }</option>
+                                                          <option value="waiting">{ "Waiting" }</option>
+                                                          <option value="completed">{ "Completed" }</option>
+                                                          <option value="deleted">{ "Deleted" }</option>
+                                                      </select>
+                                                  </div>
+                                                  <div class="field">
+                                                      <label>{ "Project" }</label>
+                                                      <select
+                                                          class="tag-select"
+                                                          value={(*all_filter_project).clone().unwrap_or_default()}
+                                                          onchange={on_all_project_change}
+                                                      >
+                                                          <option value="">{ "All Projects" }</option>
+                                                          {
+                                                              for project_facets.iter().map(|(project, count)| html! {
+                                                                  <option value={project.clone()}>{ format!("{project} ({count})") }</option>
+                                                              })
+                                                          }
+                                                      </select>
+                                                  </div>
+                                                  <div class="field">
+                                                      <label>{ "Tag" }</label>
+                                                      <select
+                                                          class="tag-select"
+                                                          value={(*all_filter_tag).clone().unwrap_or_default()}
+                                                          onchange={on_all_tag_change}
+                                                      >
+                                                          <option value="">{ "All Tags" }</option>
+                                                          {
+                                                              for tag_facets.iter().map(|(tag, count)| html! {
+                                                                  <option value={tag.clone()}>{ format!("{tag} ({count})") }</option>
+                                                              })
+                                                          }
+                                                      </select>
+                                                  </div>
+                                                  <div class="field">
+                                                      <label>{ "Priority" }</label>
+                                                      <select
+                                                          class="tag-select"
+                                                          value={(*all_filter_priority).clone()}
+                                                          onchange={on_all_priority_change}
+                                                      >
+                                                          <option value="all">{ "All Priorities" }</option>
+                                                          <option value="low">{ "Low" }</option>
+                                                          <option value="medium">{ "Medium" }</option>
+                                                          <option value="high">{ "High" }</option>
+                                                          <option value="none">{ "None" }</option>
+                                                      </select>
+                                                  </div>
+                                                  <div class="field">
+                                                      <label>{ "Due" }</label>
+                                                      <select
+                                                          class="tag-select"
+                                                          value={(*all_filter_due).clone()}
+                                                          onchange={on_all_due_change}
+                                                      >
+                                                          <option value="all">{ "All" }</option>
+                                                          <option value="has_due">{ "Has Due Date" }</option>
+                                                          <option value="no_due">{ "No Due Date" }</option>
+                                                      </select>
+                                                  </div>
+                                                  <div class="actions">
+                                                      <button class="btn" onclick={on_all_filters_clear.clone()}>{ "Clear Filters" }</button>
+                                                  </div>
+                                              </div>
+                                          </div>
                                       }
                                   } else if *active_view == "tags" && selected_task.is_none() {
                                       html! {
@@ -1633,7 +1731,9 @@ fn filter_visible_tasks(
   active_tag: Option<&str>,
   all_filter_completion: &str,
   all_filter_project: Option<&str>,
-  all_filter_tag: Option<&str>
+  all_filter_tag: Option<&str>,
+  all_filter_priority: &str,
+  all_filter_due: &str
 ) -> Vec<TaskDto> {
   let q = query.to_ascii_lowercase();
 
@@ -1689,7 +1789,8 @@ fn filter_visible_tasks(
             return false;
           }
 
-          match all_filter_completion {
+          let completion_match =
+            match all_filter_completion {
             | "open" => matches!(
               task.status,
               TaskStatus::Pending
@@ -1712,7 +1813,39 @@ fn filter_visible_tasks(
                 == TaskStatus::Deleted
             }
             | _ => true
-          }
+          };
+
+          let priority_match =
+            match all_filter_priority {
+            | "low" => task.priority
+              == Some(
+                rivet_gui_shared::TaskPriority::Low
+              ),
+            | "medium" => task.priority
+              == Some(
+                rivet_gui_shared::TaskPriority::Medium
+              ),
+            | "high" => task.priority
+              == Some(
+                rivet_gui_shared::TaskPriority::High
+              ),
+            | "none" => {
+              task.priority.is_none()
+            }
+            | _ => true
+          };
+
+          let due_match = match all_filter_due {
+            | "has_due" => {
+              task.due.is_some()
+            }
+            | "no_due" => task.due.is_none(),
+            | _ => true
+          };
+
+          completion_match
+            && priority_match
+            && due_match
         }
         | _ => true
       }
