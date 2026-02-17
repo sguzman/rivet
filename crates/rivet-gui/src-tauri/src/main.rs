@@ -124,6 +124,9 @@ fn main() {
         commands::task_delete,
         commands::ui_log,
         commands::external_calendar_sync,
+        commands::window_minimize,
+        commands::window_toggle_maximize,
+        commands::window_close,
       ]
     )
     .run(tauri::generate_context!())

@@ -43,9 +43,45 @@ body {
 .app {
   min-height: 100vh;
   display: grid;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: 24px auto 1fr;
   background: var(--bg-grad);
   color: var(--text);
+}
+
+.window-chrome {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 6px;
+  border-bottom: 1px solid var(--border);
+  background: var(--topbar-bg);
+}
+
+.window-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.window-btn {
+  min-width: 26px;
+  height: 18px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-soft);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1;
+  padding: 0;
+}
+
+.window-btn:hover {
+  border-color: var(--accent);
+}
+
+.window-btn.danger:hover {
+  border-color: var(--danger);
 }
 
 .app.theme-night {

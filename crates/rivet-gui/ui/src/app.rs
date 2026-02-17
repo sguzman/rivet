@@ -2316,6 +2316,66 @@ pub fn app() -> Html {
     })
   };
 
+  let on_window_minimize =
+    Callback::from(move |_| {
+      wasm_bindgen_futures::spawn_local(
+        async move {
+          if let Err(err) =
+            invoke_tauri::<(), _>(
+              "window_minimize",
+              &()
+            )
+            .await
+          {
+            tracing::error!(
+              error = %err,
+              "window minimize failed"
+            );
+          }
+        }
+      );
+    });
+
+  let on_window_toggle_maximize =
+    Callback::from(move |_| {
+      wasm_bindgen_futures::spawn_local(
+        async move {
+          if let Err(err) =
+            invoke_tauri::<(), _>(
+              "window_toggle_maximize",
+              &()
+            )
+            .await
+          {
+            tracing::error!(
+              error = %err,
+              "window toggle maximize failed"
+            );
+          }
+        }
+      );
+    });
+
+  let on_window_close =
+    Callback::from(move |_| {
+      wasm_bindgen_futures::spawn_local(
+        async move {
+          if let Err(err) =
+            invoke_tauri::<(), _>(
+              "window_close",
+              &()
+            )
+            .await
+          {
+            tracing::error!(
+              error = %err,
+              "window close failed"
+            );
+          }
+        }
+      );
+    });
+
   let on_done = {
     let refresh_tick =
       refresh_tick.clone();
@@ -2949,6 +3009,13 @@ pub fn app() -> Html {
 
   html! {
       <div class={classes!("app", (*theme).as_class())}>
+          <div class="window-chrome" data-tauri-drag-region="true">
+              <div class="window-controls" data-tauri-drag-region="false">
+                  <button class="window-btn" type="button" onclick={on_window_minimize} title="Minimize">{ "_" }</button>
+                  <button class="window-btn" type="button" onclick={on_window_toggle_maximize} title="Maximize/Restore">{ "[ ]" }</button>
+                  <button class="window-btn danger" type="button" onclick={on_window_close} title="Close">{ "X" }</button>
+              </div>
+          </div>
           <div class="workspace-tabs">
               <div class="workspace-tab-list">
                   <button
