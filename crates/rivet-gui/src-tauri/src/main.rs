@@ -123,6 +123,7 @@ fn main() {
         commands::task_done,
         commands::task_delete,
         commands::ui_log,
+        commands::external_calendar_sync,
       ]
     )
     .run(tauri::generate_context!())

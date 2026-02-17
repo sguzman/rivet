@@ -8,12 +8,14 @@ use anyhow::{
 };
 use chrono::{
   DateTime,
+  Datelike,
   Duration,
   LocalResult,
   NaiveDate,
   NaiveDateTime,
   TimeZone,
-  Utc
+  Utc,
+  Weekday
 };
 use chrono_tz::Tz;
 use regex::Regex;
@@ -295,6 +297,169 @@ pub fn parse_date_expr(
     | _ => {}
   }
 
+  if token.len() == 4
+    && token
+      .chars()
+      .all(|c| c.is_ascii_digit())
+  {
+    let year: i32 =
+      token.parse().context(
+        "invalid 4-digit year"
+      )?;
+    let date = NaiveDate::from_ymd_opt(
+      year, 1, 1
+    )
+    .ok_or_else(|| {
+      anyhow!(
+        "invalid year value: {year}"
+      )
+    })?;
+    let midnight = date
+      .and_hms_opt(0, 0, 0)
+      .ok_or_else(|| {
+        anyhow!(
+          "failed to construct \
+           midnight for year"
+        )
+      })?;
+    return to_utc_from_project_local(
+      midnight,
+      "year-4digit"
+    );
+  }
+
+  if let Some(target_weekday) =
+    parse_weekday_name(&lower)
+  {
+    let local_now =
+      now.with_timezone(
+        project_timezone()
+      );
+    let local_today =
+      local_now.date_naive();
+    let target_date = next_weekday_date(
+      local_today,
+      target_weekday
+    );
+    let midnight = target_date
+      .and_hms_opt(0, 0, 0)
+      .ok_or_else(|| {
+        anyhow!(
+          "failed to construct \
+           weekday midnight"
+        )
+      })?;
+    return to_utc_from_project_local(
+      midnight,
+      "weekday-name"
+    );
+  }
+
+  if let Some((hour, minute)) =
+    parse_clock_time(token)
+  {
+    let local_now =
+      now.with_timezone(
+        project_timezone()
+      );
+    let mut day =
+      local_now.date_naive();
+    let local_candidate = day
+      .and_hms_opt(hour, minute, 0)
+      .ok_or_else(|| {
+        anyhow!(
+          "failed to construct clock \
+           time candidate"
+        )
+      })?;
+    if local_candidate
+      <= local_now.naive_local()
+    {
+      day = day
+        .checked_add_signed(
+          Duration::days(1)
+        )
+        .ok_or_else(|| {
+          anyhow!(
+            "failed to advance to \
+             next day"
+          )
+        })?;
+    }
+    let next_candidate = day
+      .and_hms_opt(hour, minute, 0)
+      .ok_or_else(|| {
+        anyhow!(
+          "failed to construct next \
+           clock time candidate"
+        )
+      })?;
+    return to_utc_from_project_local(
+      next_candidate,
+      "clock-time"
+    );
+  }
+
+  if let Some(target_month) =
+    parse_month_name(&lower)
+  {
+    let local_now =
+      now.with_timezone(
+        project_timezone()
+      );
+    let mut year = local_now.year();
+    let candidate_this_year =
+      NaiveDate::from_ymd_opt(
+        year,
+        target_month,
+        1
+      )
+      .ok_or_else(|| {
+        anyhow!(
+          "invalid month value: \
+           {target_month}"
+        )
+      })?
+      .and_hms_opt(0, 0, 0)
+      .ok_or_else(|| {
+        anyhow!(
+          "failed to construct month \
+           candidate"
+        )
+      })?;
+
+    if candidate_this_year
+      <= local_now.naive_local()
+    {
+      year = year.saturating_add(1);
+    }
+
+    let candidate_next =
+      NaiveDate::from_ymd_opt(
+        year,
+        target_month,
+        1
+      )
+      .ok_or_else(|| {
+        anyhow!(
+          "invalid month/year \
+           candidate"
+        )
+      })?
+      .and_hms_opt(0, 0, 0)
+      .ok_or_else(|| {
+        anyhow!(
+          "failed to construct month \
+           midnight"
+        )
+      })?;
+
+    return to_utc_from_project_local(
+      candidate_next,
+      "month-name"
+    );
+  }
+
   let rel_re = Regex::new(r"^(?P<sign>[+-])(?P<num>\d+)(?P<unit>[dhm])$")
         .map_err(|e| anyhow!("internal regex compile failure: {e}"))?;
 
@@ -401,10 +566,238 @@ pub fn parse_date_expr(
   .with_context(|| {
     "supported formats: \
      now/today/tomorrow/yesterday, \
-     +Nd/+Nh/+Nm, RFC3339, YYYY-MM-DD, \
-     YYYY-MM-DDTHH:MM, YYYY-MM-DD \
-     HH:MM, YYYYMMDDTHHMMSSZ"
+     4-digit year, weekday names (e.g. \
+     monday), month names (e.g. \
+     march), clock times (e.g. 3:23pm \
+     or 15:23), +Nd/+Nh/+Nm, RFC3339, \
+     YYYY-MM-DD, YYYY-MM-DDTHH:MM, \
+     YYYY-MM-DD HH:MM, YYYYMMDDTHHMMSSZ"
   })
+}
+
+fn parse_weekday_name(
+  token: &str
+) -> Option<Weekday> {
+  match token.trim() {
+    | "monday" | "mon" => {
+      Some(Weekday::Mon)
+    }
+    | "tuesday" | "tue" | "tues" => {
+      Some(Weekday::Tue)
+    }
+    | "wednesday" | "wed" => {
+      Some(Weekday::Wed)
+    }
+    | "thursday" | "thu" | "thur"
+    | "thurs" => Some(Weekday::Thu),
+    | "friday" | "fri" => {
+      Some(Weekday::Fri)
+    }
+    | "saturday" | "sat" => {
+      Some(Weekday::Sat)
+    }
+    | "sunday" | "sun" => {
+      Some(Weekday::Sun)
+    }
+    | _ => None
+  }
+}
+
+fn next_weekday_date(
+  from: NaiveDate,
+  target: Weekday
+) -> NaiveDate {
+  let from_idx = from
+    .weekday()
+    .num_days_from_monday()
+    as i64;
+  let target_idx = target
+    .num_days_from_monday()
+    as i64;
+  let mut delta =
+    (7 + target_idx - from_idx) % 7;
+  if delta == 0 {
+    delta = 7;
+  }
+  from
+    .checked_add_signed(Duration::days(
+      delta
+    ))
+    .unwrap_or(from)
+}
+
+fn parse_clock_time(
+  token: &str
+) -> Option<(u32, u32)> {
+  let clock_re = Regex::new(
+    r"(?i)^(?P<hour>\d{1,2}):(?P<minute>\d{2})\s*(?P<ampm>[ap]m)?$",
+  )
+  .ok()?;
+  let captures =
+    clock_re.captures(token.trim())?;
+
+  let raw_hour = captures
+    .name("hour")?
+    .as_str()
+    .parse::<u32>()
+    .ok()?;
+  let minute = captures
+    .name("minute")?
+    .as_str()
+    .parse::<u32>()
+    .ok()?;
+  if minute > 59 {
+    return None;
+  }
+
+  let hour = if let Some(ampm_match) =
+    captures.name("ampm")
+  {
+    let ampm = ampm_match
+      .as_str()
+      .to_ascii_lowercase();
+    if raw_hour == 0 || raw_hour > 12 {
+      return None;
+    }
+    match ampm.as_str() {
+      | "am" => {
+        if raw_hour == 12 {
+          0
+        } else {
+          raw_hour
+        }
+      }
+      | "pm" => {
+        if raw_hour == 12 {
+          12
+        } else {
+          raw_hour + 12
+        }
+      }
+      | _ => return None
+    }
+  } else {
+    if raw_hour > 23 {
+      return None;
+    }
+    raw_hour
+  };
+
+  Some((hour, minute))
+}
+
+fn parse_month_name(
+  token: &str
+) -> Option<u32> {
+  match token.trim() {
+    | "january" | "jan" => Some(1),
+    | "february" | "feb" => Some(2),
+    | "march" | "mar" => Some(3),
+    | "april" | "apr" => Some(4),
+    | "may" => Some(5),
+    | "june" | "jun" => Some(6),
+    | "july" | "jul" => Some(7),
+    | "august" | "aug" => Some(8),
+    | "september" | "sep" | "sept" => {
+      Some(9)
+    }
+    | "october" | "oct" => Some(10),
+    | "november" | "nov" => Some(11),
+    | "december" | "dec" => Some(12),
+    | _ => None
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use chrono::{
+    TimeZone,
+    Utc
+  };
+
+  use super::{
+    parse_date_expr,
+    to_project_date
+  };
+
+  #[test]
+  fn parses_four_digit_year() {
+    let now = Utc
+      .with_ymd_and_hms(
+        2026, 2, 17, 12, 0, 0
+      )
+      .single()
+      .expect("valid now");
+    let parsed =
+      parse_date_expr("2028", now)
+        .expect("parse year");
+    assert_eq!(
+      to_project_date(parsed)
+        .format("%Y-%m-%d")
+        .to_string(),
+      "2028-01-01"
+    );
+  }
+
+  #[test]
+  fn parses_weekday_name() {
+    let now = Utc
+      .with_ymd_and_hms(
+        2026, 2, 17, 12, 0, 0
+      )
+      .single()
+      .expect("valid now");
+    let parsed =
+      parse_date_expr("wednesday", now)
+        .expect("parse weekday");
+    assert_eq!(
+      to_project_date(parsed)
+        .format("%Y-%m-%d")
+        .to_string(),
+      "2026-02-18"
+    );
+  }
+
+  #[test]
+  fn parses_month_name() {
+    let now = Utc
+      .with_ymd_and_hms(
+        2026, 2, 17, 12, 0, 0
+      )
+      .single()
+      .expect("valid now");
+    let parsed =
+      parse_date_expr("march", now)
+        .expect("parse month");
+    assert_eq!(
+      to_project_date(parsed)
+        .format("%Y-%m-%d")
+        .to_string(),
+      "2026-03-01"
+    );
+  }
+
+  #[test]
+  fn parses_clock_time() {
+    let now = Utc
+      .with_ymd_and_hms(
+        2026, 2, 17, 23, 0, 0
+      )
+      .single()
+      .expect("valid now");
+    let parsed =
+      parse_date_expr("3:23pm", now)
+        .expect("parse clock time");
+    assert_eq!(
+      parsed
+        .with_timezone(
+          super::project_timezone()
+        )
+        .format("%H:%M")
+        .to_string(),
+      "15:23"
+    );
+  }
 }
 
 pub mod taskwarrior_date_serde {

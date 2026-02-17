@@ -277,21 +277,36 @@ impl AppState {
     let store = self.store.lock();
     let mut pending =
       store.load_pending()?;
-
-    let task = pending
+    if let Some(task) = pending
       .iter_mut()
       .find(|task| task.uuid == uuid)
-      .ok_or_else(|| {
-        anyhow::anyhow!(
-          "task not found"
-        )
-      })?;
+    {
+      task.status = Status::Deleted;
+      task.modified = now;
+      store.save_pending(&pending)?;
+      debug!(
+        uuid = %uuid,
+        "marked pending task deleted"
+      );
+      return Ok(());
+    }
 
-    task.status = Status::Deleted;
-    task.modified = now;
+    let mut completed =
+      store.load_completed()?;
+    let before = completed.len();
+    completed
+      .retain(|task| task.uuid != uuid);
+    if completed.len() != before {
+      store
+        .save_completed(&completed)?;
+      debug!(
+        uuid = %uuid,
+        "removed completed task"
+      );
+      return Ok(());
+    }
 
-    store.save_pending(&pending)?;
-    Ok(())
+    anyhow::bail!("task not found")
   }
 }
 

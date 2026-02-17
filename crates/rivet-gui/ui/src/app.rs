@@ -15,6 +15,7 @@ use chrono::{
 };
 use chrono_tz::Tz;
 use gloo::console::log;
+use gloo::timers::callback::Interval;
 use gloo::timers::future::TimeoutFuture;
 use rivet_gui_shared::{
   TaskCreate,
@@ -63,6 +64,11 @@ struct ModalState {
   picker_key:           Option<String>,
   picker_value:         Option<String>,
   draft_due:            String,
+  recurrence_pattern:   String,
+  recurrence_time:      String,
+  recurrence_days:      Vec<String>,
+  recurrence_months:    Vec<String>,
+  recurrence_month_day: String,
   error:                Option<String>
 }
 
@@ -106,6 +112,52 @@ struct TagKey {
 struct KanbanBoardDef {
   id:   String,
   name: String
+}
+
+#[derive(
+  Clone,
+  PartialEq,
+  Eq,
+  Serialize,
+  Deserialize,
+)]
+struct ExternalCalendarSource {
+  id:              String,
+  name:            String,
+  color:           String,
+  location:        String,
+  refresh_minutes: u32,
+  enabled:         bool,
+  read_only:       bool,
+  show_reminders:  bool,
+  offline_support: bool
+}
+
+#[derive(
+  Clone, PartialEq, Deserialize,
+)]
+struct ExternalCalendarSyncResult {
+  calendar_id:     String,
+  created:         usize,
+  updated:         usize,
+  deleted:         usize,
+  remote_events:   usize,
+  refresh_minutes: u32
+}
+
+#[derive(Clone, PartialEq)]
+struct ExternalCalendarModalState {
+  mode:   ExternalCalendarModalMode,
+  source: ExternalCalendarSource,
+  error:  Option<String>
+}
+
+#[derive(
+  Clone, Copy, PartialEq, Eq,
+)]
+enum ExternalCalendarModalMode {
+  Add,
+  Edit
 }
 
 impl TagSchema {
@@ -515,6 +567,8 @@ const WORKSPACE_TAB_STORAGE_KEY: &str =
   "rivet.workspace_tab";
 const CALENDAR_VIEW_STORAGE_KEY: &str =
   "rivet.calendar.view";
+const EXTERNAL_CALENDARS_STORAGE_KEY:
+  &str = "rivet.external_calendars";
 const KANBAN_BOARDS_STORAGE_KEY: &str =
   "rivet.kanban.boards";
 const KANBAN_ACTIVE_BOARD_STORAGE_KEY:
@@ -531,6 +585,26 @@ const DEFAULT_CALENDAR_TIMEZONE: &str =
   "America/Mexico_City";
 const KANBAN_TAG_KEY: &str = "kanban";
 const BOARD_TAG_KEY: &str = "board";
+const RECUR_TAG_KEY: &str = "recur";
+const RECUR_TIME_TAG_KEY: &str =
+  "recur_time";
+const RECUR_DAYS_TAG_KEY: &str =
+  "recur_days";
+const RECUR_MONTHS_TAG_KEY: &str =
+  "recur_months";
+const RECUR_MONTH_DAY_TAG_KEY: &str =
+  "recur_day";
+
+const WEEKDAY_KEYS: [&str; 7] = [
+  "mon", "tue", "wed", "thu", "fri",
+  "sat", "sun"
+];
+
+const MONTH_KEYS: [&str; 12] = [
+  "jan", "feb", "mar", "apr", "may",
+  "jun", "jul", "aug", "sep", "oct",
+  "nov", "dec"
+];
 
 #[function_component(App)]
 pub fn app() -> Html {
@@ -582,6 +656,16 @@ pub fn app() -> Html {
     use_state(String::new);
   let kanban_compact_cards =
     use_state(|| false);
+  let external_calendars =
+    use_state(load_external_calendars);
+  let external_calendar_modal =
+    use_state(|| {
+      None::<ExternalCalendarModalState>
+    });
+  let external_calendar_busy =
+    use_state(|| false);
+  let external_calendar_last_sync =
+    use_state(|| None::<String>);
   let search = use_state(String::new);
   let refresh_tick =
     use_state(|| 0_u64);
@@ -652,6 +736,121 @@ pub fn app() -> Html {
           "persisted calendar view mode"
         );
         || ()
+      }
+    );
+  }
+
+  {
+    let external_calendars =
+      external_calendars.clone();
+    use_effect_with(
+      (*external_calendars).clone(),
+      move |calendars| {
+        save_external_calendars(
+          calendars
+        );
+        tracing::debug!(
+          calendar_sources =
+            calendars.len(),
+          "persisted external \
+           calendar sources"
+        );
+        || ()
+      }
+    );
+  }
+
+  {
+    let external_calendars =
+      external_calendars.clone();
+    let refresh_tick =
+      refresh_tick.clone();
+    let external_calendar_last_sync =
+      external_calendar_last_sync
+        .clone();
+    use_effect_with(
+      (*external_calendars).clone(),
+      move |sources| {
+        let mut intervals = Vec::new();
+
+        for source in sources
+          .iter()
+          .cloned()
+          .filter(|source| {
+            source.enabled
+              && source.refresh_minutes
+                > 0
+          })
+        {
+          let refresh_tick =
+            refresh_tick.clone();
+          let external_calendar_last_sync =
+            external_calendar_last_sync
+              .clone();
+          let period_ms = source
+            .refresh_minutes
+            .saturating_mul(60_000);
+
+          intervals.push(Interval::new(
+            period_ms,
+            move || {
+              let source =
+                source.clone();
+              let refresh_tick =
+                refresh_tick.clone();
+              let external_calendar_last_sync =
+                external_calendar_last_sync
+                  .clone();
+              wasm_bindgen_futures::spawn_local(async move {
+                match invoke_tauri::<
+                  ExternalCalendarSyncResult,
+                  _
+                >(
+                  "external_calendar_sync",
+                  &source
+                )
+                .await
+                {
+                  | Ok(result) => {
+                    tracing::info!(
+                      calendar_id = %result.calendar_id,
+                      created = result.created,
+                      updated = result.updated,
+                      deleted = result.deleted,
+                      "external calendar auto sync succeeded"
+                    );
+                    external_calendar_last_sync
+                      .set(Some(format!(
+                        "Synced {}: +{} / ~{} / -{}",
+                        source.name,
+                        result.created,
+                        result.updated,
+                        result.deleted
+                      )));
+                    refresh_tick.set(
+                      (*refresh_tick)
+                        .saturating_add(1),
+                    );
+                  }
+                  | Err(err) => {
+                    tracing::error!(
+                      calendar = %source.name,
+                      error = %err,
+                      "external calendar auto sync failed"
+                    );
+                    external_calendar_last_sync
+                      .set(Some(format!(
+                        "Sync failed for {}: {}",
+                        source.name, err
+                      )));
+                  }
+                }
+              });
+            },
+          ));
+        }
+
+        move || drop(intervals)
       }
     );
   }
@@ -1311,18 +1510,339 @@ pub fn app() -> Html {
     })
   };
 
-  let on_calendar_focus_day = {
+  let on_calendar_navigate = {
     let calendar_focus_date =
       calendar_focus_date.clone();
     let calendar_view =
       calendar_view.clone();
     Callback::from(
-      move |day: NaiveDate| {
+      move |(day, view): (
+        NaiveDate,
+        CalendarViewMode
+      )| {
         calendar_focus_date.set(day);
-        calendar_view
-          .set(CalendarViewMode::Day);
+        calendar_view.set(view);
       }
     )
+  };
+
+  let on_open_add_external_calendar = {
+    let external_calendar_modal =
+      external_calendar_modal.clone();
+    Callback::from(move |_| {
+      external_calendar_modal.set(Some(
+          ExternalCalendarModalState {
+            mode:
+              ExternalCalendarModalMode::Add,
+            source:
+              new_external_calendar_source(),
+            error: None,
+          },
+        ));
+    })
+  };
+
+  let on_open_edit_external_calendar = {
+    let external_calendar_modal =
+      external_calendar_modal.clone();
+    Callback::from(
+        move |source: ExternalCalendarSource| {
+          external_calendar_modal.set(Some(
+            ExternalCalendarModalState {
+              mode:
+                ExternalCalendarModalMode::Edit,
+              source,
+              error: None,
+            },
+          ));
+        },
+      )
+  };
+
+  let on_close_external_calendar_modal = {
+    let external_calendar_modal =
+      external_calendar_modal.clone();
+    Callback::from(move |_| {
+      external_calendar_modal.set(None);
+    })
+  };
+
+  let on_submit_external_calendar = {
+    let external_calendars =
+      external_calendars.clone();
+    let external_calendar_modal =
+      external_calendar_modal.clone();
+    Callback::from(
+        move |modal_state: ExternalCalendarModalState| {
+          let mut source =
+            modal_state.source.clone();
+
+          if source
+            .name
+            .trim()
+            .is_empty()
+          {
+            let mut next = modal_state;
+            next.error = Some(
+              "Calendar name is required."
+                .to_string(),
+            );
+            external_calendar_modal
+              .set(Some(next));
+            return;
+          }
+
+          if source
+            .location
+            .trim()
+            .is_empty()
+          {
+            let mut next = modal_state;
+            next.error = Some(
+              "Calendar URL is required."
+                .to_string(),
+            );
+            external_calendar_modal
+              .set(Some(next));
+            return;
+          }
+
+          source.name = source
+            .name
+            .trim()
+            .to_string();
+          source.location = source
+            .location
+            .trim()
+            .to_string();
+          if source
+            .refresh_minutes
+            == 0
+          {
+            source.refresh_minutes = 30;
+          }
+          if source
+            .color
+            .trim()
+            .is_empty()
+          {
+            source.color =
+              "#d64545".to_string();
+          }
+
+          let mut next_sources =
+            (*external_calendars).clone();
+          match modal_state.mode {
+            | ExternalCalendarModalMode::Add => {
+              next_sources.push(source);
+            }
+            | ExternalCalendarModalMode::Edit => {
+              if let Some(existing) =
+                next_sources.iter_mut().find(
+                  |existing| {
+                    existing.id
+                      == source.id
+                  },
+                )
+              {
+                *existing = source;
+              }
+            }
+          }
+
+          external_calendars
+            .set(next_sources);
+          external_calendar_modal
+            .set(None);
+        },
+      )
+  };
+
+  let on_delete_external_calendar = {
+    let external_calendars =
+      external_calendars.clone();
+    Callback::from(
+      move |calendar_id: String| {
+        let confirmed =
+          web_sys::window()
+            .and_then(|window| {
+              window
+                .confirm_with_message(
+                  "Delete this \
+                   external calendar \
+                   source?"
+                )
+                .ok()
+            })
+            .unwrap_or(false);
+        if !confirmed {
+          return;
+        }
+
+        let mut next_sources =
+          (*external_calendars).clone();
+        next_sources.retain(|source| {
+          source.id != calendar_id
+        });
+        external_calendars
+          .set(next_sources);
+      }
+    )
+  };
+
+  let on_sync_external_calendar = {
+    let external_calendars =
+      external_calendars.clone();
+    let external_calendar_busy =
+      external_calendar_busy.clone();
+    let external_calendar_last_sync =
+      external_calendar_last_sync
+        .clone();
+    let refresh_tick =
+      refresh_tick.clone();
+    Callback::from(
+      move |calendar_id: String| {
+        if *external_calendar_busy {
+          return;
+        }
+        let Some(source) =
+          external_calendars
+            .iter()
+            .find(|source| {
+              source.id == calendar_id
+            })
+            .cloned()
+        else {
+          return;
+        };
+
+        external_calendar_busy
+          .set(true);
+        let external_calendar_busy =
+          external_calendar_busy
+            .clone();
+        let external_calendar_last_sync =
+          external_calendar_last_sync
+            .clone();
+        let refresh_tick =
+          refresh_tick.clone();
+        wasm_bindgen_futures::spawn_local(async move {
+            match invoke_tauri::<
+              ExternalCalendarSyncResult,
+              _
+            >("external_calendar_sync", &source)
+            .await
+            {
+              | Ok(result) => {
+                external_calendar_last_sync
+                  .set(Some(format!(
+                    "Synced {}: +{} / ~{} / -{}",
+                    source.name,
+                    result.created,
+                    result.updated,
+                    result.deleted
+                  )));
+                refresh_tick.set(
+                  (*refresh_tick)
+                    .saturating_add(1),
+                );
+              }
+              | Err(err) => {
+                external_calendar_last_sync
+                  .set(Some(format!(
+                    "Sync failed for {}: {}",
+                    source.name, err
+                  )));
+              }
+            }
+            external_calendar_busy
+              .set(false);
+          });
+      }
+    )
+  };
+
+  let on_sync_all_external_calendars = {
+    let external_calendars =
+      external_calendars.clone();
+    let external_calendar_busy =
+      external_calendar_busy.clone();
+    let external_calendar_last_sync =
+      external_calendar_last_sync
+        .clone();
+    let refresh_tick =
+      refresh_tick.clone();
+    Callback::from(move |_| {
+      if *external_calendar_busy {
+        return;
+      }
+
+      let sources: Vec<
+        ExternalCalendarSource
+      > = external_calendars
+        .iter()
+        .filter(|source| source.enabled)
+        .cloned()
+        .collect();
+      if sources.is_empty() {
+        external_calendar_last_sync
+          .set(Some(
+            "No enabled calendars to \
+             sync."
+              .to_string()
+          ));
+        return;
+      }
+
+      external_calendar_busy.set(true);
+      let external_calendar_busy =
+        external_calendar_busy.clone();
+      let external_calendar_last_sync =
+        external_calendar_last_sync
+          .clone();
+      let refresh_tick =
+        refresh_tick.clone();
+      wasm_bindgen_futures::spawn_local(
+        async move {
+          let mut lines = Vec::new();
+          for source in sources {
+            match invoke_tauri::<
+              ExternalCalendarSyncResult,
+              _
+            >("external_calendar_sync", &source)
+            .await
+            {
+              | Ok(result) => {
+                lines.push(format!(
+                  "{}: +{} / ~{} / -{}",
+                  source.name,
+                  result.created,
+                  result.updated,
+                  result.deleted
+                ));
+              }
+              | Err(err) => {
+                lines.push(format!(
+                  "{}: failed ({})",
+                  source.name, err
+                ));
+              }
+            }
+          }
+
+          external_calendar_last_sync
+            .set(Some(
+              lines.join(" | ")
+            ));
+          refresh_tick.set(
+            (*refresh_tick)
+              .saturating_add(1)
+          );
+          external_calendar_busy
+            .set(false);
+        }
+      );
+    })
   };
 
   let on_select_kanban_board = {
@@ -1722,6 +2242,14 @@ pub fn app() -> Html {
           picker_key,
           picker_value,
           draft_due: String::new(),
+          recurrence_pattern: "none"
+            .to_string(),
+          recurrence_time: String::new(
+          ),
+          recurrence_days: vec![],
+          recurrence_months: vec![],
+          recurrence_month_day:
+            String::new(),
           error: None
         }
       ));
@@ -2095,13 +2623,24 @@ pub fn app() -> Html {
             &kanban_boards,
             &task.tags
           );
+        let (
+          recurrence_pattern,
+          recurrence_time,
+          recurrence_days,
+          recurrence_months,
+          recurrence_month_day
+        ) = recurrence_from_tags(
+          &task.tags
+        );
         let filtered_tags = task
           .tags
           .into_iter()
           .filter(|tag| {
             !tag.starts_with(&format!(
               "{BOARD_TAG_KEY}:"
-            ))
+            )) && !is_recurrence_tag(
+              tag
+            )
           })
           .collect();
         modal_busy.set(false);
@@ -2130,6 +2669,11 @@ pub fn app() -> Html {
             draft_due: task
               .due
               .unwrap_or_default(),
+            recurrence_pattern,
+            recurrence_time,
+            recurrence_days,
+            recurrence_months,
+            recurrence_month_day,
             error: None
           }
         ));
@@ -2442,6 +2986,94 @@ pub fn app() -> Html {
                                           <span class="calendar-dot"></span>
                                           <span>{ "One red dot = one scheduled task." }</span>
                                       </div>
+                                      <div class="calendar-external-header">{ "External Calendars" }</div>
+                                      <div class="actions">
+                                          <button class="btn" onclick={on_open_add_external_calendar.clone()}>{ "Add Source" }</button>
+                                          <button class="btn" onclick={on_sync_all_external_calendars.clone()} disabled={*external_calendar_busy}>
+                                              { if *external_calendar_busy { "Syncing..." } else { "Sync Enabled" } }
+                                          </button>
+                                      </div>
+                                      {
+                                          if let Some(last_sync) = (*external_calendar_last_sync).clone() {
+                                              html! { <div class="field-help">{ last_sync }</div> }
+                                          } else {
+                                              html! {}
+                                          }
+                                      }
+                                      <div class="calendar-source-list">
+                                          {
+                                              if external_calendars.is_empty() {
+                                                  html! { <div class="calendar-empty">{ "No external calendar sources configured." }</div> }
+                                              } else {
+                                                  html! {
+                                                      <>
+                                                          {
+                                                              for external_calendars.iter().map(|source| {
+                                                                  let source_id = source.id.clone();
+                                                                  let source_id_for_sync = source_id.clone();
+                                                                  let source_id_for_delete = source_id.clone();
+                                                                  let source_for_edit = source.clone();
+                                                                  let color_style = format!("background:{};", source.color);
+                                                                  html! {
+                                                                      <div class="calendar-source-item">
+                                                                          <div class="calendar-source-top">
+                                                                              <span class="calendar-source-color" style={color_style}></span>
+                                                                              <span class="calendar-source-name">{ &source.name }</span>
+                                                                              {
+                                                                                  if source.enabled {
+                                                                                      html! { <span class="badge">{ "enabled" }</span> }
+                                                                                  } else {
+                                                                                      html! { <span class="badge">{ "disabled" }</span> }
+                                                                                  }
+                                                                              }
+                                                                          </div>
+                                                                          <div class="task-subtitle">{ &source.location }</div>
+                                                                          <div class="calendar-source-meta">
+                                                                              <span class="badge">{ format!("refresh:{}m", source.refresh_minutes) }</span>
+                                                                              {
+                                                                                  if source.show_reminders {
+                                                                                      html! { <span class="badge">{ "reminders:on" }</span> }
+                                                                                  } else {
+                                                                                      html! {}
+                                                                                  }
+                                                                              }
+                                                                              {
+                                                                                  if source.offline_support {
+                                                                                      html! { <span class="badge">{ "offline:on" }</span> }
+                                                                                  } else {
+                                                                                      html! {}
+                                                                                  }
+                                                                              }
+                                                                          </div>
+                                                                          <div class="actions">
+                                                                              <button class="btn" onclick={{
+                                                                                  let on_sync_external_calendar = on_sync_external_calendar.clone();
+                                                                                  Callback::from(move |_| on_sync_external_calendar.emit(source_id_for_sync.clone()))
+                                                                              }} disabled={*external_calendar_busy}>
+                                                                                  { "Sync" }
+                                                                              </button>
+                                                                              <button class="btn" onclick={{
+                                                                                  let on_open_edit_external_calendar = on_open_edit_external_calendar.clone();
+                                                                                  Callback::from(move |_| on_open_edit_external_calendar.emit(source_for_edit.clone()))
+                                                                              }}>
+                                                                                  { "Edit" }
+                                                                              </button>
+                                                                              <button class="btn danger" onclick={{
+                                                                                  let on_delete_external_calendar = on_delete_external_calendar.clone();
+                                                                                  Callback::from(move |_| on_delete_external_calendar.emit(source_id_for_delete.clone()))
+                                                                              }}>
+                                                                                  { "Delete" }
+                                                                              </button>
+                                                                          </div>
+                                                                      </div>
+                                                                  }
+                                                              })
+                                                          }
+                                                      </>
+                                                  }
+                                              }
+                                          }
+                                      </div>
                                   </div>
                               </div>
 
@@ -2455,7 +3087,7 @@ pub fn app() -> Html {
                                               calendar_week_start,
                                               &calendar_due_tasks,
                                               &calendar_config,
-                                              on_calendar_focus_day.clone(),
+                                              on_calendar_navigate.clone(),
                                           )
                                       }
                                   </div>
@@ -2982,6 +3614,40 @@ pub fn app() -> Html {
                           }
                       })
                   };
+                  let on_recurrence_pattern_change = {
+                      let modal_state = modal_state.clone();
+                      Callback::from(move |e: web_sys::Event| {
+                          let select: web_sys::HtmlSelectElement = e.target_unchecked_into();
+                          let value = select.value();
+                          if let Some(mut current) = (*modal_state).clone() {
+                              current.recurrence_pattern = value;
+                              current.error = None;
+                              modal_state.set(Some(current));
+                          }
+                      })
+                  };
+                  let on_recurrence_time_change = {
+                      let modal_state = modal_state.clone();
+                      Callback::from(move |e: web_sys::InputEvent| {
+                          let input: web_sys::HtmlInputElement = e.target_unchecked_into();
+                          if let Some(mut current) = (*modal_state).clone() {
+                              current.recurrence_time = input.value();
+                              current.error = None;
+                              modal_state.set(Some(current));
+                          }
+                      })
+                  };
+                  let on_recurrence_month_day_change = {
+                      let modal_state = modal_state.clone();
+                      Callback::from(move |e: web_sys::InputEvent| {
+                          let input: web_sys::HtmlInputElement = e.target_unchecked_into();
+                          if let Some(mut current) = (*modal_state).clone() {
+                              current.recurrence_month_day = input.value();
+                              current.error = None;
+                              modal_state.set(Some(current));
+                          }
+                      })
+                  };
                   html! {
                       <div class="modal-backdrop">
                           <div class="modal">
@@ -3208,7 +3874,7 @@ pub fn app() -> Html {
                                       <label>{ "Due" }</label>
                                       <input
                                           value={state.draft_due.clone()}
-                                          placeholder="e.g. tomorrow or 2026-02-20"
+                                          placeholder="e.g. tomorrow, 2028, march, wed, 3:23pm, 2026-02-20"
                                           oninput={{
                                               let modal_state = modal_state.clone();
                                               Callback::from(move |e: web_sys::InputEvent| {
@@ -3222,6 +3888,130 @@ pub fn app() -> Html {
                                           }}
                                       />
                                   </div>
+                                  <div class="field">
+                                      <label>{ "Recurrence" }</label>
+                                      <select
+                                          class="tag-select"
+                                          value={state.recurrence_pattern.clone()}
+                                          onchange={on_recurrence_pattern_change}
+                                      >
+                                          <option value="none">{ "None" }</option>
+                                          <option value="daily">{ "Daily" }</option>
+                                          <option value="weekly">{ "Weekly" }</option>
+                                          <option value="months">{ "Months" }</option>
+                                          <option value="monthly">{ "Monthly" }</option>
+                                          <option value="yearly">{ "Yearly" }</option>
+                                      </select>
+                                  </div>
+                                  {
+                                      if state.recurrence_pattern != "none" {
+                                          html! {
+                                              <div class="field">
+                                                  <label>{ "Recurring Time" }</label>
+                                                  <input
+                                                      value={state.recurrence_time.clone()}
+                                                      placeholder="e.g. 03:23pm or 15:23"
+                                                      oninput={on_recurrence_time_change}
+                                                  />
+                                              </div>
+                                          }
+                                      } else {
+                                          html! {}
+                                      }
+                                  }
+                                  {
+                                      if state.recurrence_pattern == "weekly" {
+                                          html! {
+                                              <div class="field">
+                                                  <label>{ "Weekly Days" }</label>
+                                                  <div class="toggle-grid">
+                                                      {
+                                                          for WEEKDAY_KEYS.iter().map(|day| {
+                                                              let day_key = (*day).to_string();
+                                                              let day_label = day_key.to_ascii_uppercase();
+                                                              let is_active = state.recurrence_days.iter().any(|entry| entry == &day_key);
+                                                              let modal_state = modal_state.clone();
+                                                              html! {
+                                                                  <button
+                                                                      type="button"
+                                                                      class={classes!("toggle-btn", is_active.then_some("active"))}
+                                                                      onclick={Callback::from(move |_| {
+                                                                          if let Some(mut current) = (*modal_state).clone() {
+                                                                              if current.recurrence_days.iter().any(|entry| entry == &day_key) {
+                                                                                  current.recurrence_days.retain(|entry| entry != &day_key);
+                                                                              } else {
+                                                                                  current.recurrence_days.push(day_key.clone());
+                                                                              }
+                                                                              current.error = None;
+                                                                              modal_state.set(Some(current));
+                                                                          }
+                                                                      })}
+                                                                  >
+                                                                      { day_label }
+                                                                  </button>
+                                                              }
+                                                          })
+                                                      }
+                                                  </div>
+                                              </div>
+                                          }
+                                      } else {
+                                          html! {}
+                                      }
+                                  }
+                                  {
+                                      if state.recurrence_pattern == "monthly"
+                                          || state.recurrence_pattern == "months"
+                                          || state.recurrence_pattern == "yearly"
+                                      {
+                                          html! {
+                                              <>
+                                                  <div class="field">
+                                                      <label>{ "Months" }</label>
+                                                      <div class="toggle-grid months">
+                                                          {
+                                                              for MONTH_KEYS.iter().map(|month| {
+                                                                  let month_key = (*month).to_string();
+                                                                  let month_label = month_key.to_ascii_uppercase();
+                                                                  let is_active = state.recurrence_months.iter().any(|entry| entry == &month_key);
+                                                                  let modal_state = modal_state.clone();
+                                                                  html! {
+                                                                      <button
+                                                                          type="button"
+                                                                          class={classes!("toggle-btn", is_active.then_some("active"))}
+                                                                          onclick={Callback::from(move |_| {
+                                                                              if let Some(mut current) = (*modal_state).clone() {
+                                                                                  if current.recurrence_months.iter().any(|entry| entry == &month_key) {
+                                                                                      current.recurrence_months.retain(|entry| entry != &month_key);
+                                                                                  } else {
+                                                                                      current.recurrence_months.push(month_key.clone());
+                                                                                  }
+                                                                                  current.error = None;
+                                                                                  modal_state.set(Some(current));
+                                                                              }
+                                                                          })}
+                                                                      >
+                                                                          { month_label }
+                                                                      </button>
+                                                                  }
+                                                              })
+                                                          }
+                                                      </div>
+                                                  </div>
+                                                  <div class="field">
+                                                      <label>{ "Month Day(s)" }</label>
+                                                      <input
+                                                          value={state.recurrence_month_day.clone()}
+                                                          placeholder="e.g. 1 or 1,15,28"
+                                                          oninput={on_recurrence_month_day_change}
+                                                      />
+                                                  </div>
+                                              </>
+                                          }
+                                      } else {
+                                          html! {}
+                                      }
+                                  }
                                   <div class="footer">
                                       <button
                                           id="modal-cancel-btn"
@@ -3318,6 +4108,199 @@ pub fn app() -> Html {
                   html! {}
               }
           }
+
+          {
+              if let Some(ext_modal) = (*external_calendar_modal).clone() {
+                  let submit_state = ext_modal.clone();
+                  let is_busy = *external_calendar_busy;
+                  let on_save_click = {
+                      let on_submit_external_calendar = on_submit_external_calendar.clone();
+                      Callback::from(move |_| on_submit_external_calendar.emit(submit_state.clone()))
+                  };
+                  html! {
+                      <div class="modal-backdrop" onclick={on_close_external_calendar_modal.clone()}>
+                          <div class="modal modal-md" onclick={Callback::from(|e: yew::MouseEvent| e.stop_propagation())}>
+                              <div class="header">
+                                  {
+                                      match ext_modal.mode {
+                                          ExternalCalendarModalMode::Add => "Add External Calendar",
+                                          ExternalCalendarModalMode::Edit => "Edit External Calendar",
+                                      }
+                                  }
+                              </div>
+                              <div class="content">
+                                  {
+                                      if let Some(err) = ext_modal.error.clone() {
+                                          html! { <div class="form-error">{ err }</div> }
+                                      } else {
+                                          html! {}
+                                      }
+                                  }
+                                  <div class="field field-inline-check">
+                                      <label>{ "Enable This Calendar" }</label>
+                                      <input
+                                          type="checkbox"
+                                          checked={ext_modal.source.enabled}
+                                          onchange={{
+                                              let external_calendar_modal = external_calendar_modal.clone();
+                                              Callback::from(move |e: web_sys::Event| {
+                                                  let input: web_sys::HtmlInputElement = e.target_unchecked_into();
+                                                  if let Some(mut current) = (*external_calendar_modal).clone() {
+                                                      current.source.enabled = input.checked();
+                                                      current.error = None;
+                                                      external_calendar_modal.set(Some(current));
+                                                  }
+                                              })
+                                          }}
+                                      />
+                                  </div>
+                                  <div class="field">
+                                      <label>{ "Calendar Name" }</label>
+                                      <input
+                                          value={ext_modal.source.name.clone()}
+                                          oninput={{
+                                              let external_calendar_modal = external_calendar_modal.clone();
+                                              Callback::from(move |e: web_sys::InputEvent| {
+                                                  let input: web_sys::HtmlInputElement = e.target_unchecked_into();
+                                                  if let Some(mut current) = (*external_calendar_modal).clone() {
+                                                      current.source.name = input.value();
+                                                      current.error = None;
+                                                      external_calendar_modal.set(Some(current));
+                                                  }
+                                              })
+                                          }}
+                                      />
+                                  </div>
+                                  <div class="field">
+                                      <label>{ "Color" }</label>
+                                      <input
+                                          type="color"
+                                          value={ext_modal.source.color.clone()}
+                                          oninput={{
+                                              let external_calendar_modal = external_calendar_modal.clone();
+                                              Callback::from(move |e: web_sys::InputEvent| {
+                                                  let input: web_sys::HtmlInputElement = e.target_unchecked_into();
+                                                  if let Some(mut current) = (*external_calendar_modal).clone() {
+                                                      current.source.color = input.value();
+                                                      current.error = None;
+                                                      external_calendar_modal.set(Some(current));
+                                                  }
+                                              })
+                                          }}
+                                      />
+                                  </div>
+                                  <div class="field">
+                                      <label>{ "Location (ICS URL)" }</label>
+                                      <input
+                                          value={ext_modal.source.location.clone()}
+                                          placeholder="https://example.com/calendar.ics"
+                                          oninput={{
+                                              let external_calendar_modal = external_calendar_modal.clone();
+                                              Callback::from(move |e: web_sys::InputEvent| {
+                                                  let input: web_sys::HtmlInputElement = e.target_unchecked_into();
+                                                  if let Some(mut current) = (*external_calendar_modal).clone() {
+                                                      current.source.location = input.value();
+                                                      current.error = None;
+                                                      external_calendar_modal.set(Some(current));
+                                                  }
+                                              })
+                                          }}
+                                      />
+                                  </div>
+                                  <div class="field">
+                                      <label>{ "Refresh Calendar" }</label>
+                                      <select
+                                          class="tag-select"
+                                          value={ext_modal.source.refresh_minutes.to_string()}
+                                          onchange={{
+                                              let external_calendar_modal = external_calendar_modal.clone();
+                                              Callback::from(move |e: web_sys::Event| {
+                                                  let select: web_sys::HtmlSelectElement = e.target_unchecked_into();
+                                                  if let Some(mut current) = (*external_calendar_modal).clone() {
+                                                      let parsed = select.value().parse::<u32>().ok().unwrap_or(30);
+                                                      current.source.refresh_minutes = parsed.max(1);
+                                                      current.error = None;
+                                                      external_calendar_modal.set(Some(current));
+                                                  }
+                                              })
+                                          }}
+                                      >
+                                          <option value="5">{ "Every 5 minutes" }</option>
+                                          <option value="15">{ "Every 15 minutes" }</option>
+                                          <option value="30">{ "Every 30 minutes" }</option>
+                                          <option value="60">{ "Every 60 minutes" }</option>
+                                          <option value="360">{ "Every 6 hours" }</option>
+                                          <option value="1440">{ "Every 24 hours" }</option>
+                                      </select>
+                                  </div>
+                                  <div class="field field-inline-check">
+                                      <label>{ "Read Only" }</label>
+                                      <input
+                                          type="checkbox"
+                                          checked={ext_modal.source.read_only}
+                                          onchange={{
+                                              let external_calendar_modal = external_calendar_modal.clone();
+                                              Callback::from(move |e: web_sys::Event| {
+                                                  let input: web_sys::HtmlInputElement = e.target_unchecked_into();
+                                                  if let Some(mut current) = (*external_calendar_modal).clone() {
+                                                      current.source.read_only = input.checked();
+                                                      current.error = None;
+                                                      external_calendar_modal.set(Some(current));
+                                                  }
+                                              })
+                                          }}
+                                      />
+                                  </div>
+                                  <div class="field field-inline-check">
+                                      <label>{ "Show Reminders" }</label>
+                                      <input
+                                          type="checkbox"
+                                          checked={ext_modal.source.show_reminders}
+                                          onchange={{
+                                              let external_calendar_modal = external_calendar_modal.clone();
+                                              Callback::from(move |e: web_sys::Event| {
+                                                  let input: web_sys::HtmlInputElement = e.target_unchecked_into();
+                                                  if let Some(mut current) = (*external_calendar_modal).clone() {
+                                                      current.source.show_reminders = input.checked();
+                                                      current.error = None;
+                                                      external_calendar_modal.set(Some(current));
+                                                  }
+                                              })
+                                          }}
+                                      />
+                                  </div>
+                                  <div class="field field-inline-check">
+                                      <label>{ "Offline Support" }</label>
+                                      <input
+                                          type="checkbox"
+                                          checked={ext_modal.source.offline_support}
+                                          onchange={{
+                                              let external_calendar_modal = external_calendar_modal.clone();
+                                              Callback::from(move |e: web_sys::Event| {
+                                                  let input: web_sys::HtmlInputElement = e.target_unchecked_into();
+                                                  if let Some(mut current) = (*external_calendar_modal).clone() {
+                                                      current.source.offline_support = input.checked();
+                                                      current.error = None;
+                                                      external_calendar_modal.set(Some(current));
+                                                  }
+                                              })
+                                          }}
+                                      />
+                                  </div>
+                                  <div class="footer">
+                                      <button type="button" class="btn" onclick={on_close_external_calendar_modal.clone()}>{ "Cancel" }</button>
+                                      <button type="button" class="btn" onclick={on_save_click} disabled={is_busy}>
+                                          { if is_busy { "Saving..." } else { "Save" } }
+                                      </button>
+                                  </div>
+                              </div>
+                          </div>
+                      </div>
+                  }
+              } else {
+                  html! {}
+              }
+          }
       </div>
   }
 }
@@ -3404,6 +4387,95 @@ fn save_workspace_tab(tab: &str) {
       WORKSPACE_TAB_STORAGE_KEY,
       tab
     );
+  }
+}
+
+fn load_external_calendars()
+-> Vec<ExternalCalendarSource> {
+  let stored = web_sys::window()
+    .and_then(|window| {
+      window
+        .local_storage()
+        .ok()
+        .flatten()
+    })
+    .and_then(|storage| {
+      storage
+        .get_item(
+          EXTERNAL_CALENDARS_STORAGE_KEY
+        )
+        .ok()
+        .flatten()
+    });
+
+  if let Some(raw) = stored {
+    match serde_json::from_str::<
+      Vec<ExternalCalendarSource>
+    >(&raw)
+    {
+      | Ok(mut sources) => {
+        sources.retain(|source| {
+          !source.id.trim().is_empty()
+            && !source
+              .name
+              .trim()
+              .is_empty()
+            && !source
+              .location
+              .trim()
+              .is_empty()
+        });
+        return sources;
+      }
+      | Err(error) => {
+        tracing::error!(
+          %error,
+          "failed parsing external \
+           calendars from local storage"
+        );
+      }
+    }
+  }
+
+  Vec::new()
+}
+
+fn save_external_calendars(
+  sources: &[ExternalCalendarSource]
+) {
+  if let Some(storage) =
+    web_sys::window().and_then(
+      |window| {
+        window
+          .local_storage()
+          .ok()
+          .flatten()
+      }
+    )
+    && let Ok(json) =
+      serde_json::to_string(sources)
+  {
+    let _ = storage.set_item(
+      EXTERNAL_CALENDARS_STORAGE_KEY,
+      &json
+    );
+  }
+}
+
+fn new_external_calendar_source()
+-> ExternalCalendarSource {
+  ExternalCalendarSource {
+    id:              Uuid::new_v4()
+      .to_string(),
+    name:            String::new(),
+    color:           "#d64545"
+      .to_string(),
+    location:        String::new(),
+    refresh_minutes: 30,
+    enabled:         true,
+    read_only:       true,
+    show_reminders:  true,
+    offline_support: true
   }
 }
 
@@ -3687,6 +4759,252 @@ fn split_tags(
     .collect()
 }
 
+fn recurrence_from_tags(
+  tags: &[String]
+) -> (
+  String,
+  String,
+  Vec<String>,
+  Vec<String>,
+  String
+) {
+  let pattern = first_tag_value(
+    tags,
+    RECUR_TAG_KEY
+  )
+  .map(normalize_recurrence_pattern)
+  .unwrap_or_else(|| {
+    "none".to_string()
+  });
+
+  let time = first_tag_value(
+    tags,
+    RECUR_TIME_TAG_KEY
+  )
+  .unwrap_or_default()
+  .to_string();
+
+  let days = split_csv_values(
+    first_tag_value(
+      tags,
+      RECUR_DAYS_TAG_KEY
+    )
+    .unwrap_or_default()
+  )
+  .into_iter()
+  .map(|entry| {
+    entry
+      .to_ascii_lowercase()
+      .trim()
+      .to_string()
+  })
+  .filter(|entry| {
+    WEEKDAY_KEYS
+      .iter()
+      .any(|key| key == entry)
+  })
+  .collect::<Vec<_>>();
+
+  let months = split_csv_values(
+    first_tag_value(
+      tags,
+      RECUR_MONTHS_TAG_KEY
+    )
+    .unwrap_or_default()
+  )
+  .into_iter()
+  .map(|entry| {
+    entry
+      .to_ascii_lowercase()
+      .trim()
+      .to_string()
+  })
+  .filter(|entry| {
+    MONTH_KEYS
+      .iter()
+      .any(|key| key == entry)
+  })
+  .collect::<Vec<_>>();
+
+  let month_day = first_tag_value(
+    tags,
+    RECUR_MONTH_DAY_TAG_KEY
+  )
+  .unwrap_or_default()
+  .to_string();
+
+  (
+    pattern, time, days, months,
+    month_day
+  )
+}
+
+fn normalize_recurrence_pattern(
+  value: &str
+) -> String {
+  match value
+    .trim()
+    .to_ascii_lowercase()
+    .as_str()
+  {
+    | "daily" => "daily".to_string(),
+    | "weekly" => "weekly".to_string(),
+    | "months" => "months".to_string(),
+    | "monthly" => {
+      "monthly".to_string()
+    }
+    | "yearly" => "yearly".to_string(),
+    | _ => "none".to_string()
+  }
+}
+
+fn split_csv_values(
+  value: &str
+) -> Vec<String> {
+  value
+    .split(',')
+    .map(str::trim)
+    .filter(|entry| !entry.is_empty())
+    .map(ToString::to_string)
+    .collect()
+}
+
+fn is_recurrence_tag(
+  tag: &str
+) -> bool {
+  matches!(
+    tag.split_once(':'),
+    Some((key, _))
+      if key == RECUR_TAG_KEY
+      || key == RECUR_TIME_TAG_KEY
+      || key == RECUR_DAYS_TAG_KEY
+      || key == RECUR_MONTHS_TAG_KEY
+      || key == RECUR_MONTH_DAY_TAG_KEY
+  )
+}
+
+fn append_recurrence_tags(
+  tags: &mut Vec<String>,
+  state: &ModalState
+) {
+  remove_tags_for_key(
+    tags,
+    RECUR_TAG_KEY
+  );
+  remove_tags_for_key(
+    tags,
+    RECUR_TIME_TAG_KEY
+  );
+  remove_tags_for_key(
+    tags,
+    RECUR_DAYS_TAG_KEY
+  );
+  remove_tags_for_key(
+    tags,
+    RECUR_MONTHS_TAG_KEY
+  );
+  remove_tags_for_key(
+    tags,
+    RECUR_MONTH_DAY_TAG_KEY
+  );
+
+  let pattern =
+    normalize_recurrence_pattern(
+      &state.recurrence_pattern
+    );
+  if pattern == "none" {
+    return;
+  }
+
+  push_tag_unique(
+    tags,
+    format!(
+      "{RECUR_TAG_KEY}:{pattern}"
+    )
+  );
+
+  let recurrence_time =
+    state.recurrence_time.trim();
+  if !recurrence_time.is_empty() {
+    push_tag_unique(
+      tags,
+      format!(
+        "{RECUR_TIME_TAG_KEY}:\
+         {recurrence_time}"
+      )
+    );
+  }
+
+  if pattern == "weekly"
+    && !state.recurrence_days.is_empty()
+  {
+    let values = state
+      .recurrence_days
+      .iter()
+      .map(|value| {
+        value
+          .trim()
+          .to_ascii_lowercase()
+      })
+      .filter(|value| {
+        WEEKDAY_KEYS
+          .iter()
+          .any(|key| key == value)
+      })
+      .collect::<Vec<_>>();
+    if !values.is_empty() {
+      push_tag_unique(
+        tags,
+        format!(
+          "{RECUR_DAYS_TAG_KEY}:{}",
+          values.join(",")
+        )
+      );
+    }
+  }
+
+  if pattern == "monthly"
+    || pattern == "months"
+    || pattern == "yearly"
+  {
+    let months = state
+      .recurrence_months
+      .iter()
+      .map(|value| {
+        value
+          .trim()
+          .to_ascii_lowercase()
+      })
+      .filter(|value| {
+        MONTH_KEYS
+          .iter()
+          .any(|key| key == value)
+      })
+      .collect::<Vec<_>>();
+    if !months.is_empty() {
+      push_tag_unique(
+        tags,
+        format!(
+          "{RECUR_MONTHS_TAG_KEY}:{}",
+          months.join(",")
+        )
+      );
+    }
+
+    let month_day =
+      state.recurrence_month_day.trim();
+    if !month_day.is_empty() {
+      push_tag_unique(
+        tags,
+        format!(
+          "{RECUR_MONTH_DAY_TAG_KEY}:\
+           {month_day}"
+        )
+      );
+    }
+  }
+}
+
 fn collect_tags_for_submit(
   state: &ModalState,
   board_tag: Option<String>,
@@ -3708,6 +5026,10 @@ fn collect_tags_for_submit(
   if let Some(tag) = board_tag {
     push_tag_unique(&mut tags, tag);
   }
+
+  append_recurrence_tags(
+    &mut tags, state
+  );
 
   if ensure_kanban_lane
     && !tags.iter().any(|tag| {
@@ -4521,7 +5843,10 @@ fn render_calendar_view(
   week_start: Weekday,
   due_tasks: &[CalendarDueTask],
   config: &CalendarConfig,
-  on_focus_day: Callback<NaiveDate>
+  on_navigate: Callback<(
+    NaiveDate,
+    CalendarViewMode
+  )>
 ) -> Html {
   match view {
     | CalendarViewMode::Year => {
@@ -4529,7 +5854,7 @@ fn render_calendar_view(
         focus,
         due_tasks,
         config,
-        on_focus_day
+        on_navigate
       )
     }
     | CalendarViewMode::Quarter => {
@@ -4537,7 +5862,7 @@ fn render_calendar_view(
         focus,
         due_tasks,
         config,
-        on_focus_day
+        on_navigate
       )
     }
     | CalendarViewMode::Month => {
@@ -4546,7 +5871,7 @@ fn render_calendar_view(
         week_start,
         due_tasks,
         config,
-        on_focus_day
+        on_navigate
       )
     }
     | CalendarViewMode::Week => {
@@ -4555,7 +5880,7 @@ fn render_calendar_view(
         week_start,
         due_tasks,
         config,
-        on_focus_day
+        on_navigate
       )
     }
     | CalendarViewMode::Day => {
@@ -4568,7 +5893,7 @@ fn render_calendar_view(
         focus,
         due_tasks,
         config,
-        on_focus_day
+        on_navigate
       )
     }
   }
@@ -4578,7 +5903,10 @@ fn render_calendar_year_view(
   focus: NaiveDate,
   due_tasks: &[CalendarDueTask],
   config: &CalendarConfig,
-  on_focus_day: Callback<NaiveDate>
+  on_navigate: Callback<(
+    NaiveDate,
+    CalendarViewMode
+  )>
 ) -> Html {
   let year = focus.year();
 
@@ -4594,13 +5922,13 @@ fn render_calendar_year_view(
                               && entry.due_local.month() == month
                       })
                       .count();
-                  let on_focus_day = on_focus_day.clone();
+                  let on_navigate = on_navigate.clone();
 
                   html! {
                       <button
                           type="button"
                           class="calendar-period-card"
-                          onclick={Callback::from(move |_| on_focus_day.emit(month_start))}
+                          onclick={Callback::from(move |_| on_navigate.emit((month_start, CalendarViewMode::Month)))}
                       >
                           <div class="calendar-period-title">{ month_start.format("%B").to_string() }</div>
                           <div class="badge">{ format!("{count} tasks") }</div>
@@ -4617,7 +5945,10 @@ fn render_calendar_quarter_view(
   focus: NaiveDate,
   due_tasks: &[CalendarDueTask],
   config: &CalendarConfig,
-  on_focus_day: Callback<NaiveDate>
+  on_navigate: Callback<(
+    NaiveDate,
+    CalendarViewMode
+  )>
 ) -> Html {
   let quarter_start_month =
     ((focus.month() - 1) / 3) * 3 + 1;
@@ -4639,12 +5970,12 @@ fn render_calendar_quarter_view(
                               && entry.due_local.month() == month
                       })
                       .count();
-                  let on_focus_day = on_focus_day.clone();
+                  let on_navigate = on_navigate.clone();
                   html! {
                       <button
                           type="button"
                           class="calendar-period-card"
-                          onclick={Callback::from(move |_| on_focus_day.emit(month_start))}
+                          onclick={Callback::from(move |_| on_navigate.emit((month_start, CalendarViewMode::Month)))}
                       >
                           <div class="calendar-period-title">{ month_start.format("%B").to_string() }</div>
                           <div class="badge">{ format!("{count} tasks") }</div>
@@ -4662,7 +5993,10 @@ fn render_calendar_month_view(
   week_start: Weekday,
   due_tasks: &[CalendarDueTask],
   config: &CalendarConfig,
-  on_focus_day: Callback<NaiveDate>
+  on_navigate: Callback<(
+    NaiveDate,
+    CalendarViewMode
+  )>
 ) -> Html {
   let first = first_day_of_month(
     focus.year(),
@@ -4672,6 +6006,23 @@ fn render_calendar_month_view(
     start_of_week(first, week_start);
   let labels =
     weekday_labels(week_start);
+  let month_last = last_day_of_month(
+    focus.year(),
+    focus.month()
+  );
+  let mut week_starts = Vec::new();
+  for row in 0_i64..6_i64 {
+    let week_start_day =
+      add_days(grid_start, row * 7);
+    let week_end_day =
+      add_days(week_start_day, 6);
+    if week_end_day < first
+      || week_start_day > month_last
+    {
+      continue;
+    }
+    week_starts.push(week_start_day);
+  }
 
   html! {
       <>
@@ -4691,15 +6042,42 @@ fn render_calendar_month_view(
                           .filter(|entry| entry.due_local.date_naive() == day)
                           .count();
                       let outside = day.month() != focus.month();
-                      let on_focus_day = on_focus_day.clone();
+                      let on_navigate = on_navigate.clone();
                       html! {
                           <button
                               type="button"
                               class={classes!("calendar-day-cell", outside.then_some("outside"), (count > 0).then_some("has-tasks"))}
-                              onclick={Callback::from(move |_| on_focus_day.emit(day))}
+                              onclick={Callback::from(move |_| on_navigate.emit((day, CalendarViewMode::Day)))}
                           >
                               <div class="calendar-day-label">{ day.day() }</div>
                               { render_calendar_dots(count, config.policies.red_dot_limit) }
+                          </button>
+                      }
+                  })
+              }
+          </div>
+          <div class="calendar-week-shortcuts">
+              {
+                  for week_starts.into_iter().map(|week_start_day| {
+                      let week_end_day =
+                        add_days(
+                          week_start_day,
+                          6
+                        );
+                      let label = format!(
+                          "{} - {}",
+                          week_start_day.format("%b %d"),
+                          week_end_day.format("%b %d")
+                      );
+                      let on_navigate =
+                        on_navigate.clone();
+                      html! {
+                          <button
+                              type="button"
+                              class="btn calendar-week-shortcut-btn"
+                              onclick={Callback::from(move |_| on_navigate.emit((week_start_day, CalendarViewMode::Week)))}
+                          >
+                              { label }
                           </button>
                       }
                   })
@@ -4714,7 +6092,10 @@ fn render_calendar_week_view(
   week_start: Weekday,
   due_tasks: &[CalendarDueTask],
   config: &CalendarConfig,
-  on_focus_day: Callback<NaiveDate>
+  on_navigate: Callback<(
+    NaiveDate,
+    CalendarViewMode
+  )>
 ) -> Html {
   let start =
     start_of_week(focus, week_start);
@@ -4730,13 +6111,13 @@ fn render_calendar_week_view(
                       .cloned()
                       .collect::<Vec<_>>();
                   let count = day_tasks.len();
-                  let on_focus_day = on_focus_day.clone();
+                  let on_navigate = on_navigate.clone();
 
                   html! {
                       <button
                           type="button"
                           class={classes!("calendar-week-day-card", (count > 0).then_some("has-tasks"))}
-                          onclick={Callback::from(move |_| on_focus_day.emit(day))}
+                          onclick={Callback::from(move |_| on_navigate.emit((day, CalendarViewMode::Day)))}
                       >
                           <div class="calendar-week-day-head">
                               <span>{ day.format("%a %d").to_string() }</span>
@@ -4832,7 +6213,10 @@ fn render_calendar_list_view(
   focus: NaiveDate,
   due_tasks: &[CalendarDueTask],
   config: &CalendarConfig,
-  on_focus_day: Callback<NaiveDate>
+  on_navigate: Callback<(
+    NaiveDate,
+    CalendarViewMode
+  )>
 ) -> Html {
   let tasks =
     collect_calendar_upcoming_tasks(
@@ -4850,12 +6234,12 @@ fn render_calendar_list_view(
                           {
                               for tasks.iter().map(|entry| {
                                   let day = entry.due_local.date_naive();
-                                  let on_focus_day = on_focus_day.clone();
+                                  let on_navigate = on_navigate.clone();
                                   html! {
                                       <button
                                           type="button"
                                           class="calendar-list-item"
-                                          onclick={Callback::from(move |_| on_focus_day.emit(day))}
+                                          onclick={Callback::from(move |_| on_navigate.emit((day, CalendarViewMode::Day)))}
                                       >
                                           <div class="calendar-task-title">{ &entry.task.title }</div>
                                           <div class="task-subtitle">{ format_calendar_due_datetime(entry, entry.due_local.timezone()) }</div>

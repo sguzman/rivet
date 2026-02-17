@@ -516,6 +516,66 @@ body {
   font-size: 12px;
 }
 
+.calendar-week-shortcuts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.calendar-week-shortcut-btn {
+  border-radius: 10px;
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 7px 10px;
+}
+
+.calendar-external-header {
+  margin-top: 6px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.02em;
+}
+
+.calendar-source-list {
+  display: grid;
+  gap: 8px;
+}
+
+.calendar-source-item {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  padding: 9px;
+  display: grid;
+  gap: 8px;
+}
+
+.calendar-source-top {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.calendar-source-color {
+  width: 11px;
+  height: 11px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  display: inline-block;
+}
+
+.calendar-source-name {
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.calendar-source-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 .kanban-board {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -767,6 +827,46 @@ body {
   align-items: center;
 }
 
+.field-inline-check {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.field-inline-check label {
+  margin-bottom: 0;
+}
+
+.field-inline-check input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+}
+
+.toggle-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.toggle-btn {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--muted);
+  padding: 5px 10px;
+  font-family: var(--mono);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.toggle-btn.active {
+  border-color: var(--accent);
+  color: var(--text);
+  background: var(--facet-active-bg);
+}
+
 .tag-picker {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
@@ -858,6 +958,10 @@ body {
 
 .modal.modal-sm {
   width: min(380px, 100%);
+}
+
+.modal.modal-md {
+  width: min(560px, 100%);
 }
 
 .modal .header {

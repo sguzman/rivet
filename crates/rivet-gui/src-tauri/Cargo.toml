@@ -10,7 +10,10 @@ tauri-build = { version = "2.5.5", features = [] }
 [dependencies]
 anyhow = "1.0.101"
 chrono = "0.4.43"
+chrono-tz = "0.10.4"
+ical = "0.11.0"
 parking_lot = "0.12.5"
+reqwest = { version = "0.13.2", default-features = false, features = ["rustls"] }
 rivet_core = { path = "../../rivet-core" }
 rivet_gui_shared = { path = "../../rivet-gui-shared" }
 serde = { version = "1.0.228", features = ["derive"] }
