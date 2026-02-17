@@ -1,0 +1,23 @@
+version = 1
+# Optional override. If omitted, timezone falls back to rivet-time.toml.
+timezone = "America/Mexico_City"
+
+[policies]
+# monday | sunday
+week_start = "monday"
+# Keep this large so one red dot can be rendered per task in each bucket.
+red_dot_limit = 5000
+# Number of upcoming tasks shown in Task List.
+task_list_limit = 200
+# Number of days included in future Task List.
+task_list_window_days = 365
+
+[visibility]
+pending = true
+waiting = true
+completed = true
+deleted = true
+
+[day_view]
+hour_start = 0
+hour_end = 23

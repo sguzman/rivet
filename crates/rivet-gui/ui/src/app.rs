@@ -3,6 +3,17 @@ use std::collections::{
   BTreeSet
 };
 
+use chrono::{
+  DateTime,
+  Datelike,
+  Duration,
+  NaiveDate,
+  NaiveDateTime,
+  Timelike,
+  Utc,
+  Weekday
+};
+use chrono_tz::Tz;
 use gloo::console::log;
 use gloo::timers::future::TimeoutFuture;
 use rivet_gui_shared::{
@@ -257,16 +268,267 @@ impl ThemeMode {
   }
 }
 
+#[derive(
+  Clone, Copy, PartialEq, Eq,
+)]
+enum CalendarViewMode {
+  Year,
+  Quarter,
+  Month,
+  Week,
+  Day,
+  List
+}
+
+impl CalendarViewMode {
+  fn all() -> [Self; 6] {
+    [
+      Self::Year,
+      Self::Quarter,
+      Self::Month,
+      Self::Week,
+      Self::Day,
+      Self::List
+    ]
+  }
+
+  fn as_key(self) -> &'static str {
+    match self {
+      | Self::Year => "year",
+      | Self::Quarter => "quarter",
+      | Self::Month => "month",
+      | Self::Week => "week",
+      | Self::Day => "day",
+      | Self::List => "list"
+    }
+  }
+
+  fn label(self) -> &'static str {
+    match self {
+      | Self::Year => "Year",
+      | Self::Quarter => "Quarter",
+      | Self::Month => "Month",
+      | Self::Week => "Week",
+      | Self::Day => "Day",
+      | Self::List => "Task List"
+    }
+  }
+
+  fn from_key(
+    key: &str
+  ) -> Option<Self> {
+    match key {
+      | "year" => Some(Self::Year),
+      | "quarter" => {
+        Some(Self::Quarter)
+      }
+      | "month" => Some(Self::Month),
+      | "week" => Some(Self::Week),
+      | "day" => Some(Self::Day),
+      | "list" => Some(Self::List),
+      | _ => None
+    }
+  }
+}
+
+#[derive(
+  Clone, PartialEq, Deserialize,
+)]
+struct CalendarConfig {
+  #[serde(default)]
+  version:    u32,
+  timezone:   Option<String>,
+  #[serde(default)]
+  policies:   CalendarPolicies,
+  #[serde(default)]
+  visibility: CalendarVisibility,
+  #[serde(default)]
+  day_view:   CalendarDayView
+}
+
+#[derive(
+  Clone, PartialEq, Deserialize,
+)]
+struct CalendarPolicies {
+  #[serde(
+    default = "calendar_default_week_start"
+  )]
+  week_start:            String,
+  #[serde(
+    default = "calendar_default_red_dot_limit"
+  )]
+  red_dot_limit:         usize,
+  #[serde(
+    default = "calendar_default_task_list_limit"
+  )]
+  task_list_limit:       usize,
+  #[serde(
+    default = "calendar_default_task_list_window_days"
+  )]
+  task_list_window_days: i64
+}
+
+#[derive(
+  Clone, PartialEq, Deserialize,
+)]
+struct CalendarVisibility {
+  #[serde(default = "calendar_true")]
+  pending:   bool,
+  #[serde(default = "calendar_true")]
+  waiting:   bool,
+  #[serde(default = "calendar_true")]
+  completed: bool,
+  #[serde(default = "calendar_true")]
+  deleted:   bool
+}
+
+#[derive(
+  Clone, PartialEq, Deserialize,
+)]
+struct CalendarDayView {
+  #[serde(default)]
+  hour_start: u32,
+  #[serde(
+    default = "calendar_default_day_view_hour_end"
+  )]
+  hour_end:   u32
+}
+
+#[derive(Deserialize)]
+struct ProjectTimeConfig {
+  timezone: Option<String>,
+  time:     Option<ProjectTimeSection>
+}
+
+#[derive(Deserialize)]
+struct ProjectTimeSection {
+  timezone: Option<String>
+}
+
+#[derive(Clone)]
+struct CalendarDueTask {
+  task:      TaskDto,
+  due_utc:   DateTime<Utc>,
+  due_local: DateTime<Tz>
+}
+
+#[derive(Default)]
+struct CalendarStats {
+  total:     usize,
+  pending:   usize,
+  waiting:   usize,
+  completed: usize,
+  deleted:   usize
+}
+
+impl CalendarStats {
+  fn push(
+    &mut self,
+    status: &TaskStatus
+  ) {
+    self.total =
+      self.total.saturating_add(1);
+    match status {
+      | TaskStatus::Pending => {
+        self.pending = self
+          .pending
+          .saturating_add(1);
+      }
+      | TaskStatus::Waiting => {
+        self.waiting = self
+          .waiting
+          .saturating_add(1);
+      }
+      | TaskStatus::Completed => {
+        self.completed = self
+          .completed
+          .saturating_add(1);
+      }
+      | TaskStatus::Deleted => {
+        self.deleted = self
+          .deleted
+          .saturating_add(1);
+      }
+    }
+  }
+}
+
+impl Default for CalendarConfig {
+  fn default() -> Self {
+    Self {
+      version:    1,
+      timezone:   Some(
+        DEFAULT_CALENDAR_TIMEZONE
+          .to_string()
+      ),
+      policies:
+        CalendarPolicies::default(),
+      visibility:
+        CalendarVisibility::default(),
+      day_view:
+        CalendarDayView::default()
+    }
+  }
+}
+
+impl Default for CalendarPolicies {
+  fn default() -> Self {
+    Self {
+      week_start:
+        calendar_default_week_start(),
+      red_dot_limit:
+        calendar_default_red_dot_limit(),
+      task_list_limit:
+        calendar_default_task_list_limit(),
+      task_list_window_days:
+        calendar_default_task_list_window_days(
+        )
+    }
+  }
+}
+
+impl Default for CalendarVisibility {
+  fn default() -> Self {
+    Self {
+      pending:   true,
+      waiting:   true,
+      completed: true,
+      deleted:   true
+    }
+  }
+}
+
+impl Default for CalendarDayView {
+  fn default() -> Self {
+    Self {
+      hour_start: 0,
+      hour_end:
+        calendar_default_day_view_hour_end(
+        )
+    }
+  }
+}
+
 const THEME_STORAGE_KEY: &str =
   "rivet.theme";
 const WORKSPACE_TAB_STORAGE_KEY: &str =
   "rivet.workspace_tab";
+const CALENDAR_VIEW_STORAGE_KEY: &str =
+  "rivet.calendar.view";
 const KANBAN_BOARDS_STORAGE_KEY: &str =
   "rivet.kanban.boards";
 const KANBAN_ACTIVE_BOARD_STORAGE_KEY:
   &str = "rivet.kanban.active_board";
 const TAG_SCHEMA_TOML: &str =
   include_str!("../assets/tags.toml");
+const CALENDAR_CONFIG_TOML: &str = include_str!(
+  "../assets/calendar.toml"
+);
+const PROJECT_TIME_CONFIG_TOML: &str = include_str!(
+  "../../../../rivet-time.toml"
+);
+const DEFAULT_CALENDAR_TIMEZONE: &str =
+  "America/Mexico_City";
 const KANBAN_TAG_KEY: &str = "kanban";
 const BOARD_TAG_KEY: &str = "board";
 
@@ -278,6 +540,21 @@ pub fn app() -> Html {
     use_state(load_workspace_tab);
   let tag_schema =
     use_state(load_tag_schema);
+  let calendar_config =
+    use_state(load_calendar_config);
+  let calendar_view =
+    use_state(load_calendar_view_mode);
+  let calendar_focus_date = {
+    let config_snapshot =
+      (*calendar_config).clone();
+    use_state(move || {
+      today_in_timezone(
+        resolve_calendar_timezone(
+          &config_snapshot
+        )
+      )
+    })
+  };
   let active_view =
     use_state(|| "all".to_string());
   let kanban_boards =
@@ -357,6 +634,22 @@ pub fn app() -> Html {
         tracing::debug!(
           tab = %tab,
           "persisted workspace tab"
+        );
+        || ()
+      }
+    );
+  }
+
+  {
+    let calendar_view =
+      calendar_view.clone();
+    use_effect_with(
+      *calendar_view,
+      move |view| {
+        save_calendar_view_mode(*view);
+        tracing::debug!(
+          view = %view.as_key(),
+          "persisted calendar view mode"
         );
         || ()
       }
@@ -464,7 +757,10 @@ pub fn app() -> Html {
         wasm_bindgen_futures::spawn_local(async move {
                     tracing::info!(tab = %tab, view = %view, tick, "refreshing task list");
 
-                    let status = if tab == "kanban" || view == "all" {
+                    let status = if tab == "kanban"
+                        || tab == "calendar"
+                        || view == "all"
+                    {
                         None
                     } else {
                         Some(TaskStatus::Pending)
@@ -606,6 +902,42 @@ pub fn app() -> Html {
     build_project_facets(&facet_tasks);
   let tag_facets =
     build_tag_facets(&facet_tasks);
+  let calendar_timezone =
+    resolve_calendar_timezone(
+      &calendar_config
+    );
+  let calendar_week_start =
+    calendar_week_start_day(
+      &calendar_config
+        .policies
+        .week_start
+    );
+  let calendar_due_tasks =
+    collect_calendar_due_tasks(
+      &facet_tasks,
+      calendar_timezone,
+      &calendar_config
+    );
+  let calendar_period_stats =
+    summarize_calendar_period(
+      &calendar_due_tasks,
+      *calendar_view,
+      *calendar_focus_date,
+      calendar_week_start,
+      &calendar_config
+    );
+  let calendar_upcoming_tasks =
+    collect_calendar_upcoming_tasks(
+      &calendar_due_tasks,
+      *calendar_focus_date,
+      &calendar_config
+    );
+  let calendar_title =
+    calendar_title_for_view(
+      *calendar_view,
+      *calendar_focus_date,
+      calendar_week_start
+    );
 
   let on_nav = {
     let active_view =
@@ -681,6 +1013,26 @@ pub fn app() -> Html {
       selected.set(None);
       bulk_selected
         .set(BTreeSet::new());
+    })
+  };
+
+  let on_select_calendar_tab = {
+    let active_tab = active_tab.clone();
+    let selected = selected.clone();
+    let bulk_selected =
+      bulk_selected.clone();
+    let dragging_kanban_task =
+      dragging_kanban_task.clone();
+    let drag_over_kanban_lane =
+      drag_over_kanban_lane.clone();
+    Callback::from(move |_| {
+      active_tab
+        .set("calendar".to_string());
+      selected.set(None);
+      bulk_selected
+        .set(BTreeSet::new());
+      dragging_kanban_task.set(None);
+      drag_over_kanban_lane.set(None);
     })
   };
 
@@ -875,6 +1227,100 @@ pub fn app() -> Html {
              non-select target"
           );
         }
+      }
+    )
+  };
+
+  let on_calendar_set_view = {
+    let calendar_view =
+      calendar_view.clone();
+    Callback::from(
+      move |view: CalendarViewMode| {
+        tracing::info!(
+          view = %view.as_key(),
+          "calendar view changed"
+        );
+        calendar_view.set(view);
+      }
+    )
+  };
+
+  let on_calendar_prev = {
+    let calendar_focus_date =
+      calendar_focus_date.clone();
+    let calendar_view =
+      calendar_view.clone();
+    let week_start =
+      calendar_week_start;
+    Callback::from(move |_| {
+      let next = shift_calendar_focus(
+        *calendar_focus_date,
+        *calendar_view,
+        -1,
+        week_start
+      );
+      tracing::debug!(
+        from = %calendar_focus_date.format("%Y-%m-%d"),
+        to = %next.format("%Y-%m-%d"),
+        view = %(*calendar_view).as_key(),
+        "calendar moved backward"
+      );
+      calendar_focus_date.set(next);
+    })
+  };
+
+  let on_calendar_next = {
+    let calendar_focus_date =
+      calendar_focus_date.clone();
+    let calendar_view =
+      calendar_view.clone();
+    let week_start =
+      calendar_week_start;
+    Callback::from(move |_| {
+      let next = shift_calendar_focus(
+        *calendar_focus_date,
+        *calendar_view,
+        1,
+        week_start
+      );
+      tracing::debug!(
+        from = %calendar_focus_date.format("%Y-%m-%d"),
+        to = %next.format("%Y-%m-%d"),
+        view = %(*calendar_view).as_key(),
+        "calendar moved forward"
+      );
+      calendar_focus_date.set(next);
+    })
+  };
+
+  let on_calendar_today = {
+    let calendar_focus_date =
+      calendar_focus_date.clone();
+    let calendar_timezone =
+      calendar_timezone;
+    Callback::from(move |_| {
+      let today = today_in_timezone(
+        calendar_timezone
+      );
+      tracing::info!(
+        today = %today.format("%Y-%m-%d"),
+        timezone = %calendar_timezone,
+        "calendar focus reset to today"
+      );
+      calendar_focus_date.set(today);
+    })
+  };
+
+  let on_calendar_focus_day = {
+    let calendar_focus_date =
+      calendar_focus_date.clone();
+    let calendar_view =
+      calendar_view.clone();
+    Callback::from(
+      move |day: NaiveDate| {
+        calendar_focus_date.set(day);
+        calendar_view
+          .set(CalendarViewMode::Day);
       }
     )
   };
@@ -1943,11 +2389,138 @@ pub fn app() -> Html {
               >
                   { "Kanban" }
               </button>
+              <button
+                  class={if *active_tab == "calendar" { "workspace-tab active" } else { "workspace-tab" }}
+                  onclick={on_select_calendar_tab}
+              >
+                  { "Calendar" }
+              </button>
           </div>
 
           <div class="main">
               {
-                  if *active_tab == "kanban" {
+                  if *active_tab == "calendar" {
+                      html! {
+                          <>
+                              <div class="panel calendar-sidebar">
+                                  <div class="header">{ "Calendar Views" }</div>
+                                  <div class="details">
+                                      <div class="calendar-view-switch">
+                                          {
+                                              for CalendarViewMode::all().iter().copied().map(|view| {
+                                                  let on_calendar_set_view = on_calendar_set_view.clone();
+                                                  let is_active = *calendar_view == view;
+                                                  html! {
+                                                      <button
+                                                          class={classes!("calendar-view-btn", is_active.then_some("active"))}
+                                                          onclick={Callback::from(move |_| on_calendar_set_view.emit(view))}
+                                                      >
+                                                          { view.label() }
+                                                      </button>
+                                                  }
+                                              })
+                                          }
+                                      </div>
+                                      <div class="actions calendar-nav-actions">
+                                          <button class="btn" onclick={on_calendar_prev.clone()}>{ "Prev" }</button>
+                                          <button class="btn" onclick={on_calendar_today.clone()}>{ "Today" }</button>
+                                          <button class="btn" onclick={on_calendar_next.clone()}>{ "Next" }</button>
+                                      </div>
+                                      <div class="kv">
+                                          <strong>{ "timezone" }</strong>
+                                          <div>{ calendar_timezone.to_string() }</div>
+                                      </div>
+                                      <div class="kv">
+                                          <strong>{ "focus date" }</strong>
+                                          <div>{ calendar_focus_date.format("%Y-%m-%d").to_string() }</div>
+                                      </div>
+                                      <div class="kv">
+                                          <strong>{ "due tasks" }</strong>
+                                          <div>{ calendar_due_tasks.len() }</div>
+                                      </div>
+                                      <div class="calendar-dot-legend">
+                                          <span class="calendar-dot"></span>
+                                          <span>{ "One red dot = one scheduled task." }</span>
+                                      </div>
+                                  </div>
+                              </div>
+
+                              <div class="panel calendar-panel">
+                                  <div class="header">{ calendar_title.clone() }</div>
+                                  <div class="details calendar-content">
+                                      {
+                                          render_calendar_view(
+                                              *calendar_view,
+                                              *calendar_focus_date,
+                                              calendar_week_start,
+                                              &calendar_due_tasks,
+                                              &calendar_config,
+                                              on_calendar_focus_day.clone(),
+                                          )
+                                      }
+                                  </div>
+                              </div>
+
+                              <div class="right-stack">
+                                  <div class="panel">
+                                      <div class="header">{ "Calendar Stats" }</div>
+                                      <div class="details">
+                                          <div class="kv"><strong>{ "period tasks" }</strong><div>{ calendar_period_stats.total }</div></div>
+                                          <div class="kv"><strong>{ "pending" }</strong><div>{ calendar_period_stats.pending }</div></div>
+                                          <div class="kv"><strong>{ "waiting" }</strong><div>{ calendar_period_stats.waiting }</div></div>
+                                          <div class="kv"><strong>{ "completed" }</strong><div>{ calendar_period_stats.completed }</div></div>
+                                          <div class="kv"><strong>{ "deleted" }</strong><div>{ calendar_period_stats.deleted }</div></div>
+                                      </div>
+                                  </div>
+
+                                  <div class="panel">
+                                      <div class="header">{ "Upcoming Task List" }</div>
+                                      <div class="details calendar-task-list">
+                                          {
+                                              if calendar_upcoming_tasks.is_empty() {
+                                                  html! {
+                                                      <div class="calendar-empty">
+                                                          { "No upcoming due tasks in configured window." }
+                                                      </div>
+                                                  }
+                                              } else {
+                                                  html! {
+                                                      <>
+                                                          {
+                                                              for calendar_upcoming_tasks.iter().map(|entry| {
+                                                                  let due_label = format_calendar_due_datetime(entry, calendar_timezone);
+                                                                  html! {
+                                                                      <div class="calendar-task-item">
+                                                                          <div class="calendar-task-title">{ &entry.task.title }</div>
+                                                                          <div class="task-subtitle">{ due_label }</div>
+                                                                          <div class="calendar-task-meta">
+                                                                              {
+                                                                                  if let Some(project) = entry.task.project.clone() {
+                                                                                      html! { <span class="badge">{ format!("project:{project}") }</span> }
+                                                                                  } else {
+                                                                                      html! {}
+                                                                                  }
+                                                                              }
+                                                                              {
+                                                                                  for entry.task.tags.iter().take(3).map(|tag| html! {
+                                                                                      <span class="badge tag-badge" style={tag_badge_style(tag, &tag_colors)}>{ format!("#{tag}") }</span>
+                                                                                  })
+                                                                              }
+                                                                          </div>
+                                                                      </div>
+                                                                  }
+                                                              })
+                                                          }
+                                                      </>
+                                                  }
+                                              }
+                                          }
+                                      </div>
+                                  </div>
+                              </div>
+                          </>
+                      }
+                  } else if *active_tab == "kanban" {
                       html! {
                           <>
                               <div class="panel board-sidebar">
@@ -2809,6 +3382,9 @@ fn load_workspace_tab() -> String {
     | Some("kanban") => {
       "kanban".to_string()
     }
+    | Some("calendar") => {
+      "calendar".to_string()
+    }
     | _ => "tasks".to_string()
   }
 }
@@ -3275,6 +3851,1085 @@ fn tag_chip_style(
   };
 
   format!("--tag-key-color:{color};")
+}
+
+fn tag_badge_style(
+  tag: &str,
+  tag_colors: &BTreeMap<String, String>
+) -> String {
+  if let Some((key, _)) =
+    tag.split_once(':')
+    && let Some(color) =
+      tag_colors.get(key)
+  {
+    return format!(
+      "--tag-key-color:{color};"
+    );
+  }
+
+  String::new()
+}
+
+fn calendar_true() -> bool {
+  true
+}
+
+fn calendar_default_week_start()
+-> String {
+  "monday".to_string()
+}
+
+fn calendar_default_red_dot_limit()
+-> usize {
+  5_000
+}
+
+fn calendar_default_task_list_limit()
+-> usize {
+  200
+}
+
+fn calendar_default_task_list_window_days()
+-> i64 {
+  365
+}
+
+fn calendar_default_day_view_hour_end()
+-> u32 {
+  23
+}
+
+fn load_calendar_config()
+-> CalendarConfig {
+  match toml::from_str::<CalendarConfig>(
+    CALENDAR_CONFIG_TOML
+  ) {
+    | Ok(mut config) => {
+      sanitize_calendar_config(
+        &mut config
+      );
+      tracing::info!(
+        version = config.version,
+        timezone = ?config.timezone,
+        week_start = %config.policies.week_start,
+        "loaded calendar config"
+      );
+      config
+    }
+    | Err(error) => {
+      tracing::error!(%error, "failed parsing calendar config; using defaults");
+      CalendarConfig::default()
+    }
+  }
+}
+
+fn sanitize_calendar_config(
+  config: &mut CalendarConfig
+) {
+  if config
+    .policies
+    .week_start
+    .trim()
+    .is_empty()
+  {
+    config.policies.week_start =
+      calendar_default_week_start();
+  }
+
+  if config.policies.red_dot_limit == 0
+  {
+    config.policies.red_dot_limit =
+      calendar_default_red_dot_limit();
+  }
+
+  if config.policies.task_list_limit
+    == 0
+  {
+    config.policies.task_list_limit =
+      calendar_default_task_list_limit(
+      );
+  }
+
+  if config
+    .policies
+    .task_list_window_days
+    <= 0
+  {
+    config
+      .policies
+      .task_list_window_days =
+      calendar_default_task_list_window_days(
+      );
+  }
+
+  if config.day_view.hour_start > 23 {
+    config.day_view.hour_start = 23;
+  }
+  if config.day_view.hour_end > 23 {
+    config.day_view.hour_end = 23;
+  }
+  if config.day_view.hour_end
+    < config.day_view.hour_start
+  {
+    config.day_view.hour_end =
+      config.day_view.hour_start;
+  }
+}
+
+fn load_calendar_view_mode()
+-> CalendarViewMode {
+  let stored = web_sys::window()
+    .and_then(|window| {
+      window
+        .local_storage()
+        .ok()
+        .flatten()
+    })
+    .and_then(|storage| {
+      storage
+        .get_item(
+          CALENDAR_VIEW_STORAGE_KEY
+        )
+        .ok()
+        .flatten()
+    });
+
+  stored
+    .as_deref()
+    .and_then(
+      CalendarViewMode::from_key
+    )
+    .unwrap_or(CalendarViewMode::Month)
+}
+
+fn save_calendar_view_mode(
+  view: CalendarViewMode
+) {
+  if let Some(storage) =
+    web_sys::window().and_then(
+      |window| {
+        window
+          .local_storage()
+          .ok()
+          .flatten()
+      }
+    )
+  {
+    let _ = storage.set_item(
+      CALENDAR_VIEW_STORAGE_KEY,
+      view.as_key()
+    );
+  }
+}
+
+fn resolve_calendar_timezone(
+  config: &CalendarConfig
+) -> Tz {
+  if let Some(raw) =
+    config.timezone.as_ref()
+    && let Some(tz) =
+      parse_calendar_timezone(
+        raw,
+        "calendar.toml"
+      )
+  {
+    return tz;
+  }
+
+  if let Ok(time_config) =
+    toml::from_str::<ProjectTimeConfig>(
+      PROJECT_TIME_CONFIG_TOML
+    )
+  {
+    let timezone = time_config
+      .timezone
+      .or_else(|| {
+        time_config.time.and_then(
+          |section| section.timezone
+        )
+      });
+    if let Some(raw) = timezone
+      && let Some(tz) =
+        parse_calendar_timezone(
+          &raw,
+          "rivet-time.toml"
+        )
+    {
+      return tz;
+    }
+  } else {
+    tracing::warn!(
+      "failed to parse embedded \
+       rivet-time.toml; falling back \
+       to default timezone"
+    );
+  }
+
+  parse_calendar_timezone(
+    DEFAULT_CALENDAR_TIMEZONE,
+    "calendar-default"
+  )
+  .unwrap_or(chrono_tz::UTC)
+}
+
+fn parse_calendar_timezone(
+  raw: &str,
+  source: &str
+) -> Option<Tz> {
+  let trimmed = raw.trim();
+  if trimmed.is_empty() {
+    return None;
+  }
+
+  match trimmed.parse::<Tz>() {
+    | Ok(tz) => Some(tz),
+    | Err(error) => {
+      tracing::error!(
+        source,
+        timezone = %trimmed,
+        error = %error,
+        "invalid timezone id"
+      );
+      None
+    }
+  }
+}
+
+fn today_in_timezone(
+  timezone: Tz
+) -> NaiveDate {
+  Utc::now()
+    .with_timezone(&timezone)
+    .date_naive()
+}
+
+fn calendar_week_start_day(
+  raw: &str
+) -> Weekday {
+  if raw
+    .trim()
+    .eq_ignore_ascii_case("sunday")
+  {
+    Weekday::Sun
+  } else {
+    Weekday::Mon
+  }
+}
+
+fn shift_calendar_focus(
+  current: NaiveDate,
+  view: CalendarViewMode,
+  step: i64,
+  _week_start: Weekday
+) -> NaiveDate {
+  match view {
+    | CalendarViewMode::Year => {
+      shift_years(current, step as i32)
+    }
+    | CalendarViewMode::Quarter => {
+      shift_months(
+        current,
+        (step * 3) as i32
+      )
+    }
+    | CalendarViewMode::Month => {
+      shift_months(current, step as i32)
+    }
+    | CalendarViewMode::Week => {
+      add_days(current, step * 7)
+    }
+    | CalendarViewMode::Day => {
+      add_days(current, step)
+    }
+    | CalendarViewMode::List => {
+      add_days(current, step * 7)
+    }
+  }
+}
+
+fn shift_years(
+  date: NaiveDate,
+  years: i32
+) -> NaiveDate {
+  let year =
+    date.year().saturating_add(years);
+  let month = date.month();
+  let day = date
+    .day()
+    .min(days_in_month(year, month));
+  NaiveDate::from_ymd_opt(
+    year, month, day
+  )
+  .unwrap_or(date)
+}
+
+fn shift_months(
+  date: NaiveDate,
+  months: i32
+) -> NaiveDate {
+  let mut year = date.year();
+  let mut month =
+    date.month() as i32 + months;
+
+  while month < 1 {
+    month += 12;
+    year = year.saturating_sub(1);
+  }
+  while month > 12 {
+    month -= 12;
+    year = year.saturating_add(1);
+  }
+
+  let month = month as u32;
+  let day = date
+    .day()
+    .min(days_in_month(year, month));
+  NaiveDate::from_ymd_opt(
+    year, month, day
+  )
+  .unwrap_or(date)
+}
+
+fn first_day_of_month(
+  year: i32,
+  month: u32
+) -> NaiveDate {
+  NaiveDate::from_ymd_opt(
+    year, month, 1
+  )
+  .unwrap_or(NaiveDate::MIN)
+}
+
+fn last_day_of_month(
+  year: i32,
+  month: u32
+) -> NaiveDate {
+  let (next_year, next_month) =
+    if month >= 12 {
+      (year.saturating_add(1), 1_u32)
+    } else {
+      (year, month + 1)
+    };
+  add_days(
+    first_day_of_month(
+      next_year, next_month
+    ),
+    -1
+  )
+}
+
+fn days_in_month(
+  year: i32,
+  month: u32
+) -> u32 {
+  last_day_of_month(year, month).day()
+}
+
+fn add_days(
+  date: NaiveDate,
+  days: i64
+) -> NaiveDate {
+  date
+    .checked_add_signed(Duration::days(
+      days
+    ))
+    .unwrap_or(date)
+}
+
+fn start_of_week(
+  day: NaiveDate,
+  week_start: Weekday
+) -> NaiveDate {
+  let day_idx = day
+    .weekday()
+    .num_days_from_monday()
+    as i64;
+  let start_idx = week_start
+    .num_days_from_monday()
+    as i64;
+  let diff =
+    (7 + day_idx - start_idx) % 7;
+  add_days(day, -diff)
+}
+
+fn collect_calendar_due_tasks(
+  tasks: &[TaskDto],
+  timezone: Tz,
+  config: &CalendarConfig
+) -> Vec<CalendarDueTask> {
+  let mut entries = tasks
+    .iter()
+    .filter(|task| {
+      calendar_status_visible(
+        &task.status,
+        &config.visibility
+      )
+    })
+    .filter_map(|task| {
+      let due_raw =
+        task.due.as_ref()?;
+      let due_utc =
+        parse_taskwarrior_utc(
+          due_raw.as_str()
+        )?;
+      Some(CalendarDueTask {
+        task: task.clone(),
+        due_local: due_utc
+          .with_timezone(&timezone),
+        due_utc
+      })
+    })
+    .collect::<Vec<_>>();
+
+  entries
+    .sort_by_key(|entry| entry.due_utc);
+
+  tracing::debug!(
+    total_tasks = tasks.len(),
+    due_tasks = entries.len(),
+    timezone = %timezone,
+    "calendar tasks collected"
+  );
+  entries
+}
+
+fn calendar_status_visible(
+  status: &TaskStatus,
+  visibility: &CalendarVisibility
+) -> bool {
+  match status {
+    | TaskStatus::Pending => {
+      visibility.pending
+    }
+    | TaskStatus::Waiting => {
+      visibility.waiting
+    }
+    | TaskStatus::Completed => {
+      visibility.completed
+    }
+    | TaskStatus::Deleted => {
+      visibility.deleted
+    }
+  }
+}
+
+fn parse_taskwarrior_utc(
+  raw: &str
+) -> Option<DateTime<Utc>> {
+  NaiveDateTime::parse_from_str(
+    raw,
+    "%Y%m%dT%H%M%SZ"
+  )
+  .ok()
+  .map(|naive| {
+    DateTime::<Utc>::from_naive_utc_and_offset(
+      naive, Utc
+    )
+  })
+}
+
+fn calendar_date_window(
+  view: CalendarViewMode,
+  focus: NaiveDate,
+  week_start: Weekday,
+  config: &CalendarConfig
+) -> (NaiveDate, NaiveDate) {
+  match view {
+    | CalendarViewMode::Year => {
+      (
+        first_day_of_month(
+          focus.year(),
+          1
+        ),
+        last_day_of_month(
+          focus.year(),
+          12
+        )
+      )
+    }
+    | CalendarViewMode::Quarter => {
+      let quarter_start_month =
+        ((focus.month() - 1) / 3) * 3
+          + 1;
+      let start = first_day_of_month(
+        focus.year(),
+        quarter_start_month
+      );
+      let end = last_day_of_month(
+        focus.year(),
+        quarter_start_month + 2
+      );
+      (start, end)
+    }
+    | CalendarViewMode::Month => {
+      (
+        first_day_of_month(
+          focus.year(),
+          focus.month()
+        ),
+        last_day_of_month(
+          focus.year(),
+          focus.month()
+        )
+      )
+    }
+    | CalendarViewMode::Week => {
+      let start = start_of_week(
+        focus, week_start
+      );
+      (start, add_days(start, 6))
+    }
+    | CalendarViewMode::Day => {
+      (focus, focus)
+    }
+    | CalendarViewMode::List => {
+      let start = focus;
+      let end = add_days(
+        start,
+        config
+          .policies
+          .task_list_window_days
+          .saturating_sub(1)
+      );
+      (start, end)
+    }
+  }
+}
+
+fn summarize_calendar_period(
+  due_tasks: &[CalendarDueTask],
+  view: CalendarViewMode,
+  focus: NaiveDate,
+  week_start: Weekday,
+  config: &CalendarConfig
+) -> CalendarStats {
+  let (start, end) =
+    calendar_date_window(
+      view, focus, week_start, config
+    );
+  let mut stats =
+    CalendarStats::default();
+
+  for entry in due_tasks {
+    let day =
+      entry.due_local.date_naive();
+    if day < start || day > end {
+      continue;
+    }
+    stats.push(&entry.task.status);
+  }
+
+  stats
+}
+
+fn collect_calendar_upcoming_tasks(
+  due_tasks: &[CalendarDueTask],
+  start_day: NaiveDate,
+  config: &CalendarConfig
+) -> Vec<CalendarDueTask> {
+  let end_day = add_days(
+    start_day,
+    config
+      .policies
+      .task_list_window_days
+      .saturating_sub(1)
+  );
+
+  due_tasks
+    .iter()
+    .filter(|entry| {
+      let day =
+        entry.due_local.date_naive();
+      day >= start_day && day <= end_day
+    })
+    .take(
+      config.policies.task_list_limit
+    )
+    .cloned()
+    .collect()
+}
+
+fn calendar_title_for_view(
+  view: CalendarViewMode,
+  focus: NaiveDate,
+  week_start: Weekday
+) -> String {
+  match view {
+    | CalendarViewMode::Year => {
+      format!(
+        "Year View {}",
+        focus.year()
+      )
+    }
+    | CalendarViewMode::Quarter => {
+      let quarter =
+        ((focus.month() - 1) / 3) + 1;
+      let quarter_start_month =
+        ((focus.month() - 1) / 3) * 3
+          + 1;
+      let start = first_day_of_month(
+        focus.year(),
+        quarter_start_month
+      );
+      let end = first_day_of_month(
+        focus.year(),
+        quarter_start_month + 2
+      );
+      format!(
+        "Quarter View Q{} {} ({}-{})",
+        quarter,
+        focus.year(),
+        start.format("%b"),
+        end.format("%b")
+      )
+    }
+    | CalendarViewMode::Month => {
+      format!(
+        "Month View {}",
+        focus.format("%B %Y")
+      )
+    }
+    | CalendarViewMode::Week => {
+      let start = start_of_week(
+        focus, week_start
+      );
+      let end = add_days(start, 6);
+      format!(
+        "Week View {} - {}",
+        start.format("%Y-%m-%d"),
+        end.format("%Y-%m-%d")
+      )
+    }
+    | CalendarViewMode::Day => {
+      format!(
+        "Day View {}",
+        focus.format("%A, %Y-%m-%d")
+      )
+    }
+    | CalendarViewMode::List => {
+      format!(
+        "Task List from {}",
+        focus.format("%Y-%m-%d")
+      )
+    }
+  }
+}
+
+fn render_calendar_view(
+  view: CalendarViewMode,
+  focus: NaiveDate,
+  week_start: Weekday,
+  due_tasks: &[CalendarDueTask],
+  config: &CalendarConfig,
+  on_focus_day: Callback<NaiveDate>
+) -> Html {
+  match view {
+    | CalendarViewMode::Year => {
+      render_calendar_year_view(
+        focus,
+        due_tasks,
+        config,
+        on_focus_day
+      )
+    }
+    | CalendarViewMode::Quarter => {
+      render_calendar_quarter_view(
+        focus,
+        due_tasks,
+        config,
+        on_focus_day
+      )
+    }
+    | CalendarViewMode::Month => {
+      render_calendar_month_view(
+        focus,
+        week_start,
+        due_tasks,
+        config,
+        on_focus_day
+      )
+    }
+    | CalendarViewMode::Week => {
+      render_calendar_week_view(
+        focus,
+        week_start,
+        due_tasks,
+        config,
+        on_focus_day
+      )
+    }
+    | CalendarViewMode::Day => {
+      render_calendar_day_view(
+        focus, due_tasks, config
+      )
+    }
+    | CalendarViewMode::List => {
+      render_calendar_list_view(
+        focus,
+        due_tasks,
+        config,
+        on_focus_day
+      )
+    }
+  }
+}
+
+fn render_calendar_year_view(
+  focus: NaiveDate,
+  due_tasks: &[CalendarDueTask],
+  config: &CalendarConfig,
+  on_focus_day: Callback<NaiveDate>
+) -> Html {
+  let year = focus.year();
+
+  html! {
+      <div class="calendar-grid calendar-year-grid">
+          {
+              for (1_u32..=12_u32).map(|month| {
+                  let month_start = first_day_of_month(year, month);
+                  let count = due_tasks
+                      .iter()
+                      .filter(|entry| {
+                          entry.due_local.year() == year
+                              && entry.due_local.month() == month
+                      })
+                      .count();
+                  let on_focus_day = on_focus_day.clone();
+
+                  html! {
+                      <button
+                          type="button"
+                          class="calendar-period-card"
+                          onclick={Callback::from(move |_| on_focus_day.emit(month_start))}
+                      >
+                          <div class="calendar-period-title">{ month_start.format("%B").to_string() }</div>
+                          <div class="badge">{ format!("{count} tasks") }</div>
+                          { render_calendar_dots(count, config.policies.red_dot_limit) }
+                      </button>
+                  }
+              })
+          }
+      </div>
+  }
+}
+
+fn render_calendar_quarter_view(
+  focus: NaiveDate,
+  due_tasks: &[CalendarDueTask],
+  config: &CalendarConfig,
+  on_focus_day: Callback<NaiveDate>
+) -> Html {
+  let quarter_start_month =
+    ((focus.month() - 1) / 3) * 3 + 1;
+  let months = [
+    quarter_start_month,
+    quarter_start_month + 1,
+    quarter_start_month + 2
+  ];
+
+  html! {
+      <div class="calendar-grid calendar-quarter-grid">
+          {
+              for months.into_iter().map(|month| {
+                  let month_start = first_day_of_month(focus.year(), month);
+                  let count = due_tasks
+                      .iter()
+                      .filter(|entry| {
+                          entry.due_local.year() == focus.year()
+                              && entry.due_local.month() == month
+                      })
+                      .count();
+                  let on_focus_day = on_focus_day.clone();
+                  html! {
+                      <button
+                          type="button"
+                          class="calendar-period-card"
+                          onclick={Callback::from(move |_| on_focus_day.emit(month_start))}
+                      >
+                          <div class="calendar-period-title">{ month_start.format("%B").to_string() }</div>
+                          <div class="badge">{ format!("{count} tasks") }</div>
+                          { render_calendar_dots(count, config.policies.red_dot_limit) }
+                      </button>
+                  }
+              })
+          }
+      </div>
+  }
+}
+
+fn render_calendar_month_view(
+  focus: NaiveDate,
+  week_start: Weekday,
+  due_tasks: &[CalendarDueTask],
+  config: &CalendarConfig,
+  on_focus_day: Callback<NaiveDate>
+) -> Html {
+  let first = first_day_of_month(
+    focus.year(),
+    focus.month()
+  );
+  let grid_start =
+    start_of_week(first, week_start);
+  let labels =
+    weekday_labels(week_start);
+
+  html! {
+      <>
+          <div class="calendar-weekday-row">
+              {
+                  for labels.into_iter().map(|label| html! {
+                      <div class="calendar-weekday">{ label }</div>
+                  })
+              }
+          </div>
+          <div class="calendar-grid calendar-month-grid">
+              {
+                  for (0_i64..42_i64).map(|offset| {
+                      let day = add_days(grid_start, offset);
+                      let count = due_tasks
+                          .iter()
+                          .filter(|entry| entry.due_local.date_naive() == day)
+                          .count();
+                      let outside = day.month() != focus.month();
+                      let on_focus_day = on_focus_day.clone();
+                      html! {
+                          <button
+                              type="button"
+                              class={classes!("calendar-day-cell", outside.then_some("outside"), (count > 0).then_some("has-tasks"))}
+                              onclick={Callback::from(move |_| on_focus_day.emit(day))}
+                          >
+                              <div class="calendar-day-label">{ day.day() }</div>
+                              { render_calendar_dots(count, config.policies.red_dot_limit) }
+                          </button>
+                      }
+                  })
+              }
+          </div>
+      </>
+  }
+}
+
+fn render_calendar_week_view(
+  focus: NaiveDate,
+  week_start: Weekday,
+  due_tasks: &[CalendarDueTask],
+  config: &CalendarConfig,
+  on_focus_day: Callback<NaiveDate>
+) -> Html {
+  let start =
+    start_of_week(focus, week_start);
+
+  html! {
+      <div class="calendar-grid calendar-week-grid">
+          {
+              for (0_i64..7_i64).map(|offset| {
+                  let day = add_days(start, offset);
+                  let day_tasks = due_tasks
+                      .iter()
+                      .filter(|entry| entry.due_local.date_naive() == day)
+                      .cloned()
+                      .collect::<Vec<_>>();
+                  let count = day_tasks.len();
+                  let on_focus_day = on_focus_day.clone();
+
+                  html! {
+                      <button
+                          type="button"
+                          class={classes!("calendar-week-day-card", (count > 0).then_some("has-tasks"))}
+                          onclick={Callback::from(move |_| on_focus_day.emit(day))}
+                      >
+                          <div class="calendar-week-day-head">
+                              <span>{ day.format("%a %d").to_string() }</span>
+                              <span class="badge">{ count }</span>
+                          </div>
+                          { render_calendar_dots(count, config.policies.red_dot_limit) }
+                          <div class="calendar-week-day-list">
+                              {
+                                  for day_tasks.iter().take(5).map(|entry| html! {
+                                      <div class="calendar-week-task">{ &entry.task.title }</div>
+                                  })
+                              }
+                              {
+                                  if count > 5 {
+                                      html! { <div class="calendar-week-task muted">{ format!("+{} more", count - 5) }</div> }
+                                  } else {
+                                      html! {}
+                                  }
+                              }
+                          </div>
+                      </button>
+                  }
+              })
+          }
+      </div>
+  }
+}
+
+fn render_calendar_day_view(
+  focus: NaiveDate,
+  due_tasks: &[CalendarDueTask],
+  config: &CalendarConfig
+) -> Html {
+  let mut tasks = due_tasks
+    .iter()
+    .filter(|entry| {
+      entry.due_local.date_naive()
+        == focus
+    })
+    .cloned()
+    .collect::<Vec<_>>();
+  tasks
+    .sort_by_key(|entry| entry.due_utc);
+
+  let hour_start =
+    config.day_view.hour_start;
+  let hour_end =
+    config.day_view.hour_end;
+
+  html! {
+      <div class="calendar-day-view">
+          <div class="calendar-day-hours">
+              {
+                  for (hour_start..=hour_end).map(|hour| {
+                      let count = tasks
+                          .iter()
+                          .filter(|entry| entry.due_local.hour() == hour)
+                          .count();
+                      html! {
+                          <div class="calendar-hour-row">
+                              <span class="calendar-hour-label">{ format!("{hour:02}:00") }</span>
+                              { render_calendar_dots(count, config.policies.red_dot_limit) }
+                          </div>
+                      }
+                  })
+              }
+          </div>
+          <div class="calendar-day-task-list">
+              {
+                  if tasks.is_empty() {
+                      html! { <div class="calendar-empty">{ "No tasks due on this day." }</div> }
+                  } else {
+                      html! {
+                          <>
+                              {
+                                  for tasks.iter().map(|entry| html! {
+                                      <div class="calendar-task-item">
+                                          <div class="calendar-task-title">{ &entry.task.title }</div>
+                                          <div class="task-subtitle">{ format_calendar_due_datetime(entry, entry.due_local.timezone()) }</div>
+                                      </div>
+                                  })
+                              }
+                          </>
+                      }
+                  }
+              }
+          </div>
+      </div>
+  }
+}
+
+fn render_calendar_list_view(
+  focus: NaiveDate,
+  due_tasks: &[CalendarDueTask],
+  config: &CalendarConfig,
+  on_focus_day: Callback<NaiveDate>
+) -> Html {
+  let tasks =
+    collect_calendar_upcoming_tasks(
+      due_tasks, focus, config
+    );
+
+  html! {
+      <div class="calendar-list-view">
+          {
+              if tasks.is_empty() {
+                  html! { <div class="calendar-empty">{ "No upcoming due tasks in configured window." }</div> }
+              } else {
+                  html! {
+                      <>
+                          {
+                              for tasks.iter().map(|entry| {
+                                  let day = entry.due_local.date_naive();
+                                  let on_focus_day = on_focus_day.clone();
+                                  html! {
+                                      <button
+                                          type="button"
+                                          class="calendar-list-item"
+                                          onclick={Callback::from(move |_| on_focus_day.emit(day))}
+                                      >
+                                          <div class="calendar-task-title">{ &entry.task.title }</div>
+                                          <div class="task-subtitle">{ format_calendar_due_datetime(entry, entry.due_local.timezone()) }</div>
+                                      </button>
+                                  }
+                              })
+                          }
+                      </>
+                  }
+              }
+          }
+      </div>
+  }
+}
+
+fn weekday_labels(
+  week_start: Weekday
+) -> Vec<&'static str> {
+  match week_start {
+    | Weekday::Sun => {
+      vec![
+        "Sun", "Mon", "Tue", "Wed",
+        "Thu", "Fri", "Sat",
+      ]
+    }
+    | _ => {
+      vec![
+        "Mon", "Tue", "Wed", "Thu",
+        "Fri", "Sat", "Sun",
+      ]
+    }
+  }
+}
+
+fn render_calendar_dots(
+  count: usize,
+  limit: usize
+) -> Html {
+  if count == 0 {
+    return html! {};
+  }
+
+  let capped = count.min(limit);
+  let overflow =
+    count.saturating_sub(capped);
+
+  html! {
+      <div class="calendar-dots">
+          {
+              for (0..capped).map(|_| html! {
+                  <span class="calendar-dot"></span>
+              })
+          }
+          {
+              if overflow > 0 {
+                  html! { <span class="badge">{ format!("+{overflow}") }</span> }
+              } else {
+                  html! {}
+              }
+          }
+      </div>
+  }
+}
+
+fn format_calendar_due_datetime(
+  entry: &CalendarDueTask,
+  timezone: Tz
+) -> String {
+  format!(
+    "{} ({timezone})",
+    entry
+      .due_local
+      .format("%Y-%m-%d %H:%M")
+  )
 }
 
 fn filter_visible_tasks(
