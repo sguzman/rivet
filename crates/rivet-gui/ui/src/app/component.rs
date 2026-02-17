@@ -2375,1432 +2375,197 @@ pub fn app() -> Html {
 
   html! {
       <div class={classes!("app", (*theme).as_class(), is_any_modal_open.then_some("modal-open"))}>
-          <div class="window-chrome" data-tauri-drag-region="true">
-              <div class="window-brand">
-                  <img class="window-mascot" src="/favicon-32x32.png" alt="Rivet mascot" />
-                  <span>{ "Rivet" }</span>
-              </div>
-              <div class="window-controls" data-tauri-drag-region="false">
-                  <button class="window-btn" type="button" onclick={on_window_minimize} title="Minimize">{ "_" }</button>
-                  <button class="window-btn" type="button" onclick={on_window_toggle_maximize} title="Maximize/Restore">{ "[ ]" }</button>
-                  <button class="window-btn danger" type="button" onclick={on_window_close} title="Close">{ "X" }</button>
-              </div>
-          </div>
-          <div class="workspace-tabs">
-              <div class="workspace-tab-list">
-                  <button
-                      class={if *active_tab == "tasks" { "workspace-tab active" } else { "workspace-tab" }}
-                      onclick={on_select_tasks_tab}
-                  >
-                      { "Tasks" }
-                  </button>
-                  <button
-                      class={if *active_tab == "kanban" { "workspace-tab active" } else { "workspace-tab" }}
-                      onclick={on_select_kanban_tab}
-                  >
-                      { "Kanban" }
-                  </button>
-                  <button
-                      class={if *active_tab == "calendar" { "workspace-tab active" } else { "workspace-tab" }}
-                      onclick={on_select_calendar_tab}
-                  >
-                      { "Calendar" }
-                  </button>
-              </div>
-              <div class="workspace-actions">
-                  {
-                      if bulk_count > 0 {
-                          html! {
-                              <>
-                                  <button class="btn ok" onclick={on_bulk_done.clone()}>{ format!("Done {bulk_count}") }</button>
-                                  <button class="btn danger" onclick={on_bulk_delete.clone()}>{ format!("Delete {bulk_count}") }</button>
-                              </>
-                          }
-                      } else {
-                          html! {}
-                      }
-                  }
-                  <button class="btn" onclick={on_add_click}>{ "Add Task" }</button>
-                  <button class="btn" onclick={on_toggle_theme}>{ (*theme).toggle_label() }</button>
-              </div>
-          </div>
+          <WindowChrome
+              on_window_minimize={on_window_minimize}
+              on_window_toggle_maximize={on_window_toggle_maximize}
+              on_window_close={on_window_close}
+              title={"Rivet".to_string()}
+              icon_src={"/favicon-32x32.png".to_string()}
+              icon_alt={"Rivet mascot".to_string()}
+          />
+          <WorkspaceTabs
+              active_tab={(*active_tab).clone()}
+              on_select_tasks_tab={on_select_tasks_tab}
+              on_select_kanban_tab={on_select_kanban_tab}
+              on_select_calendar_tab={on_select_calendar_tab}
+              bulk_count={bulk_count}
+              on_bulk_done={on_bulk_done.clone()}
+              on_bulk_delete={on_bulk_delete.clone()}
+              on_add_click={on_add_click}
+              on_toggle_theme={on_toggle_theme}
+              theme_toggle_label={(*theme).toggle_label()}
+          />
 
           <div class="main">
               {
                   if *active_tab == "calendar" {
                       html! {
-                          <>
-                              <div class="panel calendar-sidebar">
-                                  <div class="header">{ "Calendar Views" }</div>
-                                  <div class="details">
-                                      <div class="calendar-view-switch">
-                                          {
-                                              for CalendarViewMode::all().iter().copied().map(|view| {
-                                                  let on_calendar_set_view = on_calendar_set_view.clone();
-                                                  let is_active = *calendar_view == view;
-                                                  html! {
-                                                      <button
-                                                          class={classes!("calendar-view-btn", is_active.then_some("active"))}
-                                                          onclick={Callback::from(move |_| on_calendar_set_view.emit(view))}
-                                                      >
-                                                          { view.label() }
-                                                      </button>
-                                                  }
-                                              })
-                                          }
-                                      </div>
-                                      <div class="actions calendar-nav-actions">
-                                          <button class="btn" onclick={on_calendar_prev.clone()}>{ "Prev" }</button>
-                                          <button class="btn" onclick={on_calendar_today.clone()}>{ "Today" }</button>
-                                          <button class="btn" onclick={on_calendar_next.clone()}>{ "Next" }</button>
-                                      </div>
-                                      <div class="kv">
-                                          <strong>{ "timezone" }</strong>
-                                          <div>{ calendar_timezone.to_string() }</div>
-                                      </div>
-                                      <div class="kv">
-                                          <strong>{ "focus date" }</strong>
-                                          <div>{ calendar_focus_date.format("%Y-%m-%d").to_string() }</div>
-                                      </div>
-                                      <div class="kv">
-                                          <strong>{ "due tasks" }</strong>
-                                          <div>{ calendar_due_tasks.len() }</div>
-                                      </div>
-                                      <div class="calendar-dot-legend">
-                                          <span class="calendar-marker triangle" style="--marker-color:var(--accent);"></span>
-                                          <span>{ "Kanban board task" }</span>
-                                      </div>
-                                      <div class="calendar-dot-legend">
-                                          <span class="calendar-marker circle" style="--marker-color:#d64545;"></span>
-                                          <span>{ "External calendar task" }</span>
-                                      </div>
-                                      <div class="calendar-dot-legend">
-                                          <span class="calendar-marker square" style="--marker-color:#7f8691;"></span>
-                                          <span>{ "Unassigned task" }</span>
-                                      </div>
-                                      <div class="calendar-external-header">{ "External Calendars" }</div>
-                                      <div class="actions">
-                                          <button class="btn" onclick={on_open_add_external_calendar.clone()}>{ "Add Source" }</button>
-                                          <button class="btn" onclick={on_sync_all_external_calendars.clone()} disabled={*external_calendar_busy}>
-                                              { if *external_calendar_busy { "Syncing..." } else { "Sync Enabled" } }
-                                          </button>
-                                      </div>
-                                      {
-                                          if let Some(last_sync) = (*external_calendar_last_sync).clone() {
-                                              html! { <div class="field-help">{ last_sync }</div> }
-                                          } else {
-                                              html! {}
-                                          }
-                                      }
-                                      <div class="calendar-source-list">
-                                          {
-                                              if external_calendars.is_empty() {
-                                                  html! { <div class="calendar-empty">{ "No external calendar sources configured." }</div> }
-                                              } else {
-                                                  html! {
-                                                      <>
-                                                          {
-                                                              for external_calendars.iter().map(|source| {
-                                                                  let source_id = source.id.clone();
-                                                                  let source_id_for_sync = source_id.clone();
-                                                                  let source_id_for_delete = source_id.clone();
-                                                                  let source_for_edit = source.clone();
-                                                                  let color_style = format!("background:{};", source.color);
-                                                                  html! {
-                                                                      <div class="calendar-source-item">
-                                                                          <div class="calendar-source-top">
-                                                                              <span class="calendar-source-color" style={color_style}></span>
-                                                                              <span class="calendar-source-name">{ &source.name }</span>
-                                                                              {
-                                                                                  if source.enabled {
-                                                                                      html! { <span class="badge">{ "enabled" }</span> }
-                                                                                  } else {
-                                                                                      html! { <span class="badge">{ "disabled" }</span> }
-                                                                                  }
-                                                                              }
-                                                                          </div>
-                                                                          <div class="task-subtitle">{ &source.location }</div>
-                                                                          <div class="calendar-source-meta">
-                                                                              <span class="badge">{ format!("refresh:{}m", source.refresh_minutes) }</span>
-                                                                              {
-                                                                                  if source.show_reminders {
-                                                                                      html! { <span class="badge">{ "reminders:on" }</span> }
-                                                                                  } else {
-                                                                                      html! {}
-                                                                                  }
-                                                                              }
-                                                                              {
-                                                                                  if source.offline_support {
-                                                                                      html! { <span class="badge">{ "offline:on" }</span> }
-                                                                                  } else {
-                                                                                      html! {}
-                                                                                  }
-                                                                              }
-                                                                          </div>
-                                                                          <div class="actions">
-                                                                              <button class="btn" onclick={{
-                                                                                  let on_sync_external_calendar = on_sync_external_calendar.clone();
-                                                                                  Callback::from(move |_| on_sync_external_calendar.emit(source_id_for_sync.clone()))
-                                                                              }} disabled={*external_calendar_busy}>
-                                                                                  { "Sync" }
-                                                                              </button>
-                                                                              <button class="btn" onclick={{
-                                                                                  let on_open_edit_external_calendar = on_open_edit_external_calendar.clone();
-                                                                                  Callback::from(move |_| on_open_edit_external_calendar.emit(source_for_edit.clone()))
-                                                                              }}>
-                                                                                  { "Edit" }
-                                                                              </button>
-                                                                              <button class="btn danger" onclick={{
-                                                                                  let on_delete_external_calendar = on_delete_external_calendar.clone();
-                                                                                  Callback::from(move |_| on_delete_external_calendar.emit(source_id_for_delete.clone()))
-                                                                              }}>
-                                                                                  { "Delete" }
-                                                                              </button>
-                                                                          </div>
-                                                                      </div>
-                                                                  }
-                                                              })
-                                                          }
-                                                      </>
-                                                  }
-                                              }
-                                          }
-                                      </div>
-                                  </div>
-                              </div>
-
-                              <div class="panel calendar-panel">
-                                  <div class="header">{ calendar_title.clone() }</div>
-                                  <div class="details calendar-content">
-                                      {
-                                          render_calendar_view(
-                                              *calendar_view,
-                                              *calendar_focus_date,
-                                              calendar_week_start,
-                                              &calendar_due_tasks,
-                                              &calendar_config,
-                                              &tag_colors,
-                                              on_calendar_navigate.clone(),
-                                          )
-                                      }
-                                  </div>
-                              </div>
-
-                              <div class="right-stack">
-                                  <div class="panel">
-                                      <div class="header">{ "Calendar Stats" }</div>
-                                      <div class="details">
-                                          <div class="kv"><strong>{ "period tasks" }</strong><div>{ calendar_period_stats.total }</div></div>
-                                          <div class="kv"><strong>{ "pending" }</strong><div>{ calendar_period_stats.pending }</div></div>
-                                          <div class="kv"><strong>{ "waiting" }</strong><div>{ calendar_period_stats.waiting }</div></div>
-                                          <div class="kv"><strong>{ "completed" }</strong><div>{ calendar_period_stats.completed }</div></div>
-                                          <div class="kv"><strong>{ "deleted" }</strong><div>{ calendar_period_stats.deleted }</div></div>
-                                      </div>
-                                  </div>
-
-                                  <div class="panel">
-                                      <div class="header">{ "Tasks In Current Period" }</div>
-                                      <div class="details calendar-task-list">
-                                          {
-                                              if calendar_period_tasks.is_empty() {
-                                                  html! {
-                                                      <div class="calendar-empty">
-                                                          { "No tasks due in this calendar period." }
-                                                      </div>
-                                                  }
-                                              } else {
-                                                  html! {
-                                                      <>
-                                                          {
-                                                              for calendar_period_tasks.iter().map(|entry| {
-                                                                  let due_label = format_calendar_due_datetime(entry, calendar_timezone);
-                                                                  html! {
-                                                                      <div class="calendar-task-item">
-                                                                          <div class="calendar-task-title">{ &entry.task.title }</div>
-                                                                          <div class="task-subtitle">{ due_label }</div>
-                                                                          <div class="calendar-task-meta">
-                                                                              {
-                                                                                  if let Some(project) = entry.task.project.clone() {
-                                                                                      html! { <span class="badge">{ format!("project:{project}") }</span> }
-                                                                                  } else {
-                                                                                      html! {}
-                                                                                  }
-                                                                              }
-                                                                              {
-                                                                                  for entry.task.tags.iter().take(3).map(|tag| html! {
-                                                                                      <span class="badge tag-badge" style={tag_badge_style(tag, &tag_colors)}>{ format!("#{tag}") }</span>
-                                                                                  })
-                                                                              }
-                                                                          </div>
-                                                                      </div>
-                                                                  }
-                                                              })
-                                                          }
-                                                      </>
-                                                  }
-                                              }
-                                          }
-                                      </div>
-                                  </div>
-                              </div>
-                          </>
+                          <CalendarWorkspace
+                              calendar_view={*calendar_view}
+                              on_calendar_set_view={on_calendar_set_view.clone()}
+                              on_calendar_prev={on_calendar_prev.clone()}
+                              on_calendar_today={on_calendar_today.clone()}
+                              on_calendar_next={on_calendar_next.clone()}
+                              calendar_timezone={calendar_timezone}
+                              calendar_focus_date={*calendar_focus_date}
+                              calendar_due_tasks={calendar_due_tasks.clone()}
+                              external_calendars={(*external_calendars).clone()}
+                              external_busy={*external_calendar_busy}
+                              external_last_sync={(*external_calendar_last_sync).clone()}
+                              on_open_add_external_calendar={on_open_add_external_calendar.clone()}
+                              on_sync_all_external_calendars={on_sync_all_external_calendars.clone()}
+                              on_sync_external_calendar={on_sync_external_calendar.clone()}
+                              on_open_edit_external_calendar={on_open_edit_external_calendar.clone()}
+                              on_delete_external_calendar={on_delete_external_calendar.clone()}
+                              calendar_title={calendar_title.clone()}
+                              calendar_week_start={calendar_week_start}
+                              calendar_config={(*calendar_config).clone()}
+                              tag_colors={tag_colors.clone()}
+                              on_calendar_navigate={on_calendar_navigate.clone()}
+                              calendar_period_stats={calendar_period_stats}
+                              calendar_period_tasks={calendar_period_tasks.clone()}
+                          />
                       }
                   } else if *active_tab == "kanban" {
                       html! {
-                          <>
-                              <div class="panel board-sidebar">
-                                  <div class="header">{ "Kanban Boards" }</div>
-                                  <div class="details">
-                                      <div class="actions">
-                                          <button class="btn" onclick={on_create_kanban_board}>{ "New Board" }</button>
-                                          <button class="btn" onclick={on_open_rename_kanban_board.clone()} disabled={(*active_kanban_board).is_none()}>{ "Rename" }</button>
-                                          <button class="btn danger" onclick={on_delete_kanban_board.clone()} disabled={(*active_kanban_board).is_none()}>{ "Delete" }</button>
-                                          <button class="btn" onclick={on_toggle_kanban_card_density.clone()}>
-                                              { if *kanban_compact_cards { "Full Cards" } else { "Compact Cards" } }
-                                          </button>
-                                      </div>
-                                      {
-                                          if kanban_boards.is_empty() {
-                                              html! { <div style="color:var(--muted);">{ "No boards yet. Create one to begin." }</div> }
-                                          } else {
-                                              html! {
-                                                  <div class="board-list">
-                                                      {
-                                                          for kanban_boards.iter().map(|board| {
-                                                              let board_id = board.id.clone();
-                                                              let board_label = board.name.clone();
-                                                              let board_color = board.color.clone();
-                                                              let board_color_style = format!("background:{board_color};");
-                                                              let is_active = (*active_kanban_board).as_deref() == Some(board_id.as_str());
-                                                              let class = if is_active { "board-item active" } else { "board-item" };
-                                                              html! {
-                                                                  <div class={class} onclick={{
-                                                                      let on_select_kanban_board = on_select_kanban_board.clone();
-                                                                      Callback::from(move |_| on_select_kanban_board.emit(board_id.clone()))
-                                                                  }}>
-                                                                      <div class="board-item-line">
-                                                                          <span class="board-color-dot" style={board_color_style}></span>
-                                                                          <span>{ board_label }</span>
-                                                                      </div>
-                                                                  </div>
-                                                              }
-                                                          })
-                                                      }
-                                                  </div>
-                                              }
-                                          }
-                                      }
-                                  </div>
-                              </div>
-
-                              <KanbanBoard
-                                  tasks={kanban_visible_tasks.clone()}
-                                  columns={kanban_columns.clone()}
-                                  board_name={active_kanban_board_name.clone()}
-                                  tag_colors={tag_colors.clone()}
-                                  compact_cards={*kanban_compact_cards}
-                                  dragging_task={*dragging_kanban_task}
-                                  drag_over_lane={(*drag_over_kanban_lane).clone()}
-                                  on_move={on_kanban_move}
-                                  on_drag_start={on_kanban_drag_start}
-                                  on_drag_end={on_kanban_drag_end}
-                                  on_drag_over_lane={on_kanban_drag_over_lane}
-                                  on_edit={on_edit.clone()}
-                                  on_done={on_done.clone()}
-                                  on_delete={on_delete.clone()}
-                              />
-
-                              <div class="panel">
-                                  <div class="header">{ "Kanban Filters" }</div>
-                                  <div class="details">
-                                      <div class="kv">
-                                          <strong>{ "board" }</strong>
-                                          <div>{ active_kanban_board_name.clone().unwrap_or_else(|| "None".to_string()) }</div>
-                                      </div>
-                                      <div class="kv">
-                                          <strong>{ "cards shown" }</strong>
-                                          <div>{ kanban_visible_tasks.len() }</div>
-                                      </div>
-                                      <div class="field">
-                                          <label>{ "Completion" }</label>
-                                          <select
-                                              class="tag-select"
-                                              value={(*all_filter_completion).clone()}
-                                              onchange={on_all_completion_change}
-                                          >
-                                              <option value="all">{ "All" }</option>
-                                              <option value="open">{ "Open (Pending + Waiting)" }</option>
-                                              <option value="pending">{ "Pending" }</option>
-                                              <option value="waiting">{ "Waiting" }</option>
-                                              <option value="completed">{ "Completed" }</option>
-                                              <option value="deleted">{ "Deleted" }</option>
-                                          </select>
-                                      </div>
-                                      <div class="field">
-                                          <label>{ "Project" }</label>
-                                          <select
-                                              class="tag-select"
-                                              value={(*all_filter_project).clone().unwrap_or_default()}
-                                              onchange={on_all_project_change}
-                                          >
-                                              <option value="">{ "All Projects" }</option>
-                                              {
-                                                  for project_facets.iter().map(|(project, count)| html! {
-                                                      <option value={project.clone()}>{ format!("{project} ({count})") }</option>
-                                                  })
-                                              }
-                                          </select>
-                                      </div>
-                                      <div class="field">
-                                          <label>{ "Tag" }</label>
-                                          <select
-                                              class="tag-select"
-                                              value={(*all_filter_tag).clone().unwrap_or_default()}
-                                              onchange={on_all_tag_change}
-                                          >
-                                              <option value="">{ "All Tags" }</option>
-                                              {
-                                                  for tag_facets.iter().map(|(tag, count)| html! {
-                                                      <option value={tag.clone()}>{ format!("{tag} ({count})") }</option>
-                                                  })
-                                              }
-                                          </select>
-                                      </div>
-                                      <div class="field">
-                                          <label>{ "Priority" }</label>
-                                          <select
-                                              class="tag-select"
-                                              value={(*all_filter_priority).clone()}
-                                              onchange={on_all_priority_change}
-                                          >
-                                              <option value="all">{ "All Priorities" }</option>
-                                              <option value="low">{ "Low" }</option>
-                                              <option value="medium">{ "Medium" }</option>
-                                              <option value="high">{ "High" }</option>
-                                              <option value="none">{ "None" }</option>
-                                          </select>
-                                      </div>
-                                      <div class="field">
-                                          <label>{ "Due" }</label>
-                                          <select
-                                              class="tag-select"
-                                              value={(*all_filter_due).clone()}
-                                              onchange={on_all_due_change}
-                                          >
-                                              <option value="all">{ "All" }</option>
-                                              <option value="has_due">{ "Has Due Date" }</option>
-                                              <option value="no_due">{ "No Due Date" }</option>
-                                          </select>
-                                      </div>
-                                      <div class="actions">
-                                          <button class="btn" onclick={on_all_filters_clear.clone()}>{ "Clear Filters" }</button>
-                                      </div>
-                                  </div>
-                              </div>
-                          </>
+                          <KanbanWorkspace
+                              kanban_boards={(*kanban_boards).clone()}
+                              active_kanban_board_id={(*active_kanban_board).clone()}
+                              active_kanban_board_name={active_kanban_board_name.clone()}
+                              kanban_compact_cards={*kanban_compact_cards}
+                              on_create_kanban_board={on_create_kanban_board}
+                              on_open_rename_kanban_board={on_open_rename_kanban_board.clone()}
+                              on_delete_kanban_board={on_delete_kanban_board.clone()}
+                              on_toggle_card_density={on_toggle_kanban_card_density.clone()}
+                              on_select_kanban_board={on_select_kanban_board}
+                              kanban_visible_tasks={kanban_visible_tasks.clone()}
+                              kanban_columns={kanban_columns.clone()}
+                              tag_colors={tag_colors.clone()}
+                              dragging_task={*dragging_kanban_task}
+                              drag_over_lane={(*drag_over_kanban_lane).clone()}
+                              on_kanban_move={on_kanban_move}
+                              on_kanban_drag_start={on_kanban_drag_start}
+                              on_kanban_drag_end={on_kanban_drag_end}
+                              on_kanban_drag_over_lane={on_kanban_drag_over_lane}
+                              on_edit={on_edit.clone()}
+                              on_done={on_done.clone()}
+                              on_delete={on_delete.clone()}
+                              completion_value={(*all_filter_completion).clone()}
+                              on_completion_change={on_all_completion_change}
+                              project_value={(*all_filter_project).clone().unwrap_or_default()}
+                              project_items={project_facets.clone()}
+                              on_project_change={on_all_project_change}
+                              tag_value={(*all_filter_tag).clone().unwrap_or_default()}
+                              tag_items={tag_facets.clone()}
+                              on_tag_change={on_all_tag_change}
+                              priority_value={(*all_filter_priority).clone()}
+                              on_priority_change={on_all_priority_change}
+                              due_value={(*all_filter_due).clone()}
+                              on_due_change={on_all_due_change}
+                              on_clear_filters={on_all_filters_clear.clone()}
+                          />
                       }
                   } else if *active_view == "settings" {
                       html! {
-                          <>
-                              <Sidebar active={(*active_view).clone()} on_nav={on_nav.clone()} />
-                              <div class="panel list">
-                                  <div class="header">{ "Settings" }</div>
-                                  <div class="details">
-                                      <div>{ "The desktop UI is a thin client over the core Rivet datastore." }</div>
-                                      <div class="kv"><strong>{ "view" }</strong><div>{ "settings" }</div></div>
-                                      <div class="kv"><strong>{ "status" }</strong><div>{ "core + tauri bridge active" }</div></div>
-                                      <div class="kv"><strong>{ "workflow" }</strong><div>{ "Use context/report commands in CLI for advanced behavior." }</div></div>
-                                  </div>
-                              </div>
-                              <div class="panel">
-                                  <div class="header">{ "Current Data" }</div>
-                                  <div class="details">
-                                      <div class="kv"><strong>{ "tasks loaded" }</strong><div>{ tasks.len() }</div></div>
-                                      <div class="kv"><strong>{ "selected" }</strong><div>{ bulk_count }</div></div>
-                                  </div>
-                              </div>
-                          </>
+                          <SettingsWorkspace
+                              active_view={(*active_view).clone()}
+                              on_nav={on_nav.clone()}
+                              tasks_loaded={tasks.len()}
+                              bulk_count={bulk_count}
+                          />
                       }
                   } else {
                       html! {
-                          <>
-                              <Sidebar active={(*active_view).clone()} on_nav={on_nav.clone()} />
-                              <TaskList
-                                  tasks={task_visible_tasks.clone()}
-                                  tag_colors={tag_colors.clone()}
-                                  selected={*selected}
-                                  selected_ids={(*bulk_selected).clone()}
-                                  on_select={on_select}
-                                  on_toggle_select={on_toggle_select}
-                              />
-                              {
-                                  if *active_view == "projects" && selected_task.is_none() {
-                                      html! {
-                                          <FacetPanel
-                                              title={"Projects".to_string()}
-                                              selected={(*active_project).clone()}
-                                              items={project_facets}
-                                              on_select={on_choose_project}
-                                          />
-                                      }
-                                  } else if *active_view == "all" {
-                                      html! {
-                                          <div class="right-stack">
-                                              <div class="panel">
-                                                  <div class="header">{ "Task Filters" }</div>
-                                                  <div class="details">
-                                                      <div class="field">
-                                                          <label>{ "Search Tasks" }</label>
-                                                          <input
-                                                              value={(*search).clone()}
-                                                              placeholder="Search tasks"
-                                                              oninput={{
-                                                                  let search = search.clone();
-                                                                  Callback::from(move |e: web_sys::InputEvent| {
-                                                                      let input: web_sys::HtmlInputElement = e.target_unchecked_into();
-                                                                      search.set(input.value());
-                                                                  })
-                                                              }}
-                                                          />
-                                                      </div>
-                                                      <div class="field">
-                                                          <label>{ "Completion" }</label>
-                                                          <select
-                                                              class="tag-select"
-                                                              value={(*all_filter_completion).clone()}
-                                                              onchange={on_all_completion_change}
-                                                          >
-                                                              <option value="all">{ "All" }</option>
-                                                              <option value="open">{ "Open (Pending + Waiting)" }</option>
-                                                              <option value="pending">{ "Pending" }</option>
-                                                              <option value="waiting">{ "Waiting" }</option>
-                                                              <option value="completed">{ "Completed" }</option>
-                                                              <option value="deleted">{ "Deleted" }</option>
-                                                          </select>
-                                                      </div>
-                                                      <div class="field">
-                                                          <label>{ "Project" }</label>
-                                                          <select
-                                                              class="tag-select"
-                                                              value={(*all_filter_project).clone().unwrap_or_default()}
-                                                              onchange={on_all_project_change}
-                                                          >
-                                                              <option value="">{ "All Projects" }</option>
-                                                              {
-                                                                  for project_facets.iter().map(|(project, count)| html! {
-                                                                      <option value={project.clone()}>{ format!("{project} ({count})") }</option>
-                                                                  })
-                                                              }
-                                                          </select>
-                                                      </div>
-                                                      <div class="field">
-                                                          <label>{ "Tag" }</label>
-                                                          <select
-                                                              class="tag-select"
-                                                              value={(*all_filter_tag).clone().unwrap_or_default()}
-                                                              onchange={on_all_tag_change}
-                                                          >
-                                                              <option value="">{ "All Tags" }</option>
-                                                              {
-                                                                  for tag_facets.iter().map(|(tag, count)| html! {
-                                                                      <option value={tag.clone()}>{ format!("{tag} ({count})") }</option>
-                                                                  })
-                                                              }
-                                                          </select>
-                                                      </div>
-                                                      <div class="field">
-                                                          <label>{ "Priority" }</label>
-                                                          <select
-                                                              class="tag-select"
-                                                              value={(*all_filter_priority).clone()}
-                                                              onchange={on_all_priority_change}
-                                                          >
-                                                              <option value="all">{ "All Priorities" }</option>
-                                                              <option value="low">{ "Low" }</option>
-                                                              <option value="medium">{ "Medium" }</option>
-                                                              <option value="high">{ "High" }</option>
-                                                              <option value="none">{ "None" }</option>
-                                                          </select>
-                                                      </div>
-                                                      <div class="field">
-                                                          <label>{ "Due" }</label>
-                                                          <select
-                                                              class="tag-select"
-                                                              value={(*all_filter_due).clone()}
-                                                              onchange={on_all_due_change}
-                                                          >
-                                                              <option value="all">{ "All" }</option>
-                                                              <option value="has_due">{ "Has Due Date" }</option>
-                                                              <option value="no_due">{ "No Due Date" }</option>
-                                                          </select>
-                                                      </div>
-                                                      <div class="actions">
-                                                          <button class="btn" onclick={on_all_filters_clear.clone()}>{ "Clear Filters" }</button>
-                                                      </div>
-                                                  </div>
-                                              </div>
-                                              <Details
-                                                  task={selected_task.clone()}
-                                                  tag_colors={tag_colors.clone()}
-                                                  on_done={on_done.clone()}
-                                                  on_delete={on_delete.clone()}
-                                                  on_edit={on_edit.clone()}
-                                              />
-                                          </div>
-                                      }
-                                  } else if *active_view == "tags" && selected_task.is_none() {
-                                      html! {
-                                          <FacetPanel
-                                              title={"Tags".to_string()}
-                                              selected={(*active_tag).clone()}
-                                              items={tag_facets}
-                                              on_select={on_choose_tag}
-                                          />
-                                      }
-                                  } else {
-                                      html! {
-                                          <Details
-                                              task={selected_task.clone()}
-                                              tag_colors={tag_colors.clone()}
-                                              on_done={on_done.clone()}
-                                              on_delete={on_delete.clone()}
-                                              on_edit={on_edit.clone()}
-                                          />
-                                      }
-                                  }
-                              }
-                          </>
+                          <TasksWorkspace
+                              active_view={(*active_view).clone()}
+                              on_nav={on_nav.clone()}
+                              task_visible_tasks={task_visible_tasks.clone()}
+                              tag_colors={tag_colors.clone()}
+                              selected={*selected}
+                              bulk_selected={(*bulk_selected).clone()}
+                              on_select={on_select}
+                              on_toggle_select={on_toggle_select}
+                              selected_task={selected_task.clone()}
+                              active_project={(*active_project).clone()}
+                              active_tag={(*active_tag).clone()}
+                              project_facets={project_facets.clone()}
+                              tag_facets={tag_facets.clone()}
+                              on_choose_project={on_choose_project}
+                              on_choose_tag={on_choose_tag}
+                              search_value={(*search).clone()}
+                              on_search_input={{
+                                  let search = search.clone();
+                                  Callback::from(move |e: web_sys::InputEvent| {
+                                      let input: web_sys::HtmlInputElement = e.target_unchecked_into();
+                                      search.set(input.value());
+                                  })
+                              }}
+                              completion_value={(*all_filter_completion).clone()}
+                              on_completion_change={on_all_completion_change}
+                              project_value={(*all_filter_project).clone().unwrap_or_default()}
+                              on_project_change={on_all_project_change}
+                              tag_value={(*all_filter_tag).clone().unwrap_or_default()}
+                              on_tag_change={on_all_tag_change}
+                              priority_value={(*all_filter_priority).clone()}
+                              on_priority_change={on_all_priority_change}
+                              due_value={(*all_filter_due).clone()}
+                              on_due_change={on_all_due_change}
+                              on_clear_filters={on_all_filters_clear.clone()}
+                              on_done={on_done.clone()}
+                              on_delete={on_delete.clone()}
+                              on_edit={on_edit.clone()}
+                          />
                       }
                   }
               }
           </div>
 
           {
-              if let Some(state) = (*modal_state).clone() {
-                  let submit_state = state.clone();
-                  let is_busy = *modal_busy;
-                  let board_options: Vec<(String, String)> = kanban_boards
-                      .iter()
-                      .map(|board| (board.id.clone(), board.name.clone()))
-                      .collect();
-                  let selected_board_name = state
-                      .draft_board_id
-                      .as_ref()
-                      .and_then(|board_id| {
-                          board_options
-                              .iter()
-                              .find(|(id, _name)| id == board_id)
-                              .map(|(_id, name)| name.clone())
-                      });
-                  let picker_value_options = state
-                      .picker_key
-                      .as_deref()
-                      .and_then(|id| tag_schema.key(id))
-                      .map(|key| key.values.clone())
-                      .unwrap_or_default();
-                  let on_save_click = {
-                      let on_modal_submit = on_modal_submit.clone();
-                      let submit_state = submit_state.clone();
-                      Callback::from(move |_| {
-                          ui_debug("button.save.click", "save click fired");
-                          on_modal_submit.emit(submit_state.clone());
-                      })
-                  };
-                  let on_add_custom_tag = {
-                      let modal_state = modal_state.clone();
-                      Callback::from(move |_| {
-                          if let Some(mut current) = (*modal_state).clone() {
-                              let custom_tags = split_tags(&current.draft_custom_tag);
-                              if custom_tags.is_empty() {
-                                  return;
-                              }
-
-                              let mut added = 0_usize;
-                              for tag in custom_tags {
-                                  if push_tag_unique(&mut current.draft_tags, tag) {
-                                      added += 1;
-                                  }
-                              }
-                              tracing::debug!(added, "added custom tags");
-                              current.draft_custom_tag.clear();
-                              current.error = None;
-                              modal_state.set(Some(current));
-                          }
-                      })
-                  };
-                  let on_picker_key_change = {
-                      let modal_state = modal_state.clone();
-                      let tag_schema = tag_schema.clone();
-                      Callback::from(move |e: web_sys::Event| {
-                          let select: web_sys::HtmlSelectElement = e.target_unchecked_into();
-                          let key = select.value();
-                          if let Some(mut current) = (*modal_state).clone() {
-                              if key.trim().is_empty() {
-                                  current.picker_key = None;
-                                  current.picker_value = None;
-                              } else {
-                                  current.picker_key = Some(key.clone());
-                                  current.picker_value = first_value_for_key(&tag_schema, &key);
-                              }
-                              current.error = None;
-                              modal_state.set(Some(current));
-                          }
-                      })
-                  };
-                  let on_picker_value_change = {
-                      let modal_state = modal_state.clone();
-                      Callback::from(move |e: web_sys::Event| {
-                          let select: web_sys::HtmlSelectElement = e.target_unchecked_into();
-                          let value = select.value();
-                          if let Some(mut current) = (*modal_state).clone() {
-                              current.picker_value = if value.trim().is_empty() {
-                                  None
-                              } else {
-                                  Some(value)
-                              };
-                              current.error = None;
-                              modal_state.set(Some(current));
-                          }
-                      })
-                  };
-                  let on_add_picker_tag = {
-                      let modal_state = modal_state.clone();
-                      let tag_schema = tag_schema.clone();
-                      Callback::from(move |_| {
-                          if let Some(mut current) = (*modal_state).clone() {
-                              let Some(key) = current.picker_key.clone() else {
-                                  return;
-                              };
-                              let Some(value) = current.picker_value.clone() else {
-                                  return;
-                              };
-
-                              let key = key.trim();
-                              let value = value.trim();
-                              if key.is_empty() || value.is_empty() {
-                                  return;
-                              }
-
-                              let tag = format!("{key}:{value}");
-                              if is_single_select_key(&tag_schema, key) {
-                                  remove_tags_for_key(&mut current.draft_tags, key);
-                              }
-                              if push_tag_unique(&mut current.draft_tags, tag.clone()) {
-                                  tracing::debug!(tag = %tag, "added picker tag");
-                              } else {
-                                  tracing::debug!(tag = %tag, "picker tag already present");
-                              }
-
-                              current.error = None;
-                              modal_state.set(Some(current));
-                          }
-                      })
-                  };
-                  let on_board_change = {
-                      let modal_state = modal_state.clone();
-                      Callback::from(move |e: web_sys::Event| {
-                          let select: web_sys::HtmlSelectElement = e.target_unchecked_into();
-                          let value = select.value();
-                          if let Some(mut current) = (*modal_state).clone() {
-                              current.draft_board_id = if value.trim().is_empty() {
-                                  None
-                              } else {
-                                  Some(value)
-                              };
-                              current.error = None;
-                              modal_state.set(Some(current));
-                          }
-                      })
-                  };
-                  let on_recurrence_pattern_change = {
-                      let modal_state = modal_state.clone();
-                      Callback::from(move |e: web_sys::Event| {
-                          let select: web_sys::HtmlSelectElement = e.target_unchecked_into();
-                          let value = select.value();
-                          if let Some(mut current) = (*modal_state).clone() {
-                              current.recurrence_pattern = value;
-                              current.error = None;
-                              modal_state.set(Some(current));
-                          }
-                      })
-                  };
-                  let on_recurrence_time_change = {
-                      let modal_state = modal_state.clone();
-                      Callback::from(move |e: web_sys::InputEvent| {
-                          let input: web_sys::HtmlInputElement = e.target_unchecked_into();
-                          if let Some(mut current) = (*modal_state).clone() {
-                              current.recurrence_time = input.value();
-                              current.error = None;
-                              modal_state.set(Some(current));
-                          }
-                      })
-                  };
-                  let on_recurrence_month_day_change = {
-                      let modal_state = modal_state.clone();
-                      Callback::from(move |e: web_sys::InputEvent| {
-                          let input: web_sys::HtmlInputElement = e.target_unchecked_into();
-                          if let Some(mut current) = (*modal_state).clone() {
-                              current.recurrence_month_day = input.value();
-                              current.error = None;
-                              modal_state.set(Some(current));
-                          }
-                      })
-                  };
-                  html! {
-                      <div class="modal-backdrop">
-                          <div class="modal">
-                              <div class="header">
-                                  {
-                                      match state.mode {
-                                          ModalMode::Add => "Add Task",
-                                          ModalMode::Edit(_) => "Edit Task",
-                                      }
-                                  }
-                              </div>
-                              <div class="content">
-                                  {
-                                      if let Some(err) = state.error.clone() {
-                                          html! { <div class="form-error">{ err }</div> }
-                                      } else {
-                                          html! {}
-                                      }
-                                  }
-                                  <div class="field">
-                                      <label>{ "Title" }</label>
-                                      <input
-                                          value={state.draft_title.clone()}
-                                          placeholder="Required task title"
-                                          oninput={{
-                                              let modal_state = modal_state.clone();
-                                              Callback::from(move |e: web_sys::InputEvent| {
-                                                  let input: web_sys::HtmlInputElement = e.target_unchecked_into();
-                                                  if let Some(mut current) = (*modal_state).clone() {
-                                                      current.draft_title = input.value();
-                                                      current.error = None;
-                                                      modal_state.set(Some(current));
-                                                  }
-                                              })
-                                          }}
-                                      />
-                                  </div>
-                                  <div class="field">
-                                      <label>{ "Description (optional)" }</label>
-                                      <input
-                                          value={state.draft_desc.clone()}
-                                          placeholder="Optional details"
-                                          oninput={{
-                                              let modal_state = modal_state.clone();
-                                              Callback::from(move |e: web_sys::InputEvent| {
-                                                  let input: web_sys::HtmlInputElement = e.target_unchecked_into();
-                                                  if let Some(mut current) = (*modal_state).clone() {
-                                                      current.draft_desc = input.value();
-                                                      current.error = None;
-                                                      modal_state.set(Some(current));
-                                                  }
-                                              })
-                                          }}
-                                      />
-                                  </div>
-                                  <div class="field">
-                                      <label>{ "Project" }</label>
-                                      <input
-                                          value={state.draft_project.clone()}
-                                          oninput={{
-                                              let modal_state = modal_state.clone();
-                                              Callback::from(move |e: web_sys::InputEvent| {
-                                                  let input: web_sys::HtmlInputElement = e.target_unchecked_into();
-                                                  if let Some(mut current) = (*modal_state).clone() {
-                                                      current.draft_project = input.value();
-                                                      current.error = None;
-                                                      modal_state.set(Some(current));
-                                                  }
-                                              })
-                                          }}
-                                      />
-                                  </div>
-                                  <div class="field">
-                                      <label>
-                                          {
-                                              if state.lock_board_selection {
-                                                  "Kanban Board (fixed by current board)"
-                                              } else {
-                                                  "Kanban Board (optional)"
-                                              }
-                                          }
-                                      </label>
-                                      <select
-                                          class="tag-select"
-                                          value={state.draft_board_id.clone().unwrap_or_default()}
-                                          onchange={on_board_change}
-                                          disabled={state.lock_board_selection}
-                                      >
-                                          <option value="">{ "No board (won't appear on Kanban)" }</option>
-                                          {
-                                              for board_options.iter().map(|(board_id, board_name)| html! {
-                                                  <option value={board_id.clone()}>{ board_name.clone() }</option>
-                                              })
-                                          }
-                                      </select>
-                                      {
-                                          if state.lock_board_selection {
-                                              html! {
-                                                  <div class="field-help">
-                                                      {
-                                                          selected_board_name
-                                                              .map(|name| format!("This task will be added to board: {name}"))
-                                                              .unwrap_or_else(|| "This task will be added to the active board.".to_string())
-                                                      }
-                                                  </div>
-                                              }
-                                          } else {
-                                              html! {}
-                                          }
-                                      }
-                                  </div>
-                                  <div class="field">
-                                      <label>{ "Custom Tag" }</label>
-                                      <div class="field-inline">
-                                          <input
-                                              value={state.draft_custom_tag.clone()}
-                                              placeholder="e.g. topic:corn or followup"
-                                              oninput={{
-                                                  let modal_state = modal_state.clone();
-                                                  Callback::from(move |e: web_sys::InputEvent| {
-                                                      let input: web_sys::HtmlInputElement = e.target_unchecked_into();
-                                                      if let Some(mut current) = (*modal_state).clone() {
-                                                          current.draft_custom_tag = input.value();
-                                                          current.error = None;
-                                                          modal_state.set(Some(current));
-                                                      }
-                                                  })
-                                              }}
-                                          />
-                                          <button
-                                              type="button"
-                                              class="btn"
-                                              onclick={on_add_custom_tag}
-                                          >
-                                              { "Add" }
-                                          </button>
-                                      </div>
-                                  </div>
-                                  <div class="field">
-                                      <label>{ "Pick Tag (key -> value)" }</label>
-                                      <div class="tag-picker">
-                                          <select
-                                              class="tag-select"
-                                              value={state.picker_key.clone().unwrap_or_default()}
-                                              onchange={on_picker_key_change}
-                                          >
-                                              <option value="">{ "Select key" }</option>
-                                              {
-                                                  for tag_schema.keys.iter().filter(|key| key.id != BOARD_TAG_KEY).map(|key| {
-                                                      let label = key.label.clone().unwrap_or_else(|| key.id.clone());
-                                                      html! {
-                                                          <option value={key.id.clone()}>
-                                                              { format!("{label} ({})", key.id) }
-                                                          </option>
-                                                      }
-                                                  })
-                                              }
-                                          </select>
-                                          <select
-                                              class="tag-select"
-                                              value={state.picker_value.clone().unwrap_or_default()}
-                                              onchange={on_picker_value_change}
-                                              disabled={state.picker_key.is_none() || picker_value_options.is_empty()}
-                                          >
-                                              <option value="">{ "Select value" }</option>
-                                              {
-                                                  for picker_value_options.iter().map(|value| html! {
-                                                      <option value={value.clone()}>{ value }</option>
-                                                  })
-                                              }
-                                          </select>
-                                          <button
-                                              type="button"
-                                              class="btn tag-plus"
-                                              onclick={on_add_picker_tag}
-                                              disabled={state.picker_key.is_none() || state.picker_value.is_none()}
-                                              title="Add selected key:value tag"
-                                          >
-                                              { "+" }
-                                          </button>
-                                      </div>
-                                  </div>
-                                  <div class="field">
-                                      <label>{ "Selected Tags" }</label>
-                                      <div class="tag-list">
-                                          {
-                                              if state.draft_tags.is_empty() {
-                                                  html! { <span class="tag-empty">{ "No tags selected yet." }</span> }
-                                              } else {
-                                                  html! {
-                                                      <>
-                                                          {
-                                                              for state.draft_tags.iter().map(|tag| {
-                                                                  let modal_state = modal_state.clone();
-                                                                  let tag_to_remove = tag.clone();
-                                                                  let chip_style = tag_chip_style(&tag_schema, tag, &tag_colors);
-                                                                  html! {
-                                                                      <span class="tag-chip" style={chip_style}>
-                                                                          <span>{ tag }</span>
-                                                                          <button
-                                                                              type="button"
-                                                                              class="tag-chip-remove"
-                                                                              onclick={Callback::from(move |_| {
-                                                                                  if let Some(mut current) = (*modal_state).clone() {
-                                                                                      current.draft_tags.retain(|value| value != &tag_to_remove);
-                                                                                      current.error = None;
-                                                                                      modal_state.set(Some(current));
-                                                                                  }
-                                                                              })}
-                                                                          >
-                                                                              { "x" }
-                                                                          </button>
-                                                                      </span>
-                                                                  }
-                                                              })
-                                                          }
-                                                      </>
-                                                  }
-                                              }
-                                          }
-                                      </div>
-                                  </div>
-                                  <div class="field">
-                                      <label>{ "Due" }</label>
-                                      <input
-                                          value={state.draft_due.clone()}
-                                          placeholder="e.g. tomorrow, 2028, march, wed, 3:23pm, 2026-02-20"
-                                          oninput={{
-                                              let modal_state = modal_state.clone();
-                                              Callback::from(move |e: web_sys::InputEvent| {
-                                                  let input: web_sys::HtmlInputElement = e.target_unchecked_into();
-                                                  if let Some(mut current) = (*modal_state).clone() {
-                                                      current.draft_due = input.value();
-                                                      current.error = None;
-                                                      modal_state.set(Some(current));
-                                                  }
-                                              })
-                                          }}
-                                      />
-                                  </div>
-                                  <div class="field">
-                                      <label>{ "Recurrence" }</label>
-                                      <select
-                                          class="tag-select"
-                                          value={state.recurrence_pattern.clone()}
-                                          onchange={on_recurrence_pattern_change}
-                                      >
-                                          <option value="none">{ "None" }</option>
-                                          <option value="daily">{ "Daily" }</option>
-                                          <option value="weekly">{ "Weekly" }</option>
-                                          <option value="months">{ "Months" }</option>
-                                          <option value="monthly">{ "Monthly" }</option>
-                                          <option value="yearly">{ "Yearly" }</option>
-                                      </select>
-                                  </div>
-                                  {
-                                      if state.recurrence_pattern != "none" {
-                                          html! {
-                                              <div class="field">
-                                                  <label>{ "Recurring Time" }</label>
-                                                  <input
-                                                      value={state.recurrence_time.clone()}
-                                                      placeholder="e.g. 03:23pm or 15:23"
-                                                      oninput={on_recurrence_time_change}
-                                                  />
-                                              </div>
-                                          }
-                                      } else {
-                                          html! {}
-                                      }
-                                  }
-                                  {
-                                      if state.recurrence_pattern == "weekly" {
-                                          html! {
-                                              <div class="field">
-                                                  <label>{ "Weekly Days" }</label>
-                                                  <div class="toggle-grid">
-                                                      {
-                                                          for WEEKDAY_KEYS.iter().map(|day| {
-                                                              let day_key = (*day).to_string();
-                                                              let day_label = day_key.to_ascii_uppercase();
-                                                              let is_active = state.recurrence_days.iter().any(|entry| entry == &day_key);
-                                                              let modal_state = modal_state.clone();
-                                                              html! {
-                                                                  <button
-                                                                      type="button"
-                                                                      class={classes!("toggle-btn", is_active.then_some("active"))}
-                                                                      onclick={Callback::from(move |_| {
-                                                                          if let Some(mut current) = (*modal_state).clone() {
-                                                                              if current.recurrence_days.iter().any(|entry| entry == &day_key) {
-                                                                                  current.recurrence_days.retain(|entry| entry != &day_key);
-                                                                              } else {
-                                                                                  current.recurrence_days.push(day_key.clone());
-                                                                              }
-                                                                              current.error = None;
-                                                                              modal_state.set(Some(current));
-                                                                          }
-                                                                      })}
-                                                                  >
-                                                                      { day_label }
-                                                                  </button>
-                                                              }
-                                                          })
-                                                      }
-                                                  </div>
-                                              </div>
-                                          }
-                                      } else {
-                                          html! {}
-                                      }
-                                  }
-                                  {
-                                      if state.recurrence_pattern == "monthly"
-                                          || state.recurrence_pattern == "months"
-                                          || state.recurrence_pattern == "yearly"
-                                      {
-                                          html! {
-                                              <>
-                                                  <div class="field">
-                                                      <label>{ "Months" }</label>
-                                                      <div class="toggle-grid months">
-                                                          {
-                                                              for MONTH_KEYS.iter().map(|month| {
-                                                                  let month_key = (*month).to_string();
-                                                                  let month_label = month_key.to_ascii_uppercase();
-                                                                  let is_active = state.recurrence_months.iter().any(|entry| entry == &month_key);
-                                                                  let modal_state = modal_state.clone();
-                                                                  html! {
-                                                                      <button
-                                                                          type="button"
-                                                                          class={classes!("toggle-btn", is_active.then_some("active"))}
-                                                                          onclick={Callback::from(move |_| {
-                                                                              if let Some(mut current) = (*modal_state).clone() {
-                                                                                  if current.recurrence_months.iter().any(|entry| entry == &month_key) {
-                                                                                      current.recurrence_months.retain(|entry| entry != &month_key);
-                                                                                  } else {
-                                                                                      current.recurrence_months.push(month_key.clone());
-                                                                                  }
-                                                                                  current.error = None;
-                                                                                  modal_state.set(Some(current));
-                                                                              }
-                                                                          })}
-                                                                      >
-                                                                          { month_label }
-                                                                      </button>
-                                                                  }
-                                                              })
-                                                          }
-                                                      </div>
-                                                  </div>
-                                                  <div class="field">
-                                                      <label>{ "Month Day(s)" }</label>
-                                                      <input
-                                                          value={state.recurrence_month_day.clone()}
-                                                          placeholder="e.g. 1 or 1,15,28"
-                                                          oninput={on_recurrence_month_day_change}
-                                                      />
-                                                  </div>
-                                              </>
-                                          }
-                                      } else {
-                                          html! {}
-                                      }
-                                  }
-                                  <div class="footer">
-                                      <button
-                                          id="modal-cancel-btn"
-                                          type="button"
-                                          class="btn"
-                                          onclick={on_modal_close_click.clone()}
-                                      >
-                                          { "Cancel" }
-                                      </button>
-                                      <button
-                                          id="modal-save-btn"
-                                          type="button"
-                                          class="btn"
-                                          onclick={on_save_click}
-                                          disabled={is_busy}
-                                      >
-                                          { if is_busy { "Saving..." } else { "Save" } }
-                                      </button>
-                                  </div>
-                              </div>
-                          </div>
-                      </div>
-                  }
-              } else {
-                  html! {}
+              html! {
+                  <TaskModal
+                      modal_state={modal_state.clone()}
+                      modal_busy={*modal_busy}
+                      kanban_boards={(*kanban_boards).clone()}
+                      tag_schema={(*tag_schema).clone()}
+                      tag_colors={tag_colors.clone()}
+                      on_modal_submit={on_modal_submit.clone()}
+                      on_modal_close_click={on_modal_close_click.clone()}
+                  />
               }
           }
 
           {
-              if *kanban_create_open {
-                  html! {
-                      <div class="modal-backdrop" onclick={on_close_create_kanban_board.clone()}>
-                          <div class="modal modal-sm" onclick={Callback::from(|e: yew::MouseEvent| e.stop_propagation())}>
-                              <div class="header">{ "New Kanban Board" }</div>
-                              <div class="content">
-                                  <div class="field">
-                                      <label>{ "Board Name" }</label>
-                                      <input
-                                          value={(*kanban_create_input).clone()}
-                                          oninput={on_create_kanban_input}
-                                          placeholder="Board name"
-                                      />
-                                  </div>
-                                  <div class="footer">
-                                      <button type="button" class="btn" onclick={on_close_create_kanban_board.clone()}>{ "Cancel" }</button>
-                                      <button
-                                          type="button"
-                                          class="btn"
-                                          onclick={on_submit_create_kanban_board}
-                                          disabled={(*kanban_create_input).trim().is_empty()}
-                                      >
-                                          { "Create" }
-                                      </button>
-                                  </div>
-                              </div>
-                          </div>
-                      </div>
-                  }
-              } else {
-                  html! {}
+              html! {
+                  <NewKanbanBoardModal
+                      open={*kanban_create_open}
+                      input_value={(*kanban_create_input).clone()}
+                      on_close={on_close_create_kanban_board.clone()}
+                      on_input={on_create_kanban_input}
+                      on_submit={on_submit_create_kanban_board}
+                  />
               }
           }
 
           {
-              if *kanban_rename_open {
-                  html! {
-                      <div class="modal-backdrop" onclick={on_close_rename_kanban_board.clone()}>
-                          <div class="modal modal-sm" onclick={Callback::from(|e: yew::MouseEvent| e.stop_propagation())}>
-                              <div class="header">{ "Rename Kanban Board" }</div>
-                              <div class="content">
-                                  <div class="field">
-                                      <label>{ "Board Name" }</label>
-                                      <input
-                                          value={(*kanban_rename_input).clone()}
-                                          oninput={on_rename_kanban_input}
-                                      />
-                                  </div>
-                                  <div class="footer">
-                                      <button type="button" class="btn" onclick={on_close_rename_kanban_board.clone()}>{ "Cancel" }</button>
-                                      <button
-                                          type="button"
-                                          class="btn"
-                                          onclick={on_submit_rename_kanban_board}
-                                          disabled={(*kanban_rename_input).trim().is_empty()}
-                                      >
-                                          { "Save" }
-                                      </button>
-                                  </div>
-                              </div>
-                          </div>
-                      </div>
-                  }
-              } else {
-                  html! {}
+              html! {
+                  <RenameKanbanBoardModal
+                      open={*kanban_rename_open}
+                      input_value={(*kanban_rename_input).clone()}
+                      on_close={on_close_rename_kanban_board.clone()}
+                      on_input={on_rename_kanban_input}
+                      on_submit={on_submit_rename_kanban_board}
+                  />
               }
           }
 
           {
-              if let Some(ext_modal) = (*external_calendar_modal).clone() {
-                  let submit_state = ext_modal.clone();
-                  let is_busy = *external_calendar_busy;
-                  let on_save_click = {
-                      let on_submit_external_calendar = on_submit_external_calendar.clone();
-                      Callback::from(move |_| on_submit_external_calendar.emit(submit_state.clone()))
-                  };
-                  html! {
-                      <div class="modal-backdrop" onclick={on_close_external_calendar_modal.clone()}>
-                          <div class="modal modal-md" onclick={Callback::from(|e: yew::MouseEvent| e.stop_propagation())}>
-                              <div class="header">
-                                  {
-                                      match ext_modal.mode {
-                                          ExternalCalendarModalMode::Add => "Add External Calendar",
-                                          ExternalCalendarModalMode::Edit => "Edit External Calendar",
-                                      }
-                                  }
-                              </div>
-                              <div class="content">
-                                  {
-                                      if let Some(err) = ext_modal.error.clone() {
-                                          html! { <div class="form-error">{ err }</div> }
-                                      } else {
-                                          html! {}
-                                      }
-                                  }
-                                  <div class="field field-inline-check">
-                                      <label>{ "Enable This Calendar" }</label>
-                                      <input
-                                          type="checkbox"
-                                          checked={ext_modal.source.enabled}
-                                          onchange={{
-                                              let external_calendar_modal = external_calendar_modal.clone();
-                                              Callback::from(move |e: web_sys::Event| {
-                                                  if let Some(input) = e.target_dyn_into::<web_sys::HtmlInputElement>() {
-                                                      if let Some(mut current) = (*external_calendar_modal).clone() {
-                                                          current.source.enabled = input.checked();
-                                                          current.error = None;
-                                                          external_calendar_modal.set(Some(current));
-                                                      }
-                                                  }
-                                              })
-                                          }}
-                                      />
-                                  </div>
-                                  <div class="field">
-                                      <label>{ "Calendar Name" }</label>
-                                      <input
-                                          value={ext_modal.source.name.clone()}
-                                          oninput={{
-                                              let external_calendar_modal = external_calendar_modal.clone();
-                                              Callback::from(move |e: web_sys::InputEvent| {
-                                                  let input: web_sys::HtmlInputElement = e.target_unchecked_into();
-                                                  if let Some(mut current) = (*external_calendar_modal).clone() {
-                                                      current.source.name = input.value();
-                                                      current.error = None;
-                                                      external_calendar_modal.set(Some(current));
-                                                  }
-                                              })
-                                          }}
-                                      />
-                                  </div>
-                                  <div class="field">
-                                      <label>{ "Color" }</label>
-                                      <input
-                                          type="color"
-                                          value={ext_modal.source.color.clone()}
-                                          oninput={{
-                                              let external_calendar_modal = external_calendar_modal.clone();
-                                              Callback::from(move |e: web_sys::InputEvent| {
-                                                  let input: web_sys::HtmlInputElement = e.target_unchecked_into();
-                                                  if let Some(mut current) = (*external_calendar_modal).clone() {
-                                                      current.source.color = input.value();
-                                                      current.error = None;
-                                                      external_calendar_modal.set(Some(current));
-                                                  }
-                                              })
-                                          }}
-                                      />
-                                  </div>
-                                  <div class="field">
-                                      <label>{ "Location (ICS URL)" }</label>
-                                      <input
-                                          value={ext_modal.source.location.clone()}
-                                          placeholder="https://example.com/calendar.ics"
-                                          oninput={{
-                                              let external_calendar_modal = external_calendar_modal.clone();
-                                              Callback::from(move |e: web_sys::InputEvent| {
-                                                  let input: web_sys::HtmlInputElement = e.target_unchecked_into();
-                                                  if let Some(mut current) = (*external_calendar_modal).clone() {
-                                                      current.source.location = input.value();
-                                                      current.error = None;
-                                                      external_calendar_modal.set(Some(current));
-                                                  }
-                                              })
-                                          }}
-                                      />
-                                  </div>
-                                  <div class="field">
-                                      <label>{ "Refresh Calendar" }</label>
-                                      <select
-                                          class="tag-select"
-                                          value={ext_modal.source.refresh_minutes.to_string()}
-                                          onchange={{
-                                              let external_calendar_modal = external_calendar_modal.clone();
-                                              Callback::from(move |e: web_sys::Event| {
-                                                  let select: web_sys::HtmlSelectElement = e.target_unchecked_into();
-                                                  if let Some(mut current) = (*external_calendar_modal).clone() {
-                                                      let parsed = select.value().parse::<u32>().ok().unwrap_or(30);
-                                                      current.source.refresh_minutes = parsed.max(1);
-                                                      current.error = None;
-                                                      external_calendar_modal.set(Some(current));
-                                                  }
-                                              })
-                                          }}
-                                      >
-                                          <option value="5">{ "Every 5 minutes" }</option>
-                                          <option value="15">{ "Every 15 minutes" }</option>
-                                          <option value="30">{ "Every 30 minutes" }</option>
-                                          <option value="60">{ "Every 60 minutes" }</option>
-                                          <option value="360">{ "Every 6 hours" }</option>
-                                          <option value="1440">{ "Every 24 hours" }</option>
-                                      </select>
-                                  </div>
-                                  <div class="field field-inline-check">
-                                      <label>{ "Read Only" }</label>
-                                      <input
-                                          type="checkbox"
-                                          checked={ext_modal.source.read_only}
-                                          onchange={{
-                                              let external_calendar_modal = external_calendar_modal.clone();
-                                              Callback::from(move |e: web_sys::Event| {
-                                                  if let Some(input) = e.target_dyn_into::<web_sys::HtmlInputElement>() {
-                                                      if let Some(mut current) = (*external_calendar_modal).clone() {
-                                                          current.source.read_only = input.checked();
-                                                          current.error = None;
-                                                          external_calendar_modal.set(Some(current));
-                                                      }
-                                                  }
-                                              })
-                                          }}
-                                      />
-                                  </div>
-                                  <div class="field field-inline-check">
-                                      <label>{ "Show Reminders" }</label>
-                                      <input
-                                          type="checkbox"
-                                          checked={ext_modal.source.show_reminders}
-                                          onchange={{
-                                              let external_calendar_modal = external_calendar_modal.clone();
-                                              Callback::from(move |e: web_sys::Event| {
-                                                  if let Some(input) = e.target_dyn_into::<web_sys::HtmlInputElement>() {
-                                                      if let Some(mut current) = (*external_calendar_modal).clone() {
-                                                          current.source.show_reminders = input.checked();
-                                                          current.error = None;
-                                                          external_calendar_modal.set(Some(current));
-                                                      }
-                                                  }
-                                              })
-                                          }}
-                                      />
-                                  </div>
-                                  <div class="field field-inline-check">
-                                      <label>{ "Offline Support" }</label>
-                                      <input
-                                          type="checkbox"
-                                          checked={ext_modal.source.offline_support}
-                                          onchange={{
-                                              let external_calendar_modal = external_calendar_modal.clone();
-                                              Callback::from(move |e: web_sys::Event| {
-                                                  if let Some(input) = e.target_dyn_into::<web_sys::HtmlInputElement>() {
-                                                      if let Some(mut current) = (*external_calendar_modal).clone() {
-                                                          current.source.offline_support = input.checked();
-                                                          current.error = None;
-                                                          external_calendar_modal.set(Some(current));
-                                                      }
-                                                  }
-                                              })
-                                          }}
-                                      />
-                                  </div>
-                                  <div class="footer">
-                                      <button type="button" class="btn" onclick={on_close_external_calendar_modal.clone()}>{ "Cancel" }</button>
-                                      <button type="button" class="btn" onclick={on_save_click} disabled={is_busy}>
-                                          { if is_busy { "Saving..." } else { "Save" } }
-                                      </button>
-                                  </div>
-                              </div>
-                          </div>
-                      </div>
-                  }
-              } else {
-                  html! {}
+              html! {
+                  <ExternalCalendarModal
+                      modal_state={external_calendar_modal.clone()}
+                      busy={*external_calendar_busy}
+                      on_close={on_close_external_calendar_modal.clone()}
+                      on_submit={on_submit_external_calendar.clone()}
+                  />
               }
           }
       </div>

@@ -34,12 +34,15 @@ use uuid::Uuid;
 use yew::{
   Callback,
   Html,
+  MouseEvent,
+  Properties,
   TargetCast,
   classes,
   function_component,
   html,
   use_effect_with,
-  use_state
+  use_state,
+  UseStateHandle
 };
 
 use crate::api::invoke_tauri;
@@ -48,7 +51,9 @@ use crate::components::{
   FacetPanel,
   KanbanBoard,
   Sidebar,
-  TaskList
+  TaskList,
+  WindowChrome,
+  WorkspaceTabs
 };
 
 #[derive(Clone, PartialEq)]
@@ -457,7 +462,7 @@ struct ProjectTimeSection {
   timezone: Option<String>
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 struct CalendarDueTask {
   task:      TaskDto,
   due_utc:   DateTime<Utc>,
@@ -465,7 +470,9 @@ struct CalendarDueTask {
   marker:    CalendarTaskMarker
 }
 
-#[derive(Clone, Copy)]
+#[derive(
+  Clone, Copy, PartialEq, Eq,
+)]
 enum CalendarMarkerShape {
   Triangle,
   Circle,
@@ -482,13 +489,15 @@ impl CalendarMarkerShape {
   }
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 struct CalendarTaskMarker {
   shape: CalendarMarkerShape,
   color: String
 }
 
-#[derive(Default)]
+#[derive(
+  Clone, Default, PartialEq,
+)]
 struct CalendarStats {
   total:     usize,
   pending:   usize,
