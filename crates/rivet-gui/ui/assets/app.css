@@ -73,10 +73,14 @@ body {
 }
 
 .window-mascot {
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   border-radius: 4px;
   display: block;
+  object-fit: cover;
+  object-position: center;
+  border: 1px solid var(--border);
+  background: var(--panel-soft);
 }
 
 .window-controls {

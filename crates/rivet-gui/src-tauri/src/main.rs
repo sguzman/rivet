@@ -112,6 +112,9 @@ fn main() {
   tauri::Builder::default()
     .setup(|app| {
       configure_main_window_icon(app);
+      install_signal_handlers(
+        app.handle().clone()
+      );
       Ok(())
     })
     .manage(state)
@@ -134,6 +137,81 @@ fn main() {
       "error while running Rivet GUI \
        backend"
     );
+}
+
+fn install_signal_handlers(
+  app_handle: tauri::AppHandle
+) {
+  tauri::async_runtime::spawn(
+    async move {
+      wait_for_shutdown_signal().await;
+      warn!(
+        "received shutdown signal; \
+         exiting application"
+      );
+      app_handle.exit(0);
+    }
+  );
+}
+
+#[cfg(unix)]
+async fn wait_for_shutdown_signal() {
+  use tokio::signal::unix::{
+    SignalKind,
+    signal
+  };
+
+  let mut sigint = match signal(
+    SignalKind::interrupt()
+  ) {
+    | Ok(stream) => stream,
+    | Err(error) => {
+      error!(
+        %error,
+        "failed to register SIGINT \
+         handler; falling back to \
+         ctrl_c"
+      );
+      let _ =
+        tokio::signal::ctrl_c().await;
+      return;
+    }
+  };
+
+  let mut sigterm = match signal(
+    SignalKind::terminate()
+  ) {
+    | Ok(stream) => stream,
+    | Err(error) => {
+      error!(
+        %error,
+        "failed to register SIGTERM \
+         handler; falling back to \
+         ctrl_c"
+      );
+      let _ =
+        tokio::signal::ctrl_c().await;
+      return;
+    }
+  };
+
+  tokio::select! {
+    _ = sigint.recv() => {}
+    _ = sigterm.recv() => {}
+  }
+}
+
+#[cfg(not(unix))]
+async fn wait_for_shutdown_signal() {
+  if let Err(error) =
+    tokio::signal::ctrl_c().await
+  {
+    error!(
+      %error,
+      "failed waiting for ctrl_c \
+       signal"
+    );
+  }
 }
 
 fn configure_main_window_icon<

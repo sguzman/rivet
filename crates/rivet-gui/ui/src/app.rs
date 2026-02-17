@@ -3018,7 +3018,7 @@ pub fn app() -> Html {
       <div class={classes!("app", (*theme).as_class(), is_any_modal_open.then_some("modal-open"))}>
           <div class="window-chrome" data-tauri-drag-region="true">
               <div class="window-brand">
-                  <img class="window-mascot" src="assets/icons/mascot-square.png" alt="Rivet mascot" />
+                  <img class="window-mascot" src="/favicon-32x32.png" alt="Rivet mascot" />
                   <span>{ "Rivet" }</span>
               </div>
               <div class="window-controls" data-tauri-drag-region="false">
