@@ -110,8 +110,12 @@ struct TagKey {
   Deserialize,
 )]
 struct KanbanBoardDef {
-  id:   String,
-  name: String
+  id:    String,
+  name:  String,
+  #[serde(
+    default = "default_board_color"
+  )]
+  color: String
 }
 
 #[derive(
@@ -461,7 +465,31 @@ struct ProjectTimeSection {
 struct CalendarDueTask {
   task:      TaskDto,
   due_utc:   DateTime<Utc>,
-  due_local: DateTime<Tz>
+  due_local: DateTime<Tz>,
+  marker:    CalendarTaskMarker
+}
+
+#[derive(Clone, Copy)]
+enum CalendarMarkerShape {
+  Triangle,
+  Circle,
+  Square
+}
+
+impl CalendarMarkerShape {
+  fn as_class(self) -> &'static str {
+    match self {
+      | Self::Triangle => "triangle",
+      | Self::Circle => "circle",
+      | Self::Square => "square"
+    }
+  }
+}
+
+#[derive(Clone)]
+struct CalendarTaskMarker {
+  shape: CalendarMarkerShape,
+  color: String
 }
 
 #[derive(Default)]
@@ -594,6 +622,12 @@ const RECUR_MONTHS_TAG_KEY: &str =
   "recur_months";
 const RECUR_MONTH_DAY_TAG_KEY: &str =
   "recur_day";
+const CAL_SOURCE_TAG_KEY: &str =
+  "cal_source";
+const CAL_COLOR_TAG_KEY: &str =
+  "cal_color";
+const CALENDAR_UNAFFILIATED_COLOR:
+  &str = "#7f8691";
 
 const WEEKDAY_KEYS: [&str; 7] = [
   "mon", "tue", "wed", "thu", "fri",
@@ -1045,6 +1079,14 @@ pub fn app() -> Html {
   };
   let tag_colors =
     build_tag_color_map(&tag_schema);
+  let kanban_board_color_map =
+    build_kanban_board_color_map(
+      &kanban_boards
+    );
+  let external_calendar_color_map =
+    build_external_calendar_color_map(
+      &external_calendars
+    );
   let kanban_columns =
     kanban_columns_from_schema(
       &tag_schema
@@ -1115,7 +1157,9 @@ pub fn app() -> Html {
     collect_calendar_due_tasks(
       &facet_tasks,
       calendar_timezone,
-      &calendar_config
+      &calendar_config,
+      &kanban_board_color_map,
+      &external_calendar_color_map
     );
   let calendar_period_stats =
     summarize_calendar_period(
@@ -1930,9 +1974,12 @@ pub fn app() -> Html {
         name = %unique_name,
         "creating kanban board"
       );
+      let color =
+        next_board_color(&next);
       next.push(KanbanBoardDef {
-        id:   board_id.clone(),
-        name: unique_name
+        id: board_id.clone(),
+        name: unique_name,
+        color
       });
 
       kanban_boards.set(next);
@@ -2902,43 +2949,43 @@ pub fn app() -> Html {
 
   html! {
       <div class={classes!("app", (*theme).as_class())}>
-          <div class="topbar">
-              <div class="brand">{ "Rivet" }</div>
-              {
-                  if bulk_count > 0 {
-                      html! {
-                          <>
-                              <button class="btn ok" onclick={on_bulk_done.clone()}>{ format!("Done {bulk_count}") }</button>
-                              <button class="btn danger" onclick={on_bulk_delete.clone()}>{ format!("Delete {bulk_count}") }</button>
-                          </>
-                      }
-                  } else {
-                      html! {}
-                  }
-              }
-              <button class="btn" onclick={on_add_click}>{ "Add Task" }</button>
-              <button class="btn" onclick={on_toggle_theme}>{ (*theme).toggle_label() }</button>
-          </div>
-
           <div class="workspace-tabs">
-              <button
-                  class={if *active_tab == "tasks" { "workspace-tab active" } else { "workspace-tab" }}
-                  onclick={on_select_tasks_tab}
-              >
-                  { "Tasks" }
-              </button>
-              <button
-                  class={if *active_tab == "kanban" { "workspace-tab active" } else { "workspace-tab" }}
-                  onclick={on_select_kanban_tab}
-              >
-                  { "Kanban" }
-              </button>
-              <button
-                  class={if *active_tab == "calendar" { "workspace-tab active" } else { "workspace-tab" }}
-                  onclick={on_select_calendar_tab}
-              >
-                  { "Calendar" }
-              </button>
+              <div class="workspace-tab-list">
+                  <button
+                      class={if *active_tab == "tasks" { "workspace-tab active" } else { "workspace-tab" }}
+                      onclick={on_select_tasks_tab}
+                  >
+                      { "Tasks" }
+                  </button>
+                  <button
+                      class={if *active_tab == "kanban" { "workspace-tab active" } else { "workspace-tab" }}
+                      onclick={on_select_kanban_tab}
+                  >
+                      { "Kanban" }
+                  </button>
+                  <button
+                      class={if *active_tab == "calendar" { "workspace-tab active" } else { "workspace-tab" }}
+                      onclick={on_select_calendar_tab}
+                  >
+                      { "Calendar" }
+                  </button>
+              </div>
+              <div class="workspace-actions">
+                  {
+                      if bulk_count > 0 {
+                          html! {
+                              <>
+                                  <button class="btn ok" onclick={on_bulk_done.clone()}>{ format!("Done {bulk_count}") }</button>
+                                  <button class="btn danger" onclick={on_bulk_delete.clone()}>{ format!("Delete {bulk_count}") }</button>
+                              </>
+                          }
+                      } else {
+                          html! {}
+                      }
+                  }
+                  <button class="btn" onclick={on_add_click}>{ "Add Task" }</button>
+                  <button class="btn" onclick={on_toggle_theme}>{ (*theme).toggle_label() }</button>
+              </div>
           </div>
 
           <div class="main">
@@ -2983,8 +3030,16 @@ pub fn app() -> Html {
                                           <div>{ calendar_due_tasks.len() }</div>
                                       </div>
                                       <div class="calendar-dot-legend">
-                                          <span class="calendar-dot"></span>
-                                          <span>{ "One red dot = one scheduled task." }</span>
+                                          <span class="calendar-marker triangle" style="--marker-color:var(--accent);"></span>
+                                          <span>{ "Kanban board task" }</span>
+                                      </div>
+                                      <div class="calendar-dot-legend">
+                                          <span class="calendar-marker circle" style="--marker-color:#d64545;"></span>
+                                          <span>{ "External calendar task" }</span>
+                                      </div>
+                                      <div class="calendar-dot-legend">
+                                          <span class="calendar-marker square" style="--marker-color:#7f8691;"></span>
+                                          <span>{ "Unassigned task" }</span>
                                       </div>
                                       <div class="calendar-external-header">{ "External Calendars" }</div>
                                       <div class="actions">
@@ -3087,6 +3142,7 @@ pub fn app() -> Html {
                                               calendar_week_start,
                                               &calendar_due_tasks,
                                               &calendar_config,
+                                              &tag_colors,
                                               on_calendar_navigate.clone(),
                                           )
                                       }
@@ -3176,6 +3232,8 @@ pub fn app() -> Html {
                                                           for kanban_boards.iter().map(|board| {
                                                               let board_id = board.id.clone();
                                                               let board_label = board.name.clone();
+                                                              let board_color = board.color.clone();
+                                                              let board_color_style = format!("background:{board_color};");
                                                               let is_active = (*active_kanban_board).as_deref() == Some(board_id.as_str());
                                                               let class = if is_active { "board-item active" } else { "board-item" };
                                                               html! {
@@ -3183,7 +3241,10 @@ pub fn app() -> Html {
                                                                       let on_select_kanban_board = on_select_kanban_board.clone();
                                                                       Callback::from(move |_| on_select_kanban_board.emit(board_id.clone()))
                                                                   }}>
-                                                                      { board_label }
+                                                                      <div class="board-item-line">
+                                                                          <span class="board-color-dot" style={board_color_style}></span>
+                                                                          <span>{ board_label }</span>
+                                                                      </div>
                                                                   </div>
                                                               }
                                                           })
@@ -4144,11 +4205,12 @@ pub fn app() -> Html {
                                           onchange={{
                                               let external_calendar_modal = external_calendar_modal.clone();
                                               Callback::from(move |e: web_sys::Event| {
-                                                  let input: web_sys::HtmlInputElement = e.target_unchecked_into();
-                                                  if let Some(mut current) = (*external_calendar_modal).clone() {
-                                                      current.source.enabled = input.checked();
-                                                      current.error = None;
-                                                      external_calendar_modal.set(Some(current));
+                                                  if let Some(input) = e.target_dyn_into::<web_sys::HtmlInputElement>() {
+                                                      if let Some(mut current) = (*external_calendar_modal).clone() {
+                                                          current.source.enabled = input.checked();
+                                                          current.error = None;
+                                                          external_calendar_modal.set(Some(current));
+                                                      }
                                                   }
                                               })
                                           }}
@@ -4241,11 +4303,12 @@ pub fn app() -> Html {
                                           onchange={{
                                               let external_calendar_modal = external_calendar_modal.clone();
                                               Callback::from(move |e: web_sys::Event| {
-                                                  let input: web_sys::HtmlInputElement = e.target_unchecked_into();
-                                                  if let Some(mut current) = (*external_calendar_modal).clone() {
-                                                      current.source.read_only = input.checked();
-                                                      current.error = None;
-                                                      external_calendar_modal.set(Some(current));
+                                                  if let Some(input) = e.target_dyn_into::<web_sys::HtmlInputElement>() {
+                                                      if let Some(mut current) = (*external_calendar_modal).clone() {
+                                                          current.source.read_only = input.checked();
+                                                          current.error = None;
+                                                          external_calendar_modal.set(Some(current));
+                                                      }
                                                   }
                                               })
                                           }}
@@ -4259,11 +4322,12 @@ pub fn app() -> Html {
                                           onchange={{
                                               let external_calendar_modal = external_calendar_modal.clone();
                                               Callback::from(move |e: web_sys::Event| {
-                                                  let input: web_sys::HtmlInputElement = e.target_unchecked_into();
-                                                  if let Some(mut current) = (*external_calendar_modal).clone() {
-                                                      current.source.show_reminders = input.checked();
-                                                      current.error = None;
-                                                      external_calendar_modal.set(Some(current));
+                                                  if let Some(input) = e.target_dyn_into::<web_sys::HtmlInputElement>() {
+                                                      if let Some(mut current) = (*external_calendar_modal).clone() {
+                                                          current.source.show_reminders = input.checked();
+                                                          current.error = None;
+                                                          external_calendar_modal.set(Some(current));
+                                                      }
                                                   }
                                               })
                                           }}
@@ -4277,11 +4341,12 @@ pub fn app() -> Html {
                                           onchange={{
                                               let external_calendar_modal = external_calendar_modal.clone();
                                               Callback::from(move |e: web_sys::Event| {
-                                                  let input: web_sys::HtmlInputElement = e.target_unchecked_into();
-                                                  if let Some(mut current) = (*external_calendar_modal).clone() {
-                                                      current.source.offline_support = input.checked();
-                                                      current.error = None;
-                                                      external_calendar_modal.set(Some(current));
+                                                  if let Some(input) = e.target_dyn_into::<web_sys::HtmlInputElement>() {
+                                                      if let Some(mut current) = (*external_calendar_modal).clone() {
+                                                          current.source.offline_support = input.checked();
+                                                          current.error = None;
+                                                          external_calendar_modal.set(Some(current));
+                                                      }
                                                   }
                                               })
                                           }}
@@ -4510,6 +4575,9 @@ fn load_kanban_boards()
               .trim()
               .is_empty()
         });
+        assign_unique_board_colors(
+          &mut boards
+        );
         if !boards.is_empty() {
           return boards;
         }
@@ -4525,8 +4593,9 @@ fn load_kanban_boards()
   }
 
   vec![KanbanBoardDef {
-    id:   Uuid::new_v4().to_string(),
-    name: "Main".to_string()
+    id:    Uuid::new_v4().to_string(),
+    name:  "Main".to_string(),
+    color: default_board_color()
   }]
 }
 
@@ -4613,6 +4682,90 @@ fn save_active_kanban_board(
   }
 }
 
+fn default_board_color() -> String {
+  "hsl(212 74% 54%)".to_string()
+}
+
+fn board_color_candidate(
+  seed: usize
+) -> String {
+  let hue =
+    seed.saturating_mul(47) % 360;
+  format!("hsl({hue} 74% 54%)")
+}
+
+fn next_board_color(
+  boards: &[KanbanBoardDef]
+) -> String {
+  let mut used =
+    BTreeSet::<String>::new();
+  for board in boards {
+    used.insert(
+      board
+        .color
+        .trim()
+        .to_ascii_lowercase()
+    );
+  }
+
+  for offset in 0_usize..512_usize {
+    let candidate =
+      board_color_candidate(
+        boards
+          .len()
+          .saturating_add(offset)
+      );
+    if !used.contains(
+      &candidate.to_ascii_lowercase()
+    ) {
+      return candidate;
+    }
+  }
+
+  default_board_color()
+}
+
+fn assign_unique_board_colors(
+  boards: &mut [KanbanBoardDef]
+) {
+  let mut used =
+    BTreeSet::<String>::new();
+  for (index, board) in
+    boards.iter_mut().enumerate()
+  {
+    let mut color =
+      board.color.trim().to_string();
+    if color.is_empty() {
+      color =
+        board_color_candidate(index);
+    }
+
+    let mut key =
+      color.to_ascii_lowercase();
+    if used.contains(&key) {
+      for offset in 0_usize..512_usize {
+        let candidate =
+          board_color_candidate(
+            index
+              .saturating_add(offset)
+          );
+        let candidate_key = candidate
+          .to_ascii_lowercase();
+        if !used
+          .contains(&candidate_key)
+        {
+          color = candidate;
+          key = candidate_key;
+          break;
+        }
+      }
+    }
+
+    board.color = color;
+    used.insert(key);
+  }
+}
+
 fn make_unique_board_name(
   boards: &[KanbanBoardDef],
   requested: &str
@@ -4663,6 +4816,93 @@ fn board_id_from_task_tags(
     .iter()
     .find(|board| board.id == board_id)
     .map(|board| board.id.clone())
+}
+
+fn build_kanban_board_color_map(
+  boards: &[KanbanBoardDef]
+) -> BTreeMap<String, String> {
+  boards
+    .iter()
+    .map(|board| {
+      (
+        board.id.clone(),
+        normalize_marker_color(
+          board.color.as_str()
+        )
+      )
+    })
+    .collect()
+}
+
+fn build_external_calendar_color_map(
+  calendars: &[ExternalCalendarSource]
+) -> BTreeMap<String, String> {
+  calendars
+    .iter()
+    .map(|source| {
+      (
+        source.id.clone(),
+        normalize_marker_color(
+          source.color.as_str()
+        )
+      )
+    })
+    .collect()
+}
+
+fn normalize_marker_color(
+  value: &str
+) -> String {
+  let trimmed = value.trim();
+  if trimmed.is_empty() {
+    return CALENDAR_UNAFFILIATED_COLOR
+      .to_string();
+  }
+
+  if let Some(hex) =
+    normalize_hex_color(trimmed)
+  {
+    return hex;
+  }
+
+  trimmed.to_string()
+}
+
+fn normalize_hex_color(
+  value: &str
+) -> Option<String> {
+  let raw = value
+    .trim()
+    .trim_start_matches('#');
+  if raw.len() == 3
+    && raw
+      .chars()
+      .all(|ch| ch.is_ascii_hexdigit())
+  {
+    let mut expanded =
+      String::with_capacity(7);
+    expanded.push('#');
+    for ch in raw.chars() {
+      expanded.push(ch);
+      expanded.push(ch);
+    }
+    return Some(
+      expanded.to_ascii_lowercase()
+    );
+  }
+
+  if raw.len() == 6
+    && raw
+      .chars()
+      .all(|ch| ch.is_ascii_hexdigit())
+  {
+    return Some(format!(
+      "#{}",
+      raw.to_ascii_lowercase()
+    ));
+  }
+
+  None
 }
 
 fn load_tag_schema() -> TagSchema {
@@ -5577,7 +5817,15 @@ fn start_of_week(
 fn collect_calendar_due_tasks(
   tasks: &[TaskDto],
   timezone: Tz,
-  config: &CalendarConfig
+  config: &CalendarConfig,
+  board_colors: &BTreeMap<
+    String,
+    String
+  >,
+  calendar_colors: &BTreeMap<
+    String,
+    String
+  >
 ) -> Vec<CalendarDueTask> {
   let mut entries = tasks
     .iter()
@@ -5594,11 +5842,17 @@ fn collect_calendar_due_tasks(
         parse_taskwarrior_utc(
           due_raw.as_str()
         )?;
+      let marker = marker_for_task(
+        task,
+        board_colors,
+        calendar_colors
+      );
       Some(CalendarDueTask {
         task: task.clone(),
         due_local: due_utc
           .with_timezone(&timezone),
-        due_utc
+        due_utc,
+        marker
       })
     })
     .collect::<Vec<_>>();
@@ -5613,6 +5867,69 @@ fn collect_calendar_due_tasks(
     "calendar tasks collected"
   );
   entries
+}
+
+fn marker_for_task(
+  task: &TaskDto,
+  board_colors: &BTreeMap<
+    String,
+    String
+  >,
+  calendar_colors: &BTreeMap<
+    String,
+    String
+  >
+) -> CalendarTaskMarker {
+  if let Some(calendar_id) =
+    first_tag_value(
+      &task.tags,
+      CAL_SOURCE_TAG_KEY
+    )
+  {
+    let color = first_tag_value(
+      &task.tags,
+      CAL_COLOR_TAG_KEY
+    )
+    .map(normalize_marker_color)
+    .or_else(|| {
+      calendar_colors
+        .get(calendar_id)
+        .cloned()
+    })
+    .unwrap_or_else(|| {
+      "#d64545".to_string()
+    });
+    return CalendarTaskMarker {
+      shape:
+        CalendarMarkerShape::Circle,
+      color
+    };
+  }
+
+  if let Some(board_id) =
+    first_tag_value(
+      &task.tags,
+      BOARD_TAG_KEY
+    )
+  {
+    let color = board_colors
+      .get(board_id)
+      .cloned()
+      .unwrap_or_else(|| {
+        default_board_color()
+      });
+    return CalendarTaskMarker {
+      shape:
+        CalendarMarkerShape::Triangle,
+      color
+    };
+  }
+
+  CalendarTaskMarker {
+    shape: CalendarMarkerShape::Square,
+    color: CALENDAR_UNAFFILIATED_COLOR
+      .to_string()
+  }
 }
 
 fn calendar_status_visible(
@@ -5843,6 +6160,7 @@ fn render_calendar_view(
   week_start: Weekday,
   due_tasks: &[CalendarDueTask],
   config: &CalendarConfig,
+  tag_colors: &BTreeMap<String, String>,
   on_navigate: Callback<(
     NaiveDate,
     CalendarViewMode
@@ -5885,7 +6203,8 @@ fn render_calendar_view(
     }
     | CalendarViewMode::Day => {
       render_calendar_day_view(
-        focus, due_tasks, config
+        focus, due_tasks, config,
+        tag_colors
       )
     }
     | CalendarViewMode::List => {
@@ -5893,6 +6212,7 @@ fn render_calendar_view(
         focus,
         due_tasks,
         config,
+        tag_colors,
         on_navigate
       )
     }
@@ -5915,13 +6235,15 @@ fn render_calendar_year_view(
           {
               for (1_u32..=12_u32).map(|month| {
                   let month_start = first_day_of_month(year, month);
-                  let count = due_tasks
+                  let markers = due_tasks
                       .iter()
                       .filter(|entry| {
                           entry.due_local.year() == year
                               && entry.due_local.month() == month
                       })
-                      .count();
+                      .map(|entry| entry.marker.clone())
+                      .collect::<Vec<_>>();
+                  let count = markers.len();
                   let on_navigate = on_navigate.clone();
 
                   html! {
@@ -5932,7 +6254,7 @@ fn render_calendar_year_view(
                       >
                           <div class="calendar-period-title">{ month_start.format("%B").to_string() }</div>
                           <div class="badge">{ format!("{count} tasks") }</div>
-                          { render_calendar_dots(count, config.policies.red_dot_limit) }
+                          { render_calendar_markers(&markers, config.policies.red_dot_limit) }
                       </button>
                   }
               })
@@ -5963,13 +6285,15 @@ fn render_calendar_quarter_view(
           {
               for months.into_iter().map(|month| {
                   let month_start = first_day_of_month(focus.year(), month);
-                  let count = due_tasks
+                  let markers = due_tasks
                       .iter()
                       .filter(|entry| {
                           entry.due_local.year() == focus.year()
                               && entry.due_local.month() == month
                       })
-                      .count();
+                      .map(|entry| entry.marker.clone())
+                      .collect::<Vec<_>>();
+                  let count = markers.len();
                   let on_navigate = on_navigate.clone();
                   html! {
                       <button
@@ -5979,7 +6303,7 @@ fn render_calendar_quarter_view(
                       >
                           <div class="calendar-period-title">{ month_start.format("%B").to_string() }</div>
                           <div class="badge">{ format!("{count} tasks") }</div>
-                          { render_calendar_dots(count, config.policies.red_dot_limit) }
+                          { render_calendar_markers(&markers, config.policies.red_dot_limit) }
                       </button>
                   }
               })
@@ -6037,10 +6361,12 @@ fn render_calendar_month_view(
               {
                   for (0_i64..42_i64).map(|offset| {
                       let day = add_days(grid_start, offset);
-                      let count = due_tasks
+                      let markers = due_tasks
                           .iter()
                           .filter(|entry| entry.due_local.date_naive() == day)
-                          .count();
+                          .map(|entry| entry.marker.clone())
+                          .collect::<Vec<_>>();
+                      let count = markers.len();
                       let outside = day.month() != focus.month();
                       let on_navigate = on_navigate.clone();
                       html! {
@@ -6050,7 +6376,7 @@ fn render_calendar_month_view(
                               onclick={Callback::from(move |_| on_navigate.emit((day, CalendarViewMode::Day)))}
                           >
                               <div class="calendar-day-label">{ day.day() }</div>
-                              { render_calendar_dots(count, config.policies.red_dot_limit) }
+                              { render_calendar_markers(&markers, config.policies.red_dot_limit) }
                           </button>
                       }
                   })
@@ -6105,6 +6431,11 @@ fn render_calendar_week_view(
           {
               for (0_i64..7_i64).map(|offset| {
                   let day = add_days(start, offset);
+                  let markers = due_tasks
+                      .iter()
+                      .filter(|entry| entry.due_local.date_naive() == day)
+                      .map(|entry| entry.marker.clone())
+                      .collect::<Vec<_>>();
                   let day_tasks = due_tasks
                       .iter()
                       .filter(|entry| entry.due_local.date_naive() == day)
@@ -6123,7 +6454,7 @@ fn render_calendar_week_view(
                               <span>{ day.format("%a %d").to_string() }</span>
                               <span class="badge">{ count }</span>
                           </div>
-                          { render_calendar_dots(count, config.policies.red_dot_limit) }
+                          { render_calendar_markers(&markers, config.policies.red_dot_limit) }
                           <div class="calendar-week-day-list">
                               {
                                   for day_tasks.iter().take(5).map(|entry| html! {
@@ -6149,7 +6480,8 @@ fn render_calendar_week_view(
 fn render_calendar_day_view(
   focus: NaiveDate,
   due_tasks: &[CalendarDueTask],
-  config: &CalendarConfig
+  config: &CalendarConfig,
+  tag_colors: &BTreeMap<String, String>
 ) -> Html {
   let mut tasks = due_tasks
     .iter()
@@ -6172,14 +6504,15 @@ fn render_calendar_day_view(
           <div class="calendar-day-hours">
               {
                   for (hour_start..=hour_end).map(|hour| {
-                      let count = tasks
+                      let markers = tasks
                           .iter()
                           .filter(|entry| entry.due_local.hour() == hour)
-                          .count();
+                          .map(|entry| entry.marker.clone())
+                          .collect::<Vec<_>>();
                       html! {
                           <div class="calendar-hour-row">
                               <span class="calendar-hour-label">{ format!("{hour:02}:00") }</span>
-                              { render_calendar_dots(count, config.policies.red_dot_limit) }
+                              { render_calendar_markers(&markers, config.policies.red_dot_limit) }
                           </div>
                       }
                   })
@@ -6197,6 +6530,13 @@ fn render_calendar_day_view(
                                       <div class="calendar-task-item">
                                           <div class="calendar-task-title">{ &entry.task.title }</div>
                                           <div class="task-subtitle">{ format_calendar_due_datetime(entry, entry.due_local.timezone()) }</div>
+                                          <div class="calendar-task-meta">
+                                              {
+                                                  for entry.task.tags.iter().take(4).map(|tag| html! {
+                                                      <span class="badge tag-badge" style={tag_badge_style(tag, tag_colors)}>{ format!("#{tag}") }</span>
+                                                  })
+                                              }
+                                          </div>
                                       </div>
                                   })
                               }
@@ -6213,6 +6553,7 @@ fn render_calendar_list_view(
   focus: NaiveDate,
   due_tasks: &[CalendarDueTask],
   config: &CalendarConfig,
+  tag_colors: &BTreeMap<String, String>,
   on_navigate: Callback<(
     NaiveDate,
     CalendarViewMode
@@ -6243,6 +6584,13 @@ fn render_calendar_list_view(
                                       >
                                           <div class="calendar-task-title">{ &entry.task.title }</div>
                                           <div class="task-subtitle">{ format_calendar_due_datetime(entry, entry.due_local.timezone()) }</div>
+                                          <div class="calendar-task-meta">
+                                              {
+                                                  for entry.task.tags.iter().take(4).map(|tag| html! {
+                                                      <span class="badge tag-badge" style={tag_badge_style(tag, tag_colors)}>{ format!("#{tag}") }</span>
+                                                  })
+                                              }
+                                          </div>
                                       </button>
                                   }
                               })
@@ -6274,23 +6622,27 @@ fn weekday_labels(
   }
 }
 
-fn render_calendar_dots(
-  count: usize,
+fn render_calendar_markers(
+  markers: &[CalendarTaskMarker],
   limit: usize
 ) -> Html {
-  if count == 0 {
+  if markers.is_empty() {
     return html! {};
   }
 
-  let capped = count.min(limit);
-  let overflow =
-    count.saturating_sub(capped);
+  let capped = markers.len().min(limit);
+  let overflow = markers
+    .len()
+    .saturating_sub(capped);
 
   html! {
-      <div class="calendar-dots">
+      <div class="calendar-markers">
           {
-              for (0..capped).map(|_| html! {
-                  <span class="calendar-dot"></span>
+              for markers.iter().take(capped).map(|marker| {
+                  let style = format!("--marker-color:{};", marker.color);
+                  html! {
+                      <span class={classes!("calendar-marker", marker.shape.as_class())} style={style}></span>
+                  }
               })
           }
           {
