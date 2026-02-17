@@ -223,6 +223,8 @@ pub fn app() -> Html {
 
   let tasks =
     use_state(Vec::<TaskDto>::new);
+  let facet_tasks =
+    use_state(Vec::<TaskDto>::new);
   let selected =
     use_state(|| None::<Uuid>);
   let bulk_selected =
@@ -292,6 +294,51 @@ pub fn app() -> Html {
     );
   }
 
+  {
+    let refresh_tick =
+      refresh_tick.clone();
+    let facet_tasks =
+      facet_tasks.clone();
+
+    use_effect_with(
+      *refresh_tick,
+      move |_| {
+        let facet_tasks =
+          facet_tasks.clone();
+
+        wasm_bindgen_futures::spawn_local(
+          async move {
+            let args = TasksListArgs {
+              query: None,
+              status: None,
+              project: None,
+              tag: None
+            };
+
+            match invoke_tauri::<Vec<TaskDto>, _>(
+              "tasks_list",
+              &args
+            )
+            .await
+            {
+              | Ok(list) => {
+                tracing::debug!(
+                  total = list.len(),
+                  "refreshed facet task \
+                   snapshot"
+                );
+                facet_tasks.set(list);
+              }
+              | Err(err) => tracing::error!(error = %err, "facet tasks refresh failed")
+            }
+          }
+        );
+
+        || ()
+      }
+    );
+  }
+
   let visible_tasks = {
     let query = (*search).clone();
     filter_visible_tasks(
@@ -312,9 +359,9 @@ pub fn app() -> Html {
     });
 
   let project_facets =
-    build_project_facets(&tasks);
+    build_project_facets(&facet_tasks);
   let tag_facets =
-    build_tag_facets(&tasks);
+    build_tag_facets(&facet_tasks);
 
   let on_nav = {
     let active_view =
