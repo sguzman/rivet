@@ -41,16 +41,18 @@ use crate::components::{
 
 #[derive(Clone, PartialEq)]
 struct ModalState {
-  mode:             ModalMode,
-  draft_desc:       String,
-  draft_project:    String,
-  draft_board_id:   Option<String>,
-  draft_custom_tag: String,
-  draft_tags:       Vec<String>,
-  picker_key:       Option<String>,
-  picker_value:     Option<String>,
-  draft_due:        String,
-  error:            Option<String>
+  mode:                 ModalMode,
+  draft_title:          String,
+  draft_desc:           String,
+  draft_project:        String,
+  draft_board_id:       Option<String>,
+  lock_board_selection: bool,
+  draft_custom_tag:     String,
+  draft_tags:           Vec<String>,
+  picker_key:           Option<String>,
+  picker_value:         Option<String>,
+  draft_due:            String,
+  error:                Option<String>
 }
 
 #[derive(Clone, PartialEq)]
@@ -178,8 +180,7 @@ impl Default for TagSchema {
           id:                  "kanban"
             .to_string(),
           label:               Some(
-            "Kanban Lane"
-              .to_string()
+            "Kanban Lane".to_string()
           ),
           selection:           Some(
             "single".to_string()
@@ -198,8 +199,7 @@ impl Default for TagSchema {
           id:                  "board"
             .to_string(),
           label:               Some(
-            "Kanban Board"
-              .to_string()
+            "Kanban Board".to_string()
           ),
           selection:           Some(
             "single".to_string()
@@ -259,10 +259,10 @@ impl ThemeMode {
 
 const THEME_STORAGE_KEY: &str =
   "rivet.theme";
-const WORKSPACE_TAB_STORAGE_KEY:
-  &str = "rivet.workspace_tab";
-const KANBAN_BOARDS_STORAGE_KEY:
-  &str = "rivet.kanban.boards";
+const WORKSPACE_TAB_STORAGE_KEY: &str =
+  "rivet.workspace_tab";
+const KANBAN_BOARDS_STORAGE_KEY: &str =
+  "rivet.kanban.boards";
 const KANBAN_ACTIVE_BOARD_STORAGE_KEY:
   &str = "rivet.kanban.active_board";
 const TAG_SCHEMA_TOML: &str =
@@ -299,6 +299,12 @@ pub fn app() -> Html {
     use_state(|| false);
   let kanban_rename_input =
     use_state(String::new);
+  let kanban_create_open =
+    use_state(|| false);
+  let kanban_create_input =
+    use_state(String::new);
+  let kanban_compact_cards =
+    use_state(|| false);
   let search = use_state(String::new);
   let refresh_tick =
     use_state(|| 0_u64);
@@ -343,8 +349,7 @@ pub fn app() -> Html {
   }
 
   {
-    let active_tab =
-      active_tab.clone();
+    let active_tab = active_tab.clone();
     use_effect_with(
       (*active_tab).clone(),
       move |tab| {
@@ -407,23 +412,27 @@ pub fn app() -> Html {
         let contains_active = active
           .as_ref()
           .is_some_and(|id| {
-            boards.iter().any(
-              |board| &board.id == id
-            )
+            boards.iter().any(|board| {
+              &board.id == id
+            })
           });
 
         if !contains_active {
-          let next = boards
-            .first()
-            .map(|board| board.id.clone());
-          if next != *active_kanban_board {
+          let next =
+            boards.first().map(
+              |board| board.id.clone()
+            );
+          if next
+            != *active_kanban_board
+          {
             tracing::info!(
               active_board = ?active,
               next_board = ?next,
               "repairing active kanban \
                board selection"
             );
-            active_kanban_board.set(next);
+            active_kanban_board
+              .set(next);
           }
         }
 
@@ -554,20 +563,18 @@ pub fn app() -> Html {
       });
 
   let kanban_visible_tasks = {
-    let base =
-      filter_visible_tasks(
-        &tasks,
-        "kanban",
-        "",
-        None,
-        None,
-        all_filter_completion
-          .as_str(),
-        all_filter_project.as_deref(),
-        all_filter_tag.as_deref(),
-        all_filter_priority.as_str(),
-        all_filter_due.as_str()
-      );
+    let base = filter_visible_tasks(
+      &tasks,
+      "kanban",
+      "",
+      None,
+      None,
+      all_filter_completion.as_str(),
+      all_filter_project.as_deref(),
+      all_filter_tag.as_deref(),
+      all_filter_priority.as_str(),
+      all_filter_due.as_str()
+    );
 
     if let Some(board_id) =
       (*active_kanban_board).clone()
@@ -637,7 +644,8 @@ pub fn app() -> Html {
           .set("all".to_string());
         all_filter_priority
           .set("all".to_string());
-        all_filter_due.set("all".to_string());
+        all_filter_due
+          .set("all".to_string());
       }
     )
   };
@@ -652,7 +660,8 @@ pub fn app() -> Html {
     let drag_over_kanban_lane =
       drag_over_kanban_lane.clone();
     Callback::from(move |_| {
-      active_tab.set("tasks".to_string());
+      active_tab
+        .set("tasks".to_string());
       selected.set(None);
       bulk_selected
         .set(BTreeSet::new());
@@ -822,7 +831,8 @@ pub fn app() -> Html {
         .set("all".to_string());
       all_filter_priority
         .set("all".to_string());
-      all_filter_due.set("all".to_string());
+      all_filter_due
+        .set("all".to_string());
     })
   };
 
@@ -887,41 +897,51 @@ pub fn app() -> Html {
   };
 
   let on_create_kanban_board = {
+    let kanban_create_open =
+      kanban_create_open.clone();
+    let kanban_create_input =
+      kanban_create_input.clone();
+    Callback::from(move |_| {
+      kanban_create_input
+        .set(String::new());
+      kanban_create_open.set(true);
+    })
+  };
+
+  let on_close_create_kanban_board = {
+    let kanban_create_open =
+      kanban_create_open.clone();
+    Callback::from(move |_| {
+      kanban_create_open.set(false);
+    })
+  };
+
+  let on_create_kanban_input = {
+    let kanban_create_input =
+      kanban_create_input.clone();
+    Callback::from(
+      move |e: web_sys::InputEvent| {
+        let input: web_sys::HtmlInputElement =
+          e.target_unchecked_into();
+        kanban_create_input
+          .set(input.value());
+      }
+    )
+  };
+
+  let on_submit_create_kanban_board = {
     let kanban_boards =
       kanban_boards.clone();
     let active_kanban_board =
       active_kanban_board.clone();
+    let kanban_create_open =
+      kanban_create_open.clone();
+    let kanban_create_input =
+      kanban_create_input.clone();
     Callback::from(move |_| {
-      let Some(window) =
-        web_sys::window()
-      else {
-        tracing::error!(
-          "window unavailable; cannot \
-           create board"
-        );
-        return;
-      };
-
-      let raw_name = match window
-        .prompt_with_message(
-          "New board name:"
-        ) {
-        | Ok(value) => value,
-        | Err(err) => {
-          tracing::error!(
-            ?err,
-            "prompt failed when \
-             creating board"
-          );
-          None
-        }
-      };
-
-      let Some(name) = raw_name.map(
-        |value| value.trim().to_string()
-      ) else {
-        return;
-      };
+      let name = (*kanban_create_input)
+        .trim()
+        .to_string();
 
       if name.is_empty() {
         tracing::warn!(
@@ -945,13 +965,23 @@ pub fn app() -> Html {
         "creating kanban board"
       );
       next.push(KanbanBoardDef {
-        id: board_id.clone(),
+        id:   board_id.clone(),
         name: unique_name
       });
 
       kanban_boards.set(next);
       active_kanban_board
         .set(Some(board_id));
+      kanban_create_open.set(false);
+    })
+  };
+
+  let on_toggle_kanban_card_density = {
+    let kanban_compact_cards =
+      kanban_compact_cards.clone();
+    Callback::from(move |_| {
+      kanban_compact_cards
+        .set(!*kanban_compact_cards);
     })
   };
 
@@ -975,12 +1005,13 @@ pub fn app() -> Html {
         return;
       };
 
-      let Some(current) = (*kanban_boards)
-        .iter()
-        .find(|board| {
-          board.id == board_id
-        })
-        .cloned()
+      let Some(current) =
+        (*kanban_boards)
+          .iter()
+          .find(|board| {
+            board.id == board_id
+          })
+          .cloned()
       else {
         tracing::warn!(
           %board_id,
@@ -1054,9 +1085,7 @@ pub fn app() -> Html {
         (*kanban_boards).clone();
       let unique_name =
         make_unique_board_name_except(
-          &next,
-          &name,
-          &board_id
+          &next, &name, &board_id
         );
       for board in &mut next {
         if board.id == board_id {
@@ -1095,12 +1124,13 @@ pub fn app() -> Html {
         return;
       };
 
-      let Some(board) = (*kanban_boards)
-        .iter()
-        .find(|entry| {
-          entry.id == board_id
-        })
-        .cloned()
+      let Some(board) =
+        (*kanban_boards)
+          .iter()
+          .find(|entry| {
+            entry.id == board_id
+          })
+          .cloned()
       else {
         tracing::warn!(
           %board_id,
@@ -1115,11 +1145,11 @@ pub fn app() -> Html {
           window
             .confirm_with_message(
               &format!(
-                "Delete board '{}'?\n\
-                 This removes board \
-                 assignment from \
-                 pending tasks using \
-                 this board.",
+                "Delete board \
+                 '{}'?\nThis removes \
+                 board assignment \
+                 from pending tasks \
+                 using this board.",
                 board.name
               )
             )
@@ -1137,9 +1167,9 @@ pub fn app() -> Html {
 
       let mut next_boards =
         (*kanban_boards).clone();
-      next_boards.retain(
-        |entry| entry.id != board_id
-      );
+      next_boards.retain(|entry| {
+        entry.id != board_id
+      });
 
       let next_active = next_boards
         .first()
@@ -1182,13 +1212,14 @@ pub fn app() -> Html {
               &board_id
             );
 
-            let update = TaskUpdateArgs {
-              uuid: task.uuid,
-              patch: TaskPatch {
-                tags: Some(next_tags),
-                ..TaskPatch::default()
-              }
-            };
+            let update =
+              TaskUpdateArgs {
+                uuid:  task.uuid,
+                patch: TaskPatch {
+                  tags: Some(next_tags),
+                  ..TaskPatch::default()
+                }
+              };
 
             if let Err(err) = invoke_tauri::<TaskDto, _>("task_update", &update).await {
                         tracing::error!(error = %err, task = %task.uuid, board_id = %board_id, "failed clearing deleted board tag");
@@ -1219,11 +1250,13 @@ pub fn app() -> Html {
         tag_schema.default_picker();
       let draft_board_id =
         if *active_tab == "kanban" {
-          (*active_kanban_board)
-            .clone()
+          (*active_kanban_board).clone()
         } else {
           None
         };
+      let lock_board_selection =
+        *active_tab == "kanban"
+          && draft_board_id.is_some();
       modal_busy.set(false);
       modal_submit_seq.set(
         (*modal_submit_seq)
@@ -1232,9 +1265,11 @@ pub fn app() -> Html {
       modal_state.set(Some(
         ModalState {
           mode: ModalMode::Add,
+          draft_title: String::new(),
           draft_desc: String::new(),
           draft_project: String::new(),
           draft_board_id,
+          lock_board_selection,
           draft_custom_tag: String::new(
           ),
           draft_tags: vec![],
@@ -1346,29 +1381,34 @@ pub fn app() -> Html {
     let drag_over_kanban_lane =
       drag_over_kanban_lane.clone();
     Callback::from(
-      move |(uuid, lane): (Uuid, String)| {
+      move |(uuid, lane): (
+        Uuid,
+        String
+      )| {
         dragging_kanban_task.set(None);
         drag_over_kanban_lane.set(None);
 
-        let target_lane = if kanban_columns
-          .iter()
-          .any(|column| column == &lane)
-        {
-          lane
-        } else {
-          tracing::warn!(
-            lane = %lane,
-            fallback = %default_kanban_lane,
-            "unknown kanban lane during \
-             move; falling back to \
-             default lane"
-          );
-          default_kanban_lane.clone()
-        };
+        let target_lane =
+          if kanban_columns.iter().any(
+            |column| column == &lane
+          ) {
+            lane
+          } else {
+            tracing::warn!(
+              lane = %lane,
+              fallback = %default_kanban_lane,
+              "unknown kanban lane during \
+               move; falling back to \
+               default lane"
+            );
+            default_kanban_lane.clone()
+          };
 
         let Some(task) = (*tasks)
           .iter()
-          .find(|task| task.uuid == uuid)
+          .find(|task| {
+            task.uuid == uuid
+          })
           .cloned()
         else {
           tracing::warn!(
@@ -1403,7 +1443,8 @@ pub fn app() -> Html {
         push_tag_unique(
           &mut next_tags,
           format!(
-            "{KANBAN_TAG_KEY}:{target_lane}"
+            "{KANBAN_TAG_KEY}:\
+             {target_lane}"
           )
         );
 
@@ -1466,7 +1507,9 @@ pub fn app() -> Html {
     let drag_over_kanban_lane =
       drag_over_kanban_lane.clone();
     Callback::from(move |_| {
-      tracing::debug!("kanban drag end");
+      tracing::debug!(
+        "kanban drag end"
+      );
       dragging_kanban_task.set(None);
       drag_over_kanban_lane.set(None);
     })
@@ -1475,19 +1518,21 @@ pub fn app() -> Html {
   let on_kanban_drag_over_lane = {
     let drag_over_kanban_lane =
       drag_over_kanban_lane.clone();
-    Callback::from(move |lane: String| {
-      if (*drag_over_kanban_lane)
-        .as_deref()
-        != Some(lane.as_str())
-      {
-        tracing::debug!(
-          lane = %lane,
-          "kanban drag over lane"
-        );
-        drag_over_kanban_lane
-          .set(Some(lane));
+    Callback::from(
+      move |lane: String| {
+        if (*drag_over_kanban_lane)
+          .as_deref()
+          != Some(lane.as_str())
+        {
+          tracing::debug!(
+            lane = %lane,
+            "kanban drag over lane"
+          );
+          drag_over_kanban_lane
+            .set(Some(lane));
+        }
       }
-    })
+    )
   };
 
   let on_bulk_done = {
@@ -1608,9 +1653,9 @@ pub fn app() -> Html {
           .tags
           .into_iter()
           .filter(|tag| {
-            !tag.starts_with(
-              &format!("{BOARD_TAG_KEY}:")
-            )
+            !tag.starts_with(&format!(
+              "{BOARD_TAG_KEY}:"
+            ))
           })
           .collect();
         modal_busy.set(false);
@@ -1623,12 +1668,14 @@ pub fn app() -> Html {
             mode: ModalMode::Edit(
               task.uuid
             ),
+            draft_title: task.title,
             draft_desc: task
               .description,
             draft_project: task
               .project
               .unwrap_or_default(),
             draft_board_id,
+            lock_board_selection: false,
             draft_custom_tag:
               String::new(),
             draft_tags: filtered_tags,
@@ -1703,12 +1750,14 @@ pub fn app() -> Html {
         ui_debug(
           "action.modal.submit",
           &format!(
-            "mode={}, desc_len={}",
+            "mode={}, title_len={}, \
+             desc_len={}",
             match state.mode {
               | ModalMode::Add => "add",
               | ModalMode::Edit(_) =>
                 "edit",
             },
+            state.draft_title.len(),
             state.draft_desc.len()
           )
         );
@@ -1750,9 +1799,9 @@ pub fn app() -> Html {
         }
 
         wasm_bindgen_futures::spawn_local(async move {
-                if state.draft_desc.trim().is_empty() {
+                if state.draft_title.trim().is_empty() {
                     let mut next = state.clone();
-                    next.error = Some("Description is required.".to_string());
+                    next.error = Some("Title is required.".to_string());
                     modal_state.set(Some(next));
                     modal_busy.set(false);
                     return;
@@ -1771,6 +1820,7 @@ pub fn app() -> Html {
                 match state.mode {
                     ModalMode::Add => {
                         let create = TaskCreate {
+                            title: state.draft_title.trim().to_string(),
                             description: state.draft_desc.trim().to_string(),
                             project: optional_text(&state.draft_project),
                             tags: collect_tags_for_submit(
@@ -1802,6 +1852,7 @@ pub fn app() -> Html {
                         let update = TaskUpdateArgs {
                             uuid,
                             patch: TaskPatch {
+                                title: Some(state.draft_title.trim().to_string()),
                                 description: Some(state.draft_desc.trim().to_string()),
                                 project: Some(optional_text(&state.draft_project)),
                                 tags: Some(collect_tags_for_submit(
@@ -1854,7 +1905,9 @@ pub fn app() -> Html {
           .find(|board| {
             &board.id == board_id
           })
-          .map(|board| board.name.clone())
+          .map(|board| {
+            board.name.clone()
+          })
       });
 
   html! {
@@ -1904,6 +1957,9 @@ pub fn app() -> Html {
                                           <button class="btn" onclick={on_create_kanban_board}>{ "New Board" }</button>
                                           <button class="btn" onclick={on_open_rename_kanban_board.clone()} disabled={(*active_kanban_board).is_none()}>{ "Rename" }</button>
                                           <button class="btn danger" onclick={on_delete_kanban_board.clone()} disabled={(*active_kanban_board).is_none()}>{ "Delete" }</button>
+                                          <button class="btn" onclick={on_toggle_kanban_card_density.clone()}>
+                                              { if *kanban_compact_cards { "Full Cards" } else { "Compact Cards" } }
+                                          </button>
                                       </div>
                                       {
                                           if kanban_boards.is_empty() {
@@ -1939,6 +1995,7 @@ pub fn app() -> Html {
                                   columns={kanban_columns.clone()}
                                   board_name={active_kanban_board_name.clone()}
                                   tag_colors={tag_colors.clone()}
+                                  compact_cards={*kanban_compact_cards}
                                   dragging_task={*dragging_kanban_task}
                                   drag_over_lane={(*drag_over_kanban_lane).clone()}
                                   on_move={on_kanban_move}
@@ -2223,6 +2280,15 @@ pub fn app() -> Html {
                       .iter()
                       .map(|board| (board.id.clone(), board.name.clone()))
                       .collect();
+                  let selected_board_name = state
+                      .draft_board_id
+                      .as_ref()
+                      .and_then(|board_id| {
+                          board_options
+                              .iter()
+                              .find(|(id, _name)| id == board_id)
+                              .map(|(_id, name)| name.clone())
+                      });
                   let picker_value_options = state
                       .picker_key
                       .as_deref()
@@ -2363,9 +2429,28 @@ pub fn app() -> Html {
                                       }
                                   }
                                   <div class="field">
-                                      <label>{ "Description" }</label>
+                                      <label>{ "Title" }</label>
+                                      <input
+                                          value={state.draft_title.clone()}
+                                          placeholder="Required task title"
+                                          oninput={{
+                                              let modal_state = modal_state.clone();
+                                              Callback::from(move |e: web_sys::InputEvent| {
+                                                  let input: web_sys::HtmlInputElement = e.target_unchecked_into();
+                                                  if let Some(mut current) = (*modal_state).clone() {
+                                                      current.draft_title = input.value();
+                                                      current.error = None;
+                                                      modal_state.set(Some(current));
+                                                  }
+                                              })
+                                          }}
+                                      />
+                                  </div>
+                                  <div class="field">
+                                      <label>{ "Description (optional)" }</label>
                                       <input
                                           value={state.draft_desc.clone()}
+                                          placeholder="Optional details"
                                           oninput={{
                                               let modal_state = modal_state.clone();
                                               Callback::from(move |e: web_sys::InputEvent| {
@@ -2397,11 +2482,20 @@ pub fn app() -> Html {
                                       />
                                   </div>
                                   <div class="field">
-                                      <label>{ "Kanban Board (optional)" }</label>
+                                      <label>
+                                          {
+                                              if state.lock_board_selection {
+                                                  "Kanban Board (fixed by current board)"
+                                              } else {
+                                                  "Kanban Board (optional)"
+                                              }
+                                          }
+                                      </label>
                                       <select
                                           class="tag-select"
                                           value={state.draft_board_id.clone().unwrap_or_default()}
                                           onchange={on_board_change}
+                                          disabled={state.lock_board_selection}
                                       >
                                           <option value="">{ "No board (won't appear on Kanban)" }</option>
                                           {
@@ -2410,6 +2504,21 @@ pub fn app() -> Html {
                                               })
                                           }
                                       </select>
+                                      {
+                                          if state.lock_board_selection {
+                                              html! {
+                                                  <div class="field-help">
+                                                      {
+                                                          selected_board_name
+                                                              .map(|name| format!("This task will be added to board: {name}"))
+                                                              .unwrap_or_else(|| "This task will be added to the active board.".to_string())
+                                                      }
+                                                  </div>
+                                              }
+                                          } else {
+                                              html! {}
+                                          }
+                                      }
                                   </div>
                                   <div class="field">
                                       <label>{ "Custom Tag" }</label>
@@ -2569,10 +2678,45 @@ pub fn app() -> Html {
           }
 
           {
+              if *kanban_create_open {
+                  html! {
+                      <div class="modal-backdrop" onclick={on_close_create_kanban_board.clone()}>
+                          <div class="modal modal-sm" onclick={Callback::from(|e: yew::MouseEvent| e.stop_propagation())}>
+                              <div class="header">{ "New Kanban Board" }</div>
+                              <div class="content">
+                                  <div class="field">
+                                      <label>{ "Board Name" }</label>
+                                      <input
+                                          value={(*kanban_create_input).clone()}
+                                          oninput={on_create_kanban_input}
+                                          placeholder="Board name"
+                                      />
+                                  </div>
+                                  <div class="footer">
+                                      <button type="button" class="btn" onclick={on_close_create_kanban_board.clone()}>{ "Cancel" }</button>
+                                      <button
+                                          type="button"
+                                          class="btn"
+                                          onclick={on_submit_create_kanban_board}
+                                          disabled={(*kanban_create_input).trim().is_empty()}
+                                      >
+                                          { "Create" }
+                                      </button>
+                                  </div>
+                              </div>
+                          </div>
+                      </div>
+                  }
+              } else {
+                  html! {}
+              }
+          }
+
+          {
               if *kanban_rename_open {
                   html! {
                       <div class="modal-backdrop" onclick={on_close_rename_kanban_board.clone()}>
-                          <div class="modal" onclick={Callback::from(|e: yew::MouseEvent| e.stop_propagation())}>
+                          <div class="modal modal-sm" onclick={Callback::from(|e: yew::MouseEvent| e.stop_propagation())}>
                               <div class="header">{ "Rename Kanban Board" }</div>
                               <div class="content">
                                   <div class="field">
@@ -2687,8 +2831,8 @@ fn save_workspace_tab(tab: &str) {
   }
 }
 
-fn load_kanban_boards(
-) -> Vec<KanbanBoardDef> {
+fn load_kanban_boards()
+-> Vec<KanbanBoardDef> {
   let stored = web_sys::window()
     .and_then(|window| {
       window
@@ -2707,15 +2851,17 @@ fn load_kanban_boards(
 
   if let Some(raw) = stored {
     match serde_json::from_str::<
-      Vec<KanbanBoardDef>,
+      Vec<KanbanBoardDef>
     >(&raw)
     {
       | Ok(mut boards) => {
-        boards
-          .retain(|board| {
-            !board.id.trim().is_empty()
-              && !board.name.trim().is_empty()
-          });
+        boards.retain(|board| {
+          !board.id.trim().is_empty()
+            && !board
+              .name
+              .trim()
+              .is_empty()
+        });
         if !boards.is_empty() {
           return boards;
         }
@@ -2824,9 +2970,7 @@ fn make_unique_board_name(
   requested: &str
 ) -> String {
   make_unique_board_name_except(
-    boards,
-    requested,
-    ""
+    boards, requested, ""
   )
 }
 
@@ -2840,10 +2984,8 @@ fn make_unique_board_name_except(
     return "Board".to_string();
   }
 
-  let mut candidate =
-    base.to_string();
-  let mut suffix =
-    2_u32;
+  let mut candidate = base.to_string();
+  let mut suffix = 2_u32;
   while boards.iter().any(|board| {
     board.id != except_board_id
       && board
@@ -2854,8 +2996,7 @@ fn make_unique_board_name_except(
   }) {
     candidate =
       format!("{base} {suffix}");
-    suffix = suffix
-      .saturating_add(1);
+    suffix = suffix.saturating_add(1);
   }
 
   candidate
@@ -2865,14 +3006,14 @@ fn board_id_from_task_tags(
   boards: &[KanbanBoardDef],
   tags: &[String]
 ) -> Option<String> {
-  let board_id =
-    first_tag_value(tags, BOARD_TAG_KEY)?
-      .to_string();
+  let board_id = first_tag_value(
+    tags,
+    BOARD_TAG_KEY
+  )?
+  .to_string();
   boards
     .iter()
-    .find(|board| {
-      board.id == board_id
-    })
+    .find(|board| board.id == board_id)
     .map(|board| board.id.clone())
 }
 
@@ -2906,22 +3047,14 @@ fn load_tag_schema() -> TagSchema {
 
 fn build_tag_color_map(
   schema: &TagSchema
-) -> BTreeMap<
-  String,
-  String,
-> {
+) -> BTreeMap<String, String> {
   schema
     .keys
     .iter()
     .filter_map(|key| {
-      key.color
-        .as_ref()
-        .map(|color| {
-          (
-            key.id.clone(),
-            color.clone()
-          )
-        })
+      key.color.as_ref().map(|color| {
+        (key.id.clone(), color.clone())
+      })
     })
     .collect()
 }
@@ -3002,9 +3135,9 @@ fn collect_tags_for_submit(
 
   if ensure_kanban_lane
     && !tags.iter().any(|tag| {
-      tag.starts_with(
-        &format!("{KANBAN_TAG_KEY}:")
-      )
+      tag.starts_with(&format!(
+        "{KANBAN_TAG_KEY}:"
+      ))
     })
   {
     push_tag_unique(
@@ -3058,9 +3191,8 @@ fn is_single_select_key(
       entry.selection.as_deref()
     })
     .is_some_and(|selection| {
-      selection.eq_ignore_ascii_case(
-        "single"
-      )
+      selection
+        .eq_ignore_ascii_case("single")
     })
 }
 
@@ -3082,17 +3214,16 @@ fn first_tag_value<'a>(
   tags: &'a [String],
   key: &str
 ) -> Option<&'a str> {
-  tags.iter().find_map(
-    |tag| match tag.split_once(':') {
-      | Some((
-        existing_key,
-        value
-      )) if existing_key == key => {
+  tags.iter().find_map(|tag| {
+    match tag.split_once(':') {
+      | Some((existing_key, value))
+        if existing_key == key =>
+      {
         Some(value)
       }
       | _ => None
     }
-  )
+  })
 }
 
 fn task_has_tag_value(
@@ -3116,10 +3247,7 @@ fn remove_board_tag_for_id(
 ) {
   tags.retain(|tag| {
     match tag.split_once(':') {
-      | Some((
-        key,
-        value
-      )) => {
+      | Some((key, value)) => {
         !(key == BOARD_TAG_KEY
           && value == board_id)
       }
@@ -3166,13 +3294,20 @@ fn filter_visible_tasks(
   tasks
     .iter()
     .filter(|task| {
-      if !q.is_empty()
-        && !task
+      if !q.is_empty() {
+        let title_match = task
+          .title
+          .to_ascii_lowercase()
+          .contains(&q);
+        let description_match = task
           .description
           .to_ascii_lowercase()
-          .contains(&q)
-      {
-        return false;
+          .contains(&q);
+        if !title_match
+          && !description_match
+        {
+          return false;
+        }
       }
 
       match active_view {
