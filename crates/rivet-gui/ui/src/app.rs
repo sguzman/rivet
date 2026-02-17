@@ -461,10 +461,19 @@ pub fn app() -> Html {
       all_filter_completion.clone();
     Callback::from(
       move |e: web_sys::Event| {
-        let input: web_sys::HtmlSelectElement =
-          e.target_unchecked_into();
-        all_filter_completion
-          .set(input.value());
+        if let Some(input) =
+          e.target_dyn_into::<
+            web_sys::HtmlSelectElement
+          >()
+        {
+          all_filter_completion
+            .set(input.value());
+        } else {
+          tracing::warn!(
+            "all completion filter event \
+             had non-select target"
+          );
+        }
       }
     )
   };
@@ -474,14 +483,24 @@ pub fn app() -> Html {
       all_filter_project.clone();
     Callback::from(
       move |e: web_sys::Event| {
-        let input: web_sys::HtmlSelectElement =
-          e.target_unchecked_into();
-        let value = input.value();
-        if value.is_empty() {
-          all_filter_project.set(None);
+        if let Some(input) =
+          e.target_dyn_into::<
+            web_sys::HtmlSelectElement
+          >()
+        {
+          let value = input.value();
+          if value.is_empty() {
+            all_filter_project
+              .set(None);
+          } else {
+            all_filter_project
+              .set(Some(value));
+          }
         } else {
-          all_filter_project
-            .set(Some(value));
+          tracing::warn!(
+            "all project filter event had \
+             non-select target"
+          );
         }
       }
     )
@@ -492,13 +511,22 @@ pub fn app() -> Html {
       all_filter_tag.clone();
     Callback::from(
       move |e: web_sys::Event| {
-        let input: web_sys::HtmlSelectElement =
-          e.target_unchecked_into();
-        let value = input.value();
-        if value.is_empty() {
-          all_filter_tag.set(None);
+        if let Some(input) =
+          e.target_dyn_into::<
+            web_sys::HtmlSelectElement
+          >()
+        {
+          let value = input.value();
+          if value.is_empty() {
+            all_filter_tag.set(None);
+          } else {
+            all_filter_tag.set(Some(value));
+          }
         } else {
-          all_filter_tag.set(Some(value));
+          tracing::warn!(
+            "all tag filter event had \
+             non-select target"
+          );
         }
       }
     )
