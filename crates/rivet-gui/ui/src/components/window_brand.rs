@@ -17,7 +17,7 @@ pub fn window_brand(
   props: &WindowBrandProps
 ) -> Html {
   html! {
-      <div class="window-brand">
+      <div class="window-brand" data-tauri-drag-region="true">
           <img class="window-mascot" src={props.icon_src.clone()} alt={props.icon_alt.clone()} />
           <span>{ props.title.clone() }</span>
       </div>

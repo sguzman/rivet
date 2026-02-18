@@ -30,7 +30,7 @@ pub fn window_chrome(
   props: &WindowChromeProps
 ) -> Html {
   html! {
-      <div class="window-chrome" data-tauri-drag-region="true">
+      <div class="window-chrome">
           <WindowBrand
               title={props.title.clone()}
               icon_src={props.icon_src.clone()}

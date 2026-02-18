@@ -22,7 +22,7 @@ pub fn window_controls(
   props: &WindowControlsProps
 ) -> Html {
   html! {
-      <div class="window-controls" data-tauri-drag-region="false">
+      <div class="window-controls">
           <button class="window-btn" type="button" onclick={props.on_window_minimize.clone()} title="Minimize">{ "_" }</button>
           <button class="window-btn" type="button" onclick={props.on_window_toggle_maximize.clone()} title="Maximize/Restore">{ "[ ]" }</button>
           <button class="window-btn danger" type="button" onclick={props.on_window_close.clone()} title="Close">{ "X" }</button>
