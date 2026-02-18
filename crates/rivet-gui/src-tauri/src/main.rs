@@ -417,20 +417,20 @@ fn ensure_linux_taskbar_icon_registration<
   let desktop_path = applications_dir
     .join(format!("{app_id}.desktop"));
   let desktop_contents = format!(
-    concat!(
-      "[Desktop Entry]\n",
-      "Type=Application\n",
-      "Name=Rivet\n",
-      "Comment=Rivet Taskwarrior GUI\n",
-      "Exec={exec}\n",
-      "Icon={icon}\n",
-      "Terminal=false\n",
-      "StartupNotify=true\n",
-      "StartupWMClass={app_id}\n",
-      "X-GNOME-WMClass={app_id}\n",
-      "Categories=Utility;\n"
-    ),
-    icon = icon_path.display()
+    "[Desktop Entry]\n\
+     Type=Application\n\
+     Name=Rivet\n\
+     Comment=Rivet Taskwarrior GUI\n\
+     Exec={exec}\n\
+     Icon={icon}\n\
+     Terminal=false\n\
+     StartupNotify=true\n\
+     StartupWMClass={app_id}\n\
+     X-GNOME-WMClass={app_id}\n\
+     Categories=Utility;\n",
+    exec = exec,
+    icon = icon_path.display(),
+    app_id = app_id
   );
 
   if let Err(error) = fs::write(
