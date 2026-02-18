@@ -16,7 +16,7 @@ fn external_calendars_panel(
   props: &ExternalCalendarsPanelProps
 ) -> Html {
   html! {
-      <>
+      <div class="calendar-external-group">
           <div class="calendar-external-header">{ "External Calendars" }</div>
           <div class="actions">
               <button class="btn" onclick={props.on_add.clone()}>{ "Add Source" }</button>
@@ -47,6 +47,6 @@ fn external_calendars_panel(
               on_edit={props.on_edit.clone()}
               on_delete={props.on_delete.clone()}
           />
-      </>
+      </div>
   }
 }

@@ -349,7 +349,10 @@ body {
 }
 
 .calendar-sidebar .details {
+  display: flex;
+  flex-direction: column;
   gap: 10px;
+  min-height: 0;
 }
 
 .calendar-view-switch {
@@ -650,11 +653,28 @@ body {
 }
 
 .calendar-source-list {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 8px;
-  max-height: min(46vh, 420px);
+  flex: 1 1 auto;
+  min-height: 160px;
+  max-height: none;
   overflow-y: auto;
   padding-right: 4px;
+}
+
+.calendar-external-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.calendar-sidebar {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
 .calendar-source-item {

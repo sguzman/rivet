@@ -73,6 +73,10 @@ pub fn app() -> Html {
   let search = use_state(String::new);
   let refresh_tick =
     use_state(|| 0_u64);
+  let last_tasks_refresh_ms =
+    yew::functional::use_mut_ref(
+      || 0.0_f64
+    );
 
   let tasks =
     use_state(Vec::<TaskDto>::new);
@@ -396,6 +400,10 @@ pub fn app() -> Html {
     let refresh_tick =
       refresh_tick.clone();
     let tasks = tasks.clone();
+    let facet_tasks =
+      facet_tasks.clone();
+    let last_tasks_refresh_ms =
+      last_tasks_refresh_ms.clone();
 
     use_effect_with(
       (
@@ -404,12 +412,36 @@ pub fn app() -> Html {
         *refresh_tick
       ),
       move |(tab, view, tick)| {
-        let tasks = tasks.clone();
-        let tab = tab.clone();
-        let view = view.clone();
-        let tick = *tick;
+        let now_ms =
+          js_sys::Date::now();
+        let mut last_ms =
+          last_tasks_refresh_ms
+            .borrow_mut();
+        let should_skip =
+          now_ms - *last_ms
+            < 500.0;
+        if should_skip {
+          tracing::warn!(
+            tab = %tab,
+            view = %view,
+            tick,
+            "skipping excessive task \
+             list refresh"
+          );
+        } else {
+          *last_ms = now_ms;
+        }
+        drop(last_ms);
 
-        wasm_bindgen_futures::spawn_local(async move {
+        if !should_skip {
+          let tasks = tasks.clone();
+          let facet_tasks =
+            facet_tasks.clone();
+          let tab = tab.clone();
+          let view = view.clone();
+          let tick = *tick;
+
+          wasm_bindgen_futures::spawn_local(async move {
                     tracing::info!(tab = %tab, view = %view, tick, "refreshing task list");
 
                     let status = if tab == "kanban"
@@ -429,55 +461,14 @@ pub fn app() -> Html {
                     };
 
                     match invoke_tauri::<Vec<TaskDto>, _>("tasks_list", &args).await {
-                        Ok(list) => tasks.set(list),
+                        Ok(list) => {
+                            tasks.set(list.clone());
+                            facet_tasks.set(list);
+                        }
                         Err(err) => tracing::error!(error = %err, "tasks_list failed"),
                     }
                 });
-
-        || ()
-      }
-    );
-  }
-
-  {
-    let refresh_tick =
-      refresh_tick.clone();
-    let facet_tasks =
-      facet_tasks.clone();
-
-    use_effect_with(
-      *refresh_tick,
-      move |_| {
-        let facet_tasks =
-          facet_tasks.clone();
-
-        wasm_bindgen_futures::spawn_local(
-          async move {
-            let args = TasksListArgs {
-              query: None,
-              status: None,
-              project: None,
-              tag: None
-            };
-
-            match invoke_tauri::<Vec<TaskDto>, _>(
-              "tasks_list",
-              &args
-            )
-            .await
-            {
-              | Ok(list) => {
-                tracing::debug!(
-                  total = list.len(),
-                  "refreshed facet task \
-                   snapshot"
-                );
-                facet_tasks.set(list);
-              }
-              | Err(err) => tracing::error!(error = %err, "facet tasks refresh failed")
-            }
-          }
-        );
+        }
 
         || ()
       }
