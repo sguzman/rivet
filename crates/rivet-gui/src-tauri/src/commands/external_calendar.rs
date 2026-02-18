@@ -255,66 +255,150 @@ async fn fetch_ics_document(
   let mut last_error =
     None::<anyhow::Error>;
   for candidate in &candidate_locations {
-    let response = match client
-      .get(candidate.as_str())
-      .send()
-      .await
+    for request_profile in
+      calendar_request_profiles()
     {
-      | Ok(response) => response,
-      | Err(error) => {
-        warn!(
-          candidate = %candidate,
-          error = %error,
-          "failed requesting external \
-           calendar candidate URL"
+      let mut request = client
+        .get(candidate.as_str())
+        .header(
+          reqwest::header::ACCEPT,
+          request_profile.accept,
+        )
+        .header(
+          reqwest::header::ACCEPT_LANGUAGE,
+          "en-US,en;q=0.9",
+        )
+        .header(
+          reqwest::header::CACHE_CONTROL,
+          "no-cache",
+        )
+        .header(
+          reqwest::header::PRAGMA,
+          "no-cache",
+        )
+        .header(
+          reqwest::header::USER_AGENT,
+          request_profile.user_agent,
         );
-        last_error = Some(
-          anyhow::Error::new(error)
-            .context(format!(
-              "failed requesting \
-               calendar URL: \
-               {candidate}"
-            )),
+
+      if let Some(referer) =
+        request_profile.referer
+      {
+        request = request.header(
+          reqwest::header::REFERER,
+          referer,
         );
-        continue;
       }
-    };
 
-    let status = response.status();
-    if !status.is_success() {
-      warn!(
-        candidate = %candidate,
-        status = %status,
-        "external calendar candidate \
-         URL returned non-success \
-         status"
-      );
-      last_error = Some(anyhow::anyhow!(
-        "calendar URL returned HTTP {} \
-         for {}",
-        status,
-        candidate
-      ));
-      continue;
-    }
+      let response =
+        match request.send().await {
+          | Ok(response) => response,
+          | Err(error) => {
+            warn!(
+              candidate = %candidate,
+              profile = request_profile.name,
+              error = %error,
+              "failed requesting \
+               external calendar \
+               candidate URL"
+            );
+            last_error = Some(
+              anyhow::Error::new(error)
+                .context(format!(
+                  "failed requesting \
+                   calendar URL: \
+                   {candidate}"
+                )),
+            );
+            continue;
+          }
+        };
 
-    match response.text().await {
-      | Ok(body) => return Ok(body),
-      | Err(error) => {
+      let status = response.status();
+      let body = match response.text().await {
+        | Ok(body) => body,
+        | Err(error) => {
+          warn!(
+            candidate = %candidate,
+            profile = request_profile.name,
+            error = %error,
+            "failed reading calendar \
+             response body for \
+             candidate URL"
+          );
+          last_error = Some(
+            anyhow::Error::new(error)
+              .context(format!(
+                "failed reading \
+                 calendar response \
+                 body for {}",
+                candidate
+              )),
+          );
+          continue;
+        }
+      };
+
+      if status.is_success() {
+        return Ok(body);
+      }
+
+      if status
+        == reqwest::StatusCode::FORBIDDEN
+      {
+        if is_bls_bot_denied_body(
+          &body
+        ) {
+          warn!(
+            candidate = %candidate,
+            profile = request_profile.name,
+            "calendar source blocked \
+             request as bot traffic"
+          );
+          last_error = Some(
+            anyhow::anyhow!(
+              "calendar source denied \
+               automated access (HTTP \
+               403). This endpoint \
+               appears to enforce \
+               anti-bot policy. Try a \
+               lower sync rate, \
+               manual sync, or an \
+               alternate ICS host."
+            ),
+          );
+        } else {
+          warn!(
+            candidate = %candidate,
+            profile = request_profile.name,
+            "calendar source returned \
+             forbidden without known \
+             anti-bot signature"
+          );
+          last_error = Some(
+            anyhow::anyhow!(
+              "calendar URL returned \
+               HTTP 403 for {}",
+              candidate
+            ),
+          );
+        }
+      } else {
         warn!(
           candidate = %candidate,
-          error = %error,
-          "failed reading calendar \
-           response body for \
-           candidate URL"
+          profile = request_profile.name,
+          status = %status,
+          "external calendar \
+           candidate URL returned \
+           non-success status"
         );
         last_error = Some(
-          anyhow::Error::new(error)
-            .context(format!(
-              "failed reading calendar \
-               response body for {}",
-              candidate
-            )),
+          anyhow::anyhow!(
+            "calendar URL returned \
+             HTTP {} for {}",
+            status,
+            candidate
+          ),
         );
       }
     }
@@ -364,6 +448,52 @@ fn normalized_calendar_locations(
   }
 
   vec![trimmed.to_string()]
+}
+
+#[derive(Clone, Copy)]
+struct CalendarRequestProfile {
+  name:       &'static str,
+  user_agent: &'static str,
+  accept:     &'static str,
+  referer:    Option<&'static str>
+}
+
+fn calendar_request_profiles()
+-> [CalendarRequestProfile; 2] {
+  [
+    CalendarRequestProfile {
+      name: "thunderbird",
+      user_agent:
+        "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Thunderbird/128.0",
+      accept:
+        "text/calendar, text/plain, */*;q=0.8",
+      referer:
+        Some("https://www.bls.gov/schedule/news_release/")
+    },
+    CalendarRequestProfile {
+      name: "browser",
+      user_agent:
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36",
+      accept:
+        "text/calendar, text/plain, */*;q=0.8",
+      referer:
+        Some("https://www.bls.gov/schedule/news_release/")
+    },
+  ]
+}
+
+fn is_bls_bot_denied_body(
+  body: &str
+) -> bool {
+  let body_lower =
+    body.to_ascii_lowercase();
+  body_lower.contains("access denied")
+    && body_lower.contains(
+      "automated retrieval programs"
+    )
+    && body_lower.contains(
+      "bls usage policy"
+    )
 }
 
 fn parse_ics_events(
