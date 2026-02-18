@@ -240,6 +240,8 @@ async fn fetch_ics_document(
       "calendar location URL is empty"
     );
   }
+  let candidate_locations =
+    normalized_calendar_locations(trimmed);
 
   let client =
     reqwest::Client::builder()
@@ -250,29 +252,118 @@ async fn fetch_ics_document(
          for calendar sync"
       )?;
 
-  let response = client
-    .get(trimmed)
-    .send()
-    .await
-    .with_context(|| {
-      format!(
-        "failed requesting calendar \
-         URL: {trimmed}"
-      )
-    })?;
+  let mut last_error =
+    None::<anyhow::Error>;
+  for candidate in &candidate_locations {
+    let response = match client
+      .get(candidate.as_str())
+      .send()
+      .await
+    {
+      | Ok(response) => response,
+      | Err(error) => {
+        warn!(
+          candidate = %candidate,
+          error = %error,
+          "failed requesting external \
+           calendar candidate URL"
+        );
+        last_error = Some(
+          anyhow::Error::new(error)
+            .context(format!(
+              "failed requesting \
+               calendar URL: \
+               {candidate}"
+            )),
+        );
+        continue;
+      }
+    };
 
-  let status = response.status();
-  if !status.is_success() {
-    anyhow::bail!(
-      "calendar URL returned HTTP {}",
-      status
-    );
+    let status = response.status();
+    if !status.is_success() {
+      warn!(
+        candidate = %candidate,
+        status = %status,
+        "external calendar candidate \
+         URL returned non-success \
+         status"
+      );
+      last_error = Some(anyhow::anyhow!(
+        "calendar URL returned HTTP {} \
+         for {}",
+        status,
+        candidate
+      ));
+      continue;
+    }
+
+    match response.text().await {
+      | Ok(body) => return Ok(body),
+      | Err(error) => {
+        warn!(
+          candidate = %candidate,
+          error = %error,
+          "failed reading calendar \
+           response body for \
+           candidate URL"
+        );
+        last_error = Some(
+          anyhow::Error::new(error)
+            .context(format!(
+              "failed reading calendar \
+               response body for {}",
+              candidate
+            )),
+        );
+      }
+    }
   }
 
-  response.text().await.context(
-    "failed reading calendar response \
-     body"
-  )
+  Err(last_error.unwrap_or_else(|| {
+    anyhow::anyhow!(
+      "unable to fetch calendar from \
+       any candidate URL"
+    )
+  }))
+}
+
+fn normalized_calendar_locations(
+  location: &str
+) -> Vec<String> {
+  let trimmed = location.trim();
+  let lower =
+    trimmed.to_ascii_lowercase();
+
+  if lower.starts_with("webcal://") {
+    let remainder = &trimmed[9..];
+    let https =
+      format!("https://{remainder}");
+    let http =
+      format!("http://{remainder}");
+    info!(
+      raw = %trimmed,
+      normalized = %https,
+      fallback = %http,
+      "rewrote webcal calendar URL \
+       candidates"
+    );
+    return vec![https, http];
+  }
+
+  if lower.starts_with("webcals://") {
+    let remainder = &trimmed[10..];
+    let normalized =
+      format!("https://{remainder}");
+    info!(
+      raw = %trimmed,
+      normalized = %normalized,
+      "rewrote webcals calendar URL to https"
+    );
+    return vec![normalized];
+  }
+
+  vec![trimmed.to_string()]
 }
 
 fn parse_ics_events(

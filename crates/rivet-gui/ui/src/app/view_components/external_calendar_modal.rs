@@ -103,10 +103,10 @@ fn external_calendar_modal(
                         />
                     </div>
                     <div class="field">
-                        <label>{ "Location (ICS URL)" }</label>
+                        <label>{ "Location (ICS or webcal URL)" }</label>
                         <input
                             value={ext_modal.source.location.clone()}
-                            placeholder="https://example.com/calendar.ics"
+                            placeholder="webcal://example.com/calendar.ics"
                             oninput={{
                                 let external_calendar_modal = external_calendar_modal.clone();
                                 Callback::from(move |e: web_sys::InputEvent| {

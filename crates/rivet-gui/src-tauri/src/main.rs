@@ -229,17 +229,52 @@ fn configure_main_window_icon<
     return;
   };
 
-  let candidates: [(&str, &[u8]); 2] = [
+  if let Some(default_icon) =
+    app.default_window_icon().cloned()
+  {
+    match window.set_icon(default_icon)
+    {
+      | Ok(()) => {
+        info!(
+          "set main window icon from \
+           tauri default window icon"
+        );
+        return;
+      }
+      | Err(err) => {
+        error!(
+          error = %err,
+          "failed applying tauri \
+           default window icon"
+        );
+      }
+    }
+  } else {
+    warn!(
+      "tauri default window icon \
+       unavailable; falling back to \
+       embedded icon candidates"
+    );
+  }
+
+  let candidates: [(&str, &[u8]); 3] = [
     (
-      "favicon-32x32",
+      "mascot-square",
       &include_bytes!(
-        "../icons/favicon-32x32.png"
+        "../../ui/assets/icons/\
+         mascot-square.png"
       )[..]
     ),
     (
       "icon",
       &include_bytes!(
         "../icons/icon.png"
+      )[..]
+    ),
+    (
+      "favicon-32x32",
+      &include_bytes!(
+        "../icons/favicon-32x32.png"
       )[..]
     )
   ];

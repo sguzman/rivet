@@ -3391,6 +3391,7 @@ dependencies = [
  "chrono-tz",
  "console_error_panic_hook",
  "gloo",
+ "js-sys",
  "rivet_gui_shared",
  "serde",
  "serde-wasm-bindgen",

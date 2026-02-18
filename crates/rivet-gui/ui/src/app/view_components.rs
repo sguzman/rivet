@@ -24,4 +24,7 @@ include!("view_components/tasks_workspace.rs");
 include!("view_components/new_kanban_board_modal.rs");
 include!("view_components/rename_kanban_board_modal.rs");
 include!("view_components/external_calendar_modal.rs");
+include!(
+  "view_components/external_calendar_delete_modal.rs"
+);
 include!("view_components/task_modal.rs");

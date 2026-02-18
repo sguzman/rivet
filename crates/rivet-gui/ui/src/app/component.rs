@@ -54,10 +54,22 @@ pub fn app() -> Html {
     use_state(|| {
       None::<ExternalCalendarModalState>
     });
+  let external_calendar_delete_modal =
+    use_state(|| {
+      None::<ExternalCalendarDeleteState>
+    });
   let external_calendar_busy =
     use_state(|| false);
   let external_calendar_last_sync =
     use_state(|| None::<String>);
+  let due_notification_config =
+    use_state(load_due_notification_config);
+  let due_notification_sent =
+    use_state(load_due_notification_sent);
+  let due_notification_permission =
+    use_state(
+      browser_due_notification_permission
+    );
   let search = use_state(String::new);
   let refresh_tick =
     use_state(|| 0_u64);
@@ -150,6 +162,58 @@ pub fn app() -> Html {
         || ()
       }
     );
+  }
+
+  {
+    let due_notification_config =
+      due_notification_config.clone();
+    use_effect_with(
+      (*due_notification_config).clone(),
+      move |config| {
+        save_due_notification_config(
+          config
+        );
+        tracing::debug!(
+          enabled = config.enabled,
+          pre_notify_enabled = config
+            .pre_notify_enabled,
+          pre_notify_minutes = config
+            .pre_notify_minutes,
+          "persisted due notification \
+           config"
+        );
+        || ()
+      }
+    );
+  }
+
+  {
+    let due_notification_sent =
+      due_notification_sent.clone();
+    use_effect_with(
+      (*due_notification_sent).clone(),
+      move |sent| {
+        save_due_notification_sent(sent);
+        tracing::debug!(
+          sent_keys = sent.len(),
+          "persisted due notification \
+           registry"
+        );
+        || ()
+      }
+    );
+  }
+
+  {
+    let due_notification_permission =
+      due_notification_permission
+        .clone();
+    use_effect_with((), move |_| {
+      due_notification_permission.set(
+        browser_due_notification_permission(),
+      );
+      || ()
+    });
   }
 
   {
@@ -416,6 +480,142 @@ pub fn app() -> Html {
         );
 
         || ()
+      }
+    );
+  }
+
+  {
+    let due_notification_config =
+      due_notification_config.clone();
+    let due_notification_sent =
+      due_notification_sent.clone();
+    let due_notification_permission =
+      due_notification_permission
+        .clone();
+    let facet_tasks =
+      facet_tasks.clone();
+    let calendar_config =
+      calendar_config.clone();
+
+    use_effect_with(
+      (
+        (*due_notification_config)
+          .clone(),
+        (*facet_tasks).clone(),
+        (*calendar_config).clone(),
+        *due_notification_permission
+      ),
+      move |(
+        config,
+        tasks_snapshot,
+        calendar_config_snapshot,
+        permission
+      )| {
+        let mut interval =
+          None::<Interval>;
+
+        if !config.enabled {
+          tracing::debug!(
+            "due notification \
+             scheduler disabled"
+          );
+        } else {
+          if *permission
+            != DueNotificationPermission::Granted
+          {
+            tracing::warn!(
+              permission = ?permission,
+              "due notifications \
+               enabled without granted \
+               browser notification \
+               permission"
+            );
+          }
+
+          let due_notification_sent =
+            due_notification_sent
+              .clone();
+          let due_notification_permission =
+            due_notification_permission
+              .clone();
+          let config =
+            config.clone();
+          let tasks_snapshot =
+            tasks_snapshot.clone();
+          let timezone =
+            resolve_calendar_timezone(
+              calendar_config_snapshot
+            );
+
+          let run_check = {
+            let due_notification_sent =
+              due_notification_sent
+                .clone();
+            let due_notification_permission =
+              due_notification_permission
+                .clone();
+            let config =
+              config.clone();
+            let tasks_snapshot =
+              tasks_snapshot.clone();
+            move || {
+              if *due_notification_permission
+                != DueNotificationPermission::Granted
+              {
+                return;
+              }
+
+              let now_utc = Utc::now();
+              let pending_keys =
+                (*due_notification_sent)
+                  .clone();
+              let events =
+                collect_due_notification_events(
+                  &tasks_snapshot,
+                  timezone,
+                  &config,
+                  &pending_keys,
+                  now_utc
+                );
+
+              if events.is_empty() {
+                return;
+              }
+
+              tracing::info!(
+                event_count = events.len(),
+                "due notification scan \
+                 produced events"
+              );
+
+              let mut next_sent =
+                pending_keys;
+              for event in events {
+                if emit_due_notification(
+                  &event.title,
+                  &event.body
+                ) {
+                  next_sent
+                    .insert(event.key);
+                }
+              }
+
+              if next_sent
+                != *due_notification_sent
+              {
+                due_notification_sent
+                  .set(next_sent);
+              }
+            }
+          };
+
+          run_check();
+          interval = Some(Interval::new(
+            30_000, run_check
+          ));
+        }
+
+        move || drop(interval)
       }
     );
   }
@@ -1065,34 +1265,84 @@ pub fn app() -> Html {
   let on_delete_external_calendar = {
     let external_calendars =
       external_calendars.clone();
+    let external_calendar_delete_modal =
+      external_calendar_delete_modal
+        .clone();
     Callback::from(
       move |calendar_id: String| {
-        let confirmed =
-          web_sys::window()
-            .and_then(|window| {
-              window
-                .confirm_with_message(
-                  "Delete this \
-                   external calendar \
-                   source?"
-                )
-                .ok()
+        let Some(source) =
+          external_calendars
+            .iter()
+            .find(|source| {
+              source.id == calendar_id
             })
-            .unwrap_or(false);
-        if !confirmed {
+            .cloned()
+        else {
+          tracing::warn!(
+            calendar_id = %calendar_id,
+            "delete requested for \
+             unknown external \
+             calendar"
+          );
           return;
-        }
+        };
 
-        let mut next_sources =
-          (*external_calendars).clone();
-        next_sources.retain(|source| {
-          source.id != calendar_id
-        });
-        external_calendars
-          .set(next_sources);
+        tracing::info!(
+          calendar_id = %source.id,
+          name = %source.name,
+          "opened external calendar \
+           delete modal"
+        );
+        external_calendar_delete_modal
+          .set(Some(
+            ExternalCalendarDeleteState {
+              id:   source.id,
+              name: source.name
+            },
+          ));
       }
     )
   };
+
+  let on_close_external_calendar_delete_modal =
+    {
+      let external_calendar_delete_modal =
+        external_calendar_delete_modal
+          .clone();
+      Callback::from(move |_| {
+        external_calendar_delete_modal
+          .set(None);
+      })
+    };
+
+  let on_confirm_delete_external_calendar =
+    {
+      let external_calendars =
+        external_calendars.clone();
+      let external_calendar_delete_modal =
+        external_calendar_delete_modal
+          .clone();
+      Callback::from(
+        move |calendar_id: String| {
+          let mut next_sources =
+            (*external_calendars).clone();
+          next_sources.retain(|source| {
+            source.id != calendar_id
+          });
+          tracing::warn!(
+            calendar_id = %calendar_id,
+            remaining_sources =
+              next_sources.len(),
+            "deleted external calendar \
+             source"
+          );
+          external_calendars
+            .set(next_sources);
+          external_calendar_delete_modal
+            .set(None);
+        }
+      )
+    };
 
   let on_sync_external_calendar = {
     let external_calendars =
@@ -1673,6 +1923,138 @@ pub fn app() -> Html {
       let next = (*theme).next();
       save_theme_mode(next);
       theme.set(next);
+    })
+  };
+
+  let on_due_enabled = {
+    let due_notification_config =
+      due_notification_config.clone();
+    let due_notification_permission =
+      due_notification_permission
+        .clone();
+    Callback::from(
+      move |e: web_sys::Event| {
+        let Some(input) =
+          e.target_dyn_into::<
+            web_sys::HtmlInputElement
+          >()
+        else {
+          tracing::warn!(
+            "due notification enable \
+             event had non-input \
+             target"
+          );
+          return;
+        };
+
+        let enabled = input.checked();
+        let mut next =
+          (*due_notification_config)
+            .clone();
+        next.enabled = enabled;
+        if !enabled {
+          next.pre_notify_enabled = false;
+        }
+        tracing::info!(
+          enabled = next.enabled,
+          pre_notify_enabled =
+            next.pre_notify_enabled,
+          pre_notify_minutes =
+            next.pre_notify_minutes,
+          "updated due notification \
+           config from enable toggle"
+        );
+        due_notification_config
+          .set(next);
+
+        if enabled
+          && *due_notification_permission
+            == DueNotificationPermission::Default
+        {
+          request_due_notification_permission(
+            due_notification_permission
+              .clone(),
+          );
+        }
+      }
+    )
+  };
+
+  let on_due_pre_enabled = {
+    let due_notification_config =
+      due_notification_config.clone();
+    Callback::from(
+      move |e: web_sys::Event| {
+        let Some(input) =
+          e.target_dyn_into::<
+            web_sys::HtmlInputElement
+          >()
+        else {
+          tracing::warn!(
+            "pre-notify enable event \
+             had non-input target"
+          );
+          return;
+        };
+
+        let enabled = input.checked();
+        let mut next =
+          (*due_notification_config)
+            .clone();
+        next.pre_notify_enabled =
+          enabled && next.enabled;
+        tracing::info!(
+          pre_notify_enabled =
+            next.pre_notify_enabled,
+          "updated due notification \
+           pre-notify toggle"
+        );
+        due_notification_config
+          .set(next);
+      }
+    )
+  };
+
+  let on_due_pre_minutes_input = {
+    let due_notification_config =
+      due_notification_config.clone();
+    Callback::from(
+      move |e: web_sys::InputEvent| {
+        let input: web_sys::HtmlInputElement =
+          e.target_unchecked_into();
+        let parsed = input
+          .value()
+          .trim()
+          .parse::<u32>()
+          .ok()
+          .unwrap_or(15)
+          .max(1)
+          .min(43_200);
+        let mut next =
+          (*due_notification_config)
+            .clone();
+        next.pre_notify_minutes = parsed;
+        tracing::debug!(
+          pre_notify_minutes =
+            parsed,
+          "updated due notification \
+           pre-notify minutes"
+        );
+        due_notification_config
+          .set(next);
+      }
+    )
+  };
+
+  let on_request_due_permission = {
+    let due_notification_permission =
+      due_notification_permission
+        .clone();
+    Callback::from(move |_| {
+      request_due_notification_permission(
+        due_notification_permission
+          .clone(),
+      );
     })
   };
 
@@ -2357,6 +2739,8 @@ pub fn app() -> Html {
     .is_some()
     || *kanban_create_open
     || *kanban_rename_open
+    || (*external_calendar_delete_modal)
+      .is_some()
     || (*external_calendar_modal)
       .is_some();
   let active_kanban_board_name =
@@ -2380,7 +2764,7 @@ pub fn app() -> Html {
               on_window_toggle_maximize={on_window_toggle_maximize}
               on_window_close={on_window_close}
               title={"Rivet".to_string()}
-              icon_src={"/favicon-32x32.png".to_string()}
+              icon_src={"/mascot-square.png".to_string()}
               icon_alt={"Rivet mascot".to_string()}
           />
           <WorkspaceTabs
@@ -2472,6 +2856,12 @@ pub fn app() -> Html {
                               on_nav={on_nav.clone()}
                               tasks_loaded={tasks.len()}
                               bulk_count={bulk_count}
+                              due_notifications={(*due_notification_config).clone()}
+                              due_permission={*due_notification_permission}
+                              on_due_enabled={on_due_enabled.clone()}
+                              on_due_pre_enabled={on_due_pre_enabled.clone()}
+                              on_due_pre_minutes_input={on_due_pre_minutes_input.clone()}
+                              on_request_due_permission={on_request_due_permission.clone()}
                           />
                       }
                   } else {
@@ -2565,6 +2955,16 @@ pub fn app() -> Html {
                       busy={*external_calendar_busy}
                       on_close={on_close_external_calendar_modal.clone()}
                       on_submit={on_submit_external_calendar.clone()}
+                  />
+              }
+          }
+
+          {
+              html! {
+                  <ExternalCalendarDeleteModal
+                      modal_state={external_calendar_delete_modal.clone()}
+                      on_close={on_close_external_calendar_delete_modal.clone()}
+                      on_confirm={on_confirm_delete_external_calendar.clone()}
                   />
               }
           }

@@ -25,6 +25,7 @@
   },
   "bundle": {
     "icon": [
+      "icons/mascot-square.png",
       "icons/favicon-32x32.png",
       "icons/icon.png",
       "icons/icon.ico",

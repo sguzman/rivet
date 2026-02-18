@@ -169,6 +169,72 @@ enum ExternalCalendarModalMode {
   Edit
 }
 
+#[derive(Clone, PartialEq)]
+struct ExternalCalendarDeleteState {
+  id:   String,
+  name: String
+}
+
+#[derive(
+  Debug,
+  Clone,
+  Copy,
+  PartialEq,
+  Eq,
+  Serialize,
+  Deserialize,
+)]
+enum DueNotificationPermission {
+  Default,
+  Granted,
+  Denied,
+  Unsupported
+}
+
+impl DueNotificationPermission {
+  fn as_label(
+    self
+  ) -> &'static str {
+    match self {
+      | Self::Default => {
+        "Permission not requested"
+      }
+      | Self::Granted => {
+        "Permission granted"
+      }
+      | Self::Denied => {
+        "Permission denied"
+      }
+      | Self::Unsupported => {
+        "Notifications unsupported"
+      }
+    }
+  }
+}
+
+#[derive(
+  Clone,
+  PartialEq,
+  Eq,
+  Serialize,
+  Deserialize,
+)]
+struct DueNotificationConfig {
+  enabled:            bool,
+  pre_notify_enabled: bool,
+  pre_notify_minutes: u32
+}
+
+impl Default for DueNotificationConfig {
+  fn default() -> Self {
+    Self {
+      enabled:            false,
+      pre_notify_enabled: false,
+      pre_notify_minutes: 15
+    }
+  }
+}
+
 impl TagSchema {
   fn key(
     &self,
@@ -602,6 +668,11 @@ const CALENDAR_VIEW_STORAGE_KEY: &str =
   "rivet.calendar.view";
 const EXTERNAL_CALENDARS_STORAGE_KEY:
   &str = "rivet.external_calendars";
+const DUE_NOTIFICATION_SETTINGS_STORAGE_KEY:
+  &str =
+  "rivet.notifications.due.settings";
+const DUE_NOTIFICATION_SENT_STORAGE_KEY:
+  &str = "rivet.notifications.due.sent";
 const KANBAN_BOARDS_STORAGE_KEY: &str =
   "rivet.kanban.boards";
 const KANBAN_ACTIVE_BOARD_STORAGE_KEY:

@@ -530,6 +530,284 @@ fn parse_taskwarrior_utc(
   })
 }
 
+#[derive(Clone)]
+struct DueNotificationEvent {
+  key:   String,
+  title: String,
+  body:  String
+}
+
+fn collect_due_notification_events(
+  tasks: &[TaskDto],
+  timezone: Tz,
+  config: &DueNotificationConfig,
+  sent: &BTreeSet<String>,
+  now_utc: DateTime<Utc>
+) -> Vec<DueNotificationEvent> {
+  if !config.enabled {
+    return Vec::new();
+  }
+
+  let mut events = Vec::new();
+  let pre_minutes = config
+    .pre_notify_minutes
+    .max(1)
+    .min(43_200);
+
+  for task in tasks {
+    if !matches!(
+      task.status,
+      TaskStatus::Pending
+        | TaskStatus::Waiting
+    ) {
+      continue;
+    }
+
+    let Some(raw_due) = task.due.as_ref()
+    else {
+      continue;
+    };
+    let Some(due_utc) =
+      parse_taskwarrior_utc(raw_due)
+    else {
+      continue;
+    };
+    let due_local = due_utc
+      .with_timezone(&timezone);
+    let task_title =
+      notification_task_title(task);
+    let due_label = format!(
+      "{} ({})",
+      due_local.format(
+        "%Y-%m-%d %H:%M"
+      ),
+      timezone
+    );
+
+    if config.pre_notify_enabled
+      && now_utc < due_utc
+    {
+      let pre_due_at = due_utc
+        - Duration::minutes(
+          i64::from(pre_minutes)
+        );
+      if now_utc >= pre_due_at {
+        let key = format!(
+          "{}:{}:pre:{}",
+          task.uuid,
+          due_utc.timestamp(),
+          pre_minutes
+        );
+        if !sent.contains(&key) {
+          events.push(
+            DueNotificationEvent {
+              key,
+              title: format!(
+                "Task due soon ({pre_minutes}m)"
+              ),
+              body: format!(
+                "{task_title}\nDue \
+                 {due_label}"
+              )
+            },
+          );
+        }
+      }
+    }
+
+    if now_utc >= due_utc {
+      let key = format!(
+        "{}:{}:due",
+        task.uuid,
+        due_utc.timestamp()
+      );
+      if !sent.contains(&key) {
+        events.push(
+          DueNotificationEvent {
+            key,
+            title: "Task due now"
+              .to_string(),
+            body: format!(
+              "{task_title}\nDue \
+               {due_label}"
+            )
+          },
+        );
+      }
+    }
+  }
+
+  events
+}
+
+fn notification_task_title(
+  task: &TaskDto
+) -> String {
+  let title = task.title.trim();
+  if !title.is_empty() {
+    return title.to_string();
+  }
+
+  let description =
+    task.description.trim();
+  if !description.is_empty() {
+    return description.to_string();
+  }
+
+  format!("Task {}", task.uuid)
+}
+
+fn browser_due_notification_permission()
+-> DueNotificationPermission {
+  let Some(window) = web_sys::window()
+  else {
+    return DueNotificationPermission::Unsupported;
+  };
+
+  let has_notification =
+    js_sys::Reflect::has(
+      window.as_ref(),
+      &wasm_bindgen::JsValue::from_str(
+        "Notification"
+      ),
+    )
+    .ok()
+    .unwrap_or(false);
+
+  if !has_notification {
+    return DueNotificationPermission::Unsupported;
+  }
+
+  match web_sys::Notification::permission()
+  {
+    | web_sys::NotificationPermission::Default => {
+      DueNotificationPermission::Default
+    }
+    | web_sys::NotificationPermission::Granted => {
+      DueNotificationPermission::Granted
+    }
+    | web_sys::NotificationPermission::Denied => {
+      DueNotificationPermission::Denied
+    }
+    | _ => {
+      DueNotificationPermission::Unsupported
+    }
+  }
+}
+
+fn request_due_notification_permission(
+  permission_state: UseStateHandle<
+    DueNotificationPermission,
+  >
+) {
+  let current =
+    browser_due_notification_permission();
+  if current
+    == DueNotificationPermission::Unsupported
+  {
+    tracing::warn!(
+      "browser notification API \
+       unsupported in this runtime"
+    );
+    permission_state.set(current);
+    return;
+  }
+
+  match web_sys::Notification::request_permission()
+  {
+    | Ok(promise) => {
+      wasm_bindgen_futures::spawn_local(
+        async move {
+          let result =
+            wasm_bindgen_futures::JsFuture::from(
+              promise
+            )
+            .await;
+          match result {
+            | Ok(_) => {
+              let updated = browser_due_notification_permission();
+              tracing::info!(
+                permission =
+                  ?updated,
+                "notification permission \
+                 request completed"
+              );
+              permission_state
+                .set(updated);
+            }
+            | Err(error) => {
+              tracing::error!(
+                error = ?error,
+                "notification permission \
+                 request failed"
+              );
+              permission_state.set(
+                browser_due_notification_permission(
+                ),
+              );
+            }
+          }
+        },
+      );
+    }
+    | Err(error) => {
+      tracing::error!(
+        error = ?error,
+        "failed starting notification \
+         permission request"
+      );
+      permission_state.set(
+        browser_due_notification_permission(
+        ),
+      );
+    }
+  }
+}
+
+fn emit_due_notification(
+  title: &str,
+  body: &str
+) -> bool {
+  if browser_due_notification_permission()
+    != DueNotificationPermission::Granted
+  {
+    tracing::debug!(
+      "skipping due notification \
+       because permission is not \
+       granted"
+    );
+    return false;
+  }
+
+  let options =
+    web_sys::NotificationOptions::new(
+    );
+  options.set_body(body);
+  options.set_icon(
+    "/favicon-32x32.png"
+  );
+
+  match web_sys::Notification::new_with_options(
+    title, &options
+  ) {
+    | Ok(_) => {
+      tracing::info!(
+        title,
+        "emitted due notification"
+      );
+      true
+    }
+    | Err(error) => {
+      tracing::error!(
+        error = ?error,
+        title,
+        "failed to emit due notification"
+      );
+      false
+    }
+  }
+}
+
 fn calendar_date_window(
   view: CalendarViewMode,
   focus: NaiveDate,

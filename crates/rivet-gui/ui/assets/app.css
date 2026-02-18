@@ -41,11 +41,13 @@ body {
 }
 
 .app {
+  height: 100vh;
   min-height: 100vh;
   display: grid;
   grid-template-rows: 24px auto 1fr;
   background: var(--bg-grad);
   color: var(--text);
+  overflow: hidden;
 }
 
 .app.modal-open {
@@ -60,6 +62,9 @@ body {
   padding: 0 6px;
   border-bottom: 1px solid var(--border);
   background: var(--topbar-bg);
+  position: sticky;
+  top: 0;
+  z-index: 1800;
 }
 
 .window-brand {
@@ -137,6 +142,10 @@ body {
   gap: 10px;
   padding: 6px 12px;
   border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 24px;
+  z-index: 1700;
+  background: var(--topbar-bg);
 }
 
 .workspace-tab-list {
@@ -287,6 +296,9 @@ body {
   grid-template-columns: 250px minmax(0, 1fr) 390px;
   gap: 14px;
   padding: 14px;
+  min-height: 0;
+  overflow: auto;
+  align-content: start;
 }
 
 .right-stack {
@@ -1081,6 +1093,10 @@ body {
 
 .modal.modal-md {
   width: min(560px, 100%);
+}
+
+.calendar-delete-modal .content {
+  gap: 10px;
 }
 
 .modal .header {

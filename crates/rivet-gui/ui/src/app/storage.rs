@@ -65,6 +65,137 @@ fn load_workspace_tab() -> String {
   }
 }
 
+fn load_due_notification_config()
+-> DueNotificationConfig {
+  let stored = web_sys::window()
+    .and_then(|window| {
+      window
+        .local_storage()
+        .ok()
+        .flatten()
+    })
+    .and_then(|storage| {
+      storage
+        .get_item(
+          DUE_NOTIFICATION_SETTINGS_STORAGE_KEY
+        )
+        .ok()
+        .flatten()
+    });
+
+  if let Some(raw) = stored {
+    match serde_json::from_str::<
+      DueNotificationConfig
+    >(&raw)
+    {
+      | Ok(mut config) => {
+        if config.pre_notify_minutes
+          == 0
+        {
+          config.pre_notify_minutes =
+            15;
+        }
+        config.pre_notify_minutes =
+          config.pre_notify_minutes
+            .min(43_200);
+        return config;
+      }
+      | Err(error) => {
+        tracing::error!(
+          %error,
+          "failed parsing due \
+           notification config \
+           from local storage"
+        );
+      }
+    }
+  }
+
+  DueNotificationConfig::default()
+}
+
+fn save_due_notification_config(
+  config: &DueNotificationConfig
+) {
+  if let Some(storage) =
+    web_sys::window().and_then(
+      |window| {
+        window
+          .local_storage()
+          .ok()
+          .flatten()
+      }
+    )
+    && let Ok(json) =
+      serde_json::to_string(config)
+  {
+    let _ = storage.set_item(
+      DUE_NOTIFICATION_SETTINGS_STORAGE_KEY,
+      &json
+    );
+  }
+}
+
+fn load_due_notification_sent()
+-> BTreeSet<String> {
+  let stored = web_sys::window()
+    .and_then(|window| {
+      window
+        .local_storage()
+        .ok()
+        .flatten()
+    })
+    .and_then(|storage| {
+      storage
+        .get_item(
+          DUE_NOTIFICATION_SENT_STORAGE_KEY
+        )
+        .ok()
+        .flatten()
+    });
+
+  if let Some(raw) = stored {
+    match serde_json::from_str::<
+      BTreeSet<String>
+    >(&raw)
+    {
+      | Ok(values) => return values,
+      | Err(error) => {
+        tracing::error!(
+          %error,
+          "failed parsing due \
+           notification registry \
+           from local storage"
+        );
+      }
+    }
+  }
+
+  BTreeSet::new()
+}
+
+fn save_due_notification_sent(
+  sent: &BTreeSet<String>
+) {
+  if let Some(storage) =
+    web_sys::window().and_then(
+      |window| {
+        window
+          .local_storage()
+          .ok()
+          .flatten()
+      }
+    )
+    && let Ok(json) =
+      serde_json::to_string(sent)
+  {
+    let _ = storage.set_item(
+      DUE_NOTIFICATION_SENT_STORAGE_KEY,
+      &json
+    );
+  }
+}
+
 fn save_workspace_tab(tab: &str) {
   if let Some(storage) =
     web_sys::window().and_then(
@@ -532,4 +663,3 @@ fn normalize_hex_color(
 
   None
 }
-
