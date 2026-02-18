@@ -249,6 +249,24 @@ fn load_external_calendars()
               .trim()
               .is_empty()
         });
+        for source in &mut sources {
+          if source
+            .location
+            .trim()
+            .to_ascii_lowercase()
+            .starts_with("file://")
+          {
+            source.imported_ics_file =
+              true;
+            if source
+              .refresh_minutes
+              > 0
+            {
+              source
+                .refresh_minutes = 0;
+            }
+          }
+        }
         return sources;
       }
       | Err(error) => {
@@ -297,6 +315,7 @@ fn new_external_calendar_source()
     location:        String::new(),
     refresh_minutes: 30,
     enabled:         true,
+    imported_ics_file: false,
     read_only:       true,
     show_reminders:  true,
     offline_support: true

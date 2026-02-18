@@ -73,9 +73,13 @@ pub fn app() -> Html {
   let search = use_state(String::new);
   let refresh_tick =
     use_state(|| 0_u64);
-  let last_tasks_refresh_ms =
+  let task_refresh_inflight =
     yew::functional::use_mut_ref(
-      || 0.0_f64
+      || false
+    );
+  let task_refresh_pending =
+    yew::functional::use_mut_ref(
+      || false
     );
 
   let tasks =
@@ -238,6 +242,8 @@ pub fn app() -> Html {
           .cloned()
           .filter(|source| {
             source.enabled
+              && !source
+                .imported_ics_file
               && source.refresh_minutes
                 > 0
           })
@@ -397,77 +403,126 @@ pub fn app() -> Html {
     let active_tab = active_tab.clone();
     let active_view =
       active_view.clone();
-    let refresh_tick =
-      refresh_tick.clone();
     let tasks = tasks.clone();
     let facet_tasks =
       facet_tasks.clone();
-    let last_tasks_refresh_ms =
-      last_tasks_refresh_ms.clone();
+    let task_refresh_inflight =
+      task_refresh_inflight.clone();
+    let task_refresh_pending =
+      task_refresh_pending.clone();
 
     use_effect_with(
-      (
-        (*active_tab).clone(),
-        (*active_view).clone(),
-        *refresh_tick
-      ),
-      move |(tab, view, tick)| {
-        let now_ms =
-          js_sys::Date::now();
-        let mut last_ms =
-          last_tasks_refresh_ms
-            .borrow_mut();
-        let should_skip =
-          now_ms - *last_ms
-            < 500.0;
-        if should_skip {
-          tracing::warn!(
-            tab = %tab,
-            view = %view,
-            tick,
-            "skipping excessive task \
-             list refresh"
+      *refresh_tick,
+      move |tick| {
+        let inflight = {
+          let mut pending_state =
+            task_refresh_inflight
+              .borrow_mut();
+          if *pending_state {
+            true
+          } else {
+            *pending_state = true;
+            false
+          }
+        };
+
+        if inflight {
+          *task_refresh_pending
+            .borrow_mut() = true;
+          tracing::debug!(
+            tick = *tick,
+            "coalescing task refresh \
+             while prior fetch is in \
+             flight"
           );
         } else {
-          *last_ms = now_ms;
-        }
-        drop(last_ms);
-
-        if !should_skip {
           let tasks = tasks.clone();
           let facet_tasks =
             facet_tasks.clone();
-          let tab = tab.clone();
-          let view = view.clone();
-          let tick = *tick;
+          let active_tab =
+            active_tab.clone();
+          let active_view =
+            active_view.clone();
+          let task_refresh_inflight =
+            task_refresh_inflight
+              .clone();
+          let task_refresh_pending =
+            task_refresh_pending
+              .clone();
+          let mut current_tick =
+            *tick;
 
-          wasm_bindgen_futures::spawn_local(async move {
-                    tracing::info!(tab = %tab, view = %view, tick, "refreshing task list");
+          wasm_bindgen_futures::spawn_local(
+            async move {
+              loop {
+                let tab =
+                  (*active_tab).clone();
+                let view =
+                  (*active_view).clone();
+                tracing::info!(
+                  tab = %tab,
+                  view = %view,
+                  tick = current_tick,
+                  "refreshing task list"
+                );
 
-                    let status = if tab == "kanban"
-                        || tab == "calendar"
-                        || view == "all"
-                    {
-                        None
-                    } else {
-                        Some(TaskStatus::Pending)
-                    };
+                let status = if tab
+                  == "kanban"
+                  || tab == "calendar"
+                  || view == "all"
+                {
+                  None
+                } else {
+                  Some(TaskStatus::Pending)
+                };
 
-                    let args = TasksListArgs {
-                        query: None,
-                        status,
-                        project: None,
-                        tag: None,
-                    };
+                let args =
+                  TasksListArgs {
+                    query: None,
+                    status,
+                    project: None,
+                    tag: None,
+                  };
 
-                    match invoke_tauri::<Vec<TaskDto>, _>("tasks_list", &args).await {
-                        Ok(list) => {
-                            tasks.set(list.clone());
-                            facet_tasks.set(list);
-                        }
-                        Err(err) => tracing::error!(error = %err, "tasks_list failed"),
-                    }
-                });
+                match invoke_tauri::<
+                  Vec<TaskDto>,
+                  _
+                >("tasks_list", &args)
+                .await
+                {
+                  | Ok(list) => {
+                    tasks.set(
+                      list.clone()
+                    );
+                    facet_tasks
+                      .set(list);
+                  }
+                  | Err(err) => tracing::error!(error = %err, "tasks_list failed")
+                }
+
+                let rerun = {
+                  let mut pending =
+                    task_refresh_pending
+                      .borrow_mut();
+                  let should_rerun =
+                    *pending;
+                  *pending = false;
+                  should_rerun
+                };
+
+                if !rerun {
+                  *task_refresh_inflight
+                    .borrow_mut() =
+                    false;
+                  break;
+                }
+
+                current_tick =
+                  current_tick
+                    .saturating_add(1);
+              }
+            }
+          );
         }
 
         || ()
@@ -753,6 +808,8 @@ pub fn app() -> Html {
       all_filter_priority.clone();
     let all_filter_due =
       all_filter_due.clone();
+    let refresh_tick =
+      refresh_tick.clone();
     Callback::from(
       move |view: String| {
         if view != "all" {
@@ -772,6 +829,10 @@ pub fn app() -> Html {
           .set("all".to_string());
         all_filter_due
           .set("all".to_string());
+        refresh_tick.set(
+          (*refresh_tick)
+            .saturating_add(1)
+        );
       }
     )
   };
@@ -785,6 +846,8 @@ pub fn app() -> Html {
       dragging_kanban_task.clone();
     let drag_over_kanban_lane =
       drag_over_kanban_lane.clone();
+    let refresh_tick =
+      refresh_tick.clone();
     Callback::from(move |_| {
       active_tab
         .set("tasks".to_string());
@@ -793,6 +856,10 @@ pub fn app() -> Html {
         .set(BTreeSet::new());
       dragging_kanban_task.set(None);
       drag_over_kanban_lane.set(None);
+      refresh_tick.set(
+        (*refresh_tick)
+          .saturating_add(1)
+      );
     })
   };
 
@@ -801,12 +868,18 @@ pub fn app() -> Html {
     let selected = selected.clone();
     let bulk_selected =
       bulk_selected.clone();
+    let refresh_tick =
+      refresh_tick.clone();
     Callback::from(move |_| {
       active_tab
         .set("kanban".to_string());
       selected.set(None);
       bulk_selected
         .set(BTreeSet::new());
+      refresh_tick.set(
+        (*refresh_tick)
+          .saturating_add(1)
+      );
     })
   };
 
@@ -819,6 +892,8 @@ pub fn app() -> Html {
       dragging_kanban_task.clone();
     let drag_over_kanban_lane =
       drag_over_kanban_lane.clone();
+    let refresh_tick =
+      refresh_tick.clone();
     Callback::from(move |_| {
       active_tab
         .set("calendar".to_string());
@@ -827,6 +902,10 @@ pub fn app() -> Html {
         .set(BTreeSet::new());
       dragging_kanban_task.set(None);
       drag_over_kanban_lane.set(None);
+      refresh_tick.set(
+        (*refresh_tick)
+          .saturating_add(1)
+      );
     })
   };
 
@@ -1211,12 +1290,6 @@ pub fn app() -> Html {
             .trim()
             .to_string();
           if source
-            .refresh_minutes
-            == 0
-          {
-            source.refresh_minutes = 30;
-          }
-          if source
             .color
             .trim()
             .is_empty()
@@ -1360,6 +1433,16 @@ pub fn app() -> Html {
         else {
           return;
         };
+        if source.imported_ics_file {
+          external_calendar_last_sync
+            .set(Some(format!(
+              "{} was imported from an \
+               ICS file. Re-import the \
+               file to update it.",
+              source.name
+            )));
+          return;
+        }
 
         external_calendar_busy
           .set(true);
@@ -1426,14 +1509,18 @@ pub fn app() -> Html {
         ExternalCalendarSource
       > = external_calendars
         .iter()
-        .filter(|source| source.enabled)
+        .filter(|source| {
+          source.enabled
+            && !source
+              .imported_ics_file
+        })
         .cloned()
         .collect();
       if sources.is_empty() {
         external_calendar_last_sync
           .set(Some(
-            "No enabled calendars to \
-             sync."
+            "No enabled network \
+             calendars to sync."
               .to_string()
           ));
         return;
@@ -1590,6 +1677,8 @@ pub fn app() -> Html {
               ),
               refresh_minutes: 0,
               enabled: true,
+              imported_ics_file:
+                true,
               read_only: true,
               show_reminders: true,
               offline_support: true
@@ -2069,6 +2158,7 @@ pub fn app() -> Html {
           recurrence_months: vec![],
           recurrence_month_day:
             String::new(),
+          allow_recurrence: true,
           error: None
         }
       ));
@@ -2625,6 +2715,8 @@ pub fn app() -> Html {
     let tag_schema = tag_schema.clone();
     let kanban_boards =
       kanban_boards.clone();
+    let external_calendars =
+      external_calendars.clone();
     Callback::from(
       move |task: TaskDto| {
         let (picker_key, picker_value) =
@@ -2645,7 +2737,8 @@ pub fn app() -> Html {
         );
         let filtered_tags = task
           .tags
-          .into_iter()
+          .iter()
+          .cloned()
           .filter(|tag| {
             !tag.starts_with(&format!(
               "{BOARD_TAG_KEY}:"
@@ -2654,6 +2747,23 @@ pub fn app() -> Html {
             )
           })
           .collect();
+        let allow_recurrence =
+          first_tag_value(
+            &task.tags,
+            CAL_SOURCE_TAG_KEY,
+          )
+          .and_then(|calendar_id| {
+            external_calendars
+              .iter()
+              .find(|source| {
+                source.id
+                  == calendar_id
+              })
+          })
+          .is_none_or(|source| {
+            !source
+              .imported_ics_file
+          });
         modal_busy.set(false);
         modal_submit_seq.set(
           (*modal_submit_seq)
@@ -2685,6 +2795,7 @@ pub fn app() -> Html {
             recurrence_days,
             recurrence_months,
             recurrence_month_day,
+            allow_recurrence,
             error: None
           }
         ));
@@ -2827,6 +2938,8 @@ pub fn app() -> Html {
                             tags: collect_tags_for_submit(
                                 &state,
                                 board_tag.clone(),
+                                state
+                                  .allow_recurrence,
                                 true,
                                 &default_kanban_lane,
                             ),
@@ -2859,6 +2972,8 @@ pub fn app() -> Html {
                                 tags: Some(collect_tags_for_submit(
                                     &state,
                                     board_tag,
+                                    state
+                                      .allow_recurrence,
                                     false,
                                     &default_kanban_lane,
                                 )),

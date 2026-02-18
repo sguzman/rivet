@@ -327,6 +327,7 @@ fn append_recurrence_tags(
 fn collect_tags_for_submit(
   state: &ModalState,
   board_tag: Option<String>,
+  allow_recurrence: bool,
   ensure_kanban_lane: bool,
   default_kanban_lane: &str
 ) -> Vec<String> {
@@ -346,9 +347,11 @@ fn collect_tags_for_submit(
     push_tag_unique(&mut tags, tag);
   }
 
-  append_recurrence_tags(
-    &mut tags, state
-  );
+  if allow_recurrence {
+    append_recurrence_tags(
+      &mut tags, state
+    );
+  }
 
   if ensure_kanban_lane
     && !tags.iter().any(|tag| {
@@ -647,6 +650,7 @@ mod tags_tests {
       &state,
       Some("board:ops".to_string()),
       true,
+      true,
       "todo",
     );
 
@@ -672,7 +676,8 @@ mod tags_tests {
   ) {
     let state = base_modal_state();
     let tags = collect_tags_for_submit(
-      &state, None, true, "todo"
+      &state, None, true, true,
+      "todo"
     );
     assert!(task_has_tag_value(
       &tags, KANBAN_TAG_KEY, "todo"

@@ -230,39 +230,11 @@ fn configure_main_window_icon<
     return;
   };
 
-  if let Some(default_icon) =
-    app.default_window_icon().cloned()
-  {
-    match window.set_icon(default_icon)
-    {
-      | Ok(()) => {
-        info!(
-          "set main window icon from \
-           tauri default window icon"
-        );
-        return;
-      }
-      | Err(err) => {
-        error!(
-          error = %err,
-          "failed applying tauri \
-           default window icon"
-        );
-      }
-    }
-  } else {
-    warn!(
-      "tauri default window icon \
-       unavailable; falling back to \
-       embedded icon candidates"
-    );
-  }
-
   let candidates: [(&str, &[u8]); 3] = [
     (
       "mascot-square",
       &include_bytes!(
-        "../../ui/assets/icons/\
+        "../icons/\
          mascot-square.png"
       )[..]
     ),
@@ -275,7 +247,8 @@ fn configure_main_window_icon<
     (
       "favicon-32x32",
       &include_bytes!(
-        "../icons/favicon-32x32.png"
+        "../../ui/assets/icons/\
+         favicon-32x32.png"
       )[..]
     )
   ];
@@ -307,6 +280,28 @@ fn configure_main_window_icon<
           icon = name,
           error = %err,
           "failed to decode window icon candidate"
+        );
+      }
+    }
+  }
+
+  if let Some(default_icon) =
+    app.default_window_icon().cloned()
+  {
+    match window.set_icon(default_icon)
+    {
+      | Ok(()) => {
+        info!(
+          "set main window icon from \
+           tauri default window icon"
+        );
+        return;
+      }
+      | Err(err) => {
+        error!(
+          error = %err,
+          "failed applying tauri \
+           default window icon"
         );
       }
     }

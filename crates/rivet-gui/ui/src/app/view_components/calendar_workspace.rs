@@ -82,6 +82,7 @@ fn calendar_workspace(
                   tasks={props.calendar_period_tasks.clone()}
                   timezone={props.calendar_timezone}
                   tag_colors={props.tag_colors.clone()}
+                  external_calendars={props.external_calendars.clone()}
               />
           </div>
       </>

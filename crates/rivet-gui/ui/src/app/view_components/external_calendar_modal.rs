@@ -53,6 +53,7 @@ fn external_calendar_modal(
                         <input
                             type="checkbox"
                             checked={ext_modal.source.enabled}
+                            disabled={ext_modal.source.imported_ics_file}
                             onchange={{
                                 let external_calendar_modal = external_calendar_modal.clone();
                                 Callback::from(move |e: web_sys::Event| {
@@ -67,6 +68,17 @@ fn external_calendar_modal(
                             }}
                         />
                     </div>
+                    {
+                        if ext_modal.source.imported_ics_file {
+                            html! {
+                                <div class="field-help">
+                                    { "Imported ICS calendars are local snapshots. Use Import ICS File again to refresh data." }
+                                </div>
+                            }
+                        } else {
+                            html! {}
+                        }
+                    }
                     <div class="field">
                         <label>{ "Calendar Name" }</label>
                         <input
@@ -107,6 +119,7 @@ fn external_calendar_modal(
                         <input
                             value={ext_modal.source.location.clone()}
                             placeholder="webcal://example.com/calendar.ics"
+                            disabled={ext_modal.source.imported_ics_file}
                             oninput={{
                                 let external_calendar_modal = external_calendar_modal.clone();
                                 Callback::from(move |e: web_sys::InputEvent| {
@@ -125,19 +138,21 @@ fn external_calendar_modal(
                         <select
                             class="tag-select"
                             value={ext_modal.source.refresh_minutes.to_string()}
+                            disabled={ext_modal.source.imported_ics_file}
                             onchange={{
                                 let external_calendar_modal = external_calendar_modal.clone();
                                 Callback::from(move |e: web_sys::Event| {
                                     let select: web_sys::HtmlSelectElement = e.target_unchecked_into();
                                     if let Some(mut current) = (*external_calendar_modal).clone() {
                                         let parsed = select.value().parse::<u32>().ok().unwrap_or(30);
-                                        current.source.refresh_minutes = parsed.max(1);
+                                        current.source.refresh_minutes = parsed;
                                         current.error = None;
                                         external_calendar_modal.set(Some(current));
                                     }
                                 })
                             }}
                         >
+                            <option value="0">{ "Disabled (manual only)" }</option>
                             <option value="5">{ "Every 5 minutes" }</option>
                             <option value="15">{ "Every 15 minutes" }</option>
                             <option value="30">{ "Every 30 minutes" }</option>

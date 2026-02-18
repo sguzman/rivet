@@ -440,128 +440,145 @@ fn task_modal(
                                           }}
                                       />
                                   </div>
-                                  <div class="field">
-                                      <label>{ "Recurrence" }</label>
-                                      <select
-                                          class="tag-select"
-                                          value={state.recurrence_pattern.clone()}
-                                          onchange={on_recurrence_pattern_change}
-                                      >
-                                          <option value="none">{ "None" }</option>
-                                          <option value="daily">{ "Daily" }</option>
-                                          <option value="weekly">{ "Weekly" }</option>
-                                          <option value="months">{ "Months" }</option>
-                                          <option value="monthly">{ "Monthly" }</option>
-                                          <option value="yearly">{ "Yearly" }</option>
-                                      </select>
-                                  </div>
                                   {
-                                      if state.recurrence_pattern != "none" {
-                                          html! {
-                                              <div class="field">
-                                                  <label>{ "Recurring Time" }</label>
-                                                  <input
-                                                      value={state.recurrence_time.clone()}
-                                                      placeholder="e.g. 03:23pm or 15:23"
-                                                      oninput={on_recurrence_time_change}
-                                                  />
-                                              </div>
-                                          }
-                                      } else {
-                                          html! {}
-                                      }
-                                  }
-                                  {
-                                      if state.recurrence_pattern == "weekly" {
-                                          html! {
-                                              <div class="field">
-                                                  <label>{ "Weekly Days" }</label>
-                                                  <div class="toggle-grid">
-                                                      {
-                                                          for WEEKDAY_KEYS.iter().map(|day| {
-                                                              let day_key = (*day).to_string();
-                                                              let day_label = day_key.to_ascii_uppercase();
-                                                              let is_active = state.recurrence_days.iter().any(|entry| entry == &day_key);
-                                                              let modal_state = modal_state.clone();
-                                                              html! {
-                                                                  <button
-                                                                      type="button"
-                                                                      class={classes!("toggle-btn", is_active.then_some("active"))}
-                                                                      onclick={Callback::from(move |_| {
-                                                                          if let Some(mut current) = (*modal_state).clone() {
-                                                                              if current.recurrence_days.iter().any(|entry| entry == &day_key) {
-                                                                                  current.recurrence_days.retain(|entry| entry != &day_key);
-                                                                              } else {
-                                                                                  current.recurrence_days.push(day_key.clone());
-                                                                              }
-                                                                              current.error = None;
-                                                                              modal_state.set(Some(current));
-                                                                          }
-                                                                      })}
-                                                                  >
-                                                                      { day_label }
-                                                                  </button>
-                                                              }
-                                                          })
-                                                      }
-                                                  </div>
-                                              </div>
-                                          }
-                                      } else {
-                                          html! {}
-                                      }
-                                  }
-                                  {
-                                      if state.recurrence_pattern == "monthly"
-                                          || state.recurrence_pattern == "months"
-                                          || state.recurrence_pattern == "yearly"
-                                      {
+                                      if state.allow_recurrence {
                                           html! {
                                               <>
                                                   <div class="field">
-                                                      <label>{ "Months" }</label>
-                                                      <div class="toggle-grid months">
-                                                          {
-                                                              for MONTH_KEYS.iter().map(|month| {
-                                                                  let month_key = (*month).to_string();
-                                                                  let month_label = month_key.to_ascii_uppercase();
-                                                                  let is_active = state.recurrence_months.iter().any(|entry| entry == &month_key);
-                                                                  let modal_state = modal_state.clone();
-                                                                  html! {
-                                                                      <button
-                                                                          type="button"
-                                                                          class={classes!("toggle-btn", is_active.then_some("active"))}
-                                                                          onclick={Callback::from(move |_| {
-                                                                              if let Some(mut current) = (*modal_state).clone() {
-                                                                                  if current.recurrence_months.iter().any(|entry| entry == &month_key) {
-                                                                                      current.recurrence_months.retain(|entry| entry != &month_key);
-                                                                                  } else {
-                                                                                      current.recurrence_months.push(month_key.clone());
-                                                                                  }
-                                                                                  current.error = None;
-                                                                                  modal_state.set(Some(current));
-                                                                              }
-                                                                          })}
-                                                                      >
-                                                                          { month_label }
-                                                                      </button>
-                                                                  }
-                                                              })
+                                                      <label>{ "Recurrence" }</label>
+                                                      <select
+                                                          class="tag-select"
+                                                          value={state.recurrence_pattern.clone()}
+                                                          onchange={on_recurrence_pattern_change}
+                                                      >
+                                                          <option value="none">{ "None" }</option>
+                                                          <option value="daily">{ "Daily" }</option>
+                                                          <option value="weekly">{ "Weekly" }</option>
+                                                          <option value="months">{ "Months" }</option>
+                                                          <option value="monthly">{ "Monthly" }</option>
+                                                          <option value="yearly">{ "Yearly" }</option>
+                                                      </select>
+                                                  </div>
+                                                  {
+                                                      if state.recurrence_pattern != "none" {
+                                                          html! {
+                                                              <div class="field">
+                                                                  <label>{ "Recurring Time" }</label>
+                                                                  <input
+                                                                      value={state.recurrence_time.clone()}
+                                                                      placeholder="e.g. 03:23pm or 15:23"
+                                                                      oninput={on_recurrence_time_change}
+                                                                  />
+                                                              </div>
                                                           }
-                                                      </div>
-                                                  </div>
-                                                  <div class="field">
-                                                      <label>{ "Month Day(s)" }</label>
-                                                      <input
-                                                          value={state.recurrence_month_day.clone()}
-                                                          placeholder="e.g. 1 or 1,15,28"
-                                                          oninput={on_recurrence_month_day_change}
-                                                      />
-                                                  </div>
+                                                      } else {
+                                                          html! {}
+                                                      }
+                                                  }
+                                                  {
+                                                      if state.recurrence_pattern == "weekly" {
+                                                          html! {
+                                                              <div class="field">
+                                                                  <label>{ "Weekly Days" }</label>
+                                                                  <div class="toggle-grid">
+                                                                      {
+                                                                          for WEEKDAY_KEYS.iter().map(|day| {
+                                                                              let day_key = (*day).to_string();
+                                                                              let day_label = day_key.to_ascii_uppercase();
+                                                                              let is_active = state.recurrence_days.iter().any(|entry| entry == &day_key);
+                                                                              let modal_state = modal_state.clone();
+                                                                              html! {
+                                                                                  <button
+                                                                                      type="button"
+                                                                                      class={classes!("toggle-btn", is_active.then_some("active"))}
+                                                                                      onclick={Callback::from(move |_| {
+                                                                                          if let Some(mut current) = (*modal_state).clone() {
+                                                                                              if current.recurrence_days.iter().any(|entry| entry == &day_key) {
+                                                                                                  current.recurrence_days.retain(|entry| entry != &day_key);
+                                                                                              } else {
+                                                                                                  current.recurrence_days.push(day_key.clone());
+                                                                                              }
+                                                                                              current.error = None;
+                                                                                              modal_state.set(Some(current));
+                                                                                          }
+                                                                                      })}
+                                                                                  >
+                                                                                      { day_label }
+                                                                                  </button>
+                                                                              }
+                                                                          })
+                                                                      }
+                                                                  </div>
+                                                              </div>
+                                                          }
+                                                      } else {
+                                                          html! {}
+                                                      }
+                                                  }
+                                                  {
+                                                      if state.recurrence_pattern == "monthly"
+                                                          || state.recurrence_pattern == "months"
+                                                          || state.recurrence_pattern == "yearly"
+                                                      {
+                                                          html! {
+                                                              <>
+                                                                  <div class="field">
+                                                                      <label>{ "Months" }</label>
+                                                                      <div class="toggle-grid months">
+                                                                          {
+                                                                              for MONTH_KEYS.iter().map(|month| {
+                                                                                  let month_key = (*month).to_string();
+                                                                                  let month_label = month_key.to_ascii_uppercase();
+                                                                                  let is_active = state.recurrence_months.iter().any(|entry| entry == &month_key);
+                                                                                  let modal_state = modal_state.clone();
+                                                                                  html! {
+                                                                                      <button
+                                                                                          type="button"
+                                                                                          class={classes!("toggle-btn", is_active.then_some("active"))}
+                                                                                          onclick={Callback::from(move |_| {
+                                                                                              if let Some(mut current) = (*modal_state).clone() {
+                                                                                                  if current.recurrence_months.iter().any(|entry| entry == &month_key) {
+                                                                                                      current.recurrence_months.retain(|entry| entry != &month_key);
+                                                                                                  } else {
+                                                                                                      current.recurrence_months.push(month_key.clone());
+                                                                                                  }
+                                                                                                  current.error = None;
+                                                                                                  modal_state.set(Some(current));
+                                                                                              }
+                                                                                          })}
+                                                                                      >
+                                                                                          { month_label }
+                                                                                      </button>
+                                                                                  }
+                                                                              })
+                                                                          }
+                                                                      </div>
+                                                                  </div>
+                                                                  <div class="field">
+                                                                      <label>{ "Month Day(s)" }</label>
+                                                                      <input
+                                                                          value={state.recurrence_month_day.clone()}
+                                                                          placeholder="e.g. 1 or 1,15,28"
+                                                                          oninput={on_recurrence_month_day_change}
+                                                                      />
+                                                                  </div>
+                                                              </>
+                                                          }
+                                                      } else {
+                                                          html! {}
+                                                      }
+                                                  }
                                               </>
                                           }
                                       } else {
-                                          html! {}
+                                          html! {
+                                              <div class="field">
+                                                  <label>{ "Recurrence" }</label>
+                                                  <div class="field-help">
+                                                      { "Recurrence is disabled for tasks managed by imported calendars." }
+                                                  </div>
+                                              </div>
+                                          }
                                       }
                                   }
                                   <div class="footer">

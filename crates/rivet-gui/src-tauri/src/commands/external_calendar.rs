@@ -8,6 +8,8 @@ pub struct ExternalCalendarSourceArg {
   pub location:        String,
   pub refresh_minutes: u32,
   pub enabled:         bool,
+  #[serde(default)]
+  pub imported_ics_file: bool,
   pub read_only:       bool,
   pub show_reminders:  bool,
   pub offline_support: bool
@@ -49,6 +51,15 @@ pub async fn external_calendar_sync(
   ExternalCalendarSyncResult,
   String
 > {
+  if args.imported_ics_file {
+    return Err(
+      "Imported ICS calendars are \
+       local snapshots. Re-import \
+       the file to update."
+        .to_string(),
+    );
+  }
+
   if !args.enabled {
     return Ok(ExternalCalendarSyncResult {
       calendar_id: args.id,
@@ -638,7 +649,9 @@ fn normalize_ical_event(
   if let Some(rrule) = property_value(
     &event.properties,
     "RRULE"
-  ) {
+  )
+    && !source.imported_ics_file
+  {
     append_rrule_tags(
       &mut tags, &rrule, due_utc
     );

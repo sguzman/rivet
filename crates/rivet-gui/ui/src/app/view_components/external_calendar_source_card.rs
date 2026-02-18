@@ -36,7 +36,22 @@ fn external_calendar_source_card(
           </div>
           <div class="task-subtitle">{ &props.source.location }</div>
           <div class="calendar-source-meta">
-              <span class="badge">{ format!("refresh:{}m", props.source.refresh_minutes) }</span>
+              <span class="badge">
+                  {
+                      if props.source.refresh_minutes == 0 {
+                          "refresh:off".to_string()
+                      } else {
+                          format!("refresh:{}m", props.source.refresh_minutes)
+                      }
+                  }
+              </span>
+              {
+                  if props.source.imported_ics_file {
+                      html! { <span class="badge">{ "imported:file" }</span> }
+                  } else {
+                      html! {}
+                  }
+              }
               {
                   if props.source.show_reminders {
                       html! { <span class="badge">{ "reminders:on" }</span> }
@@ -56,7 +71,7 @@ fn external_calendar_source_card(
               <button class="btn" onclick={{
                   let on_sync = props.on_sync.clone();
                   Callback::from(move |_| on_sync.emit(source_id_for_sync.clone()))
-              }} disabled={props.busy}>
+              }} disabled={props.busy || props.source.imported_ics_file}>
                   { "Sync" }
               </button>
               <button class="btn" onclick={{

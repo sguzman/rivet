@@ -74,6 +74,7 @@ struct ModalState {
   recurrence_days:      Vec<String>,
   recurrence_months:    Vec<String>,
   recurrence_month_day: String,
+  allow_recurrence:     bool,
   error:                Option<String>
 }
 
@@ -137,6 +138,8 @@ struct ExternalCalendarSource {
   location:        String,
   refresh_minutes: u32,
   enabled:         bool,
+  #[serde(default)]
+  imported_ics_file: bool,
   read_only:       bool,
   show_reminders:  bool,
   offline_support: bool
