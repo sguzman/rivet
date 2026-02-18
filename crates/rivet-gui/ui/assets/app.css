@@ -652,6 +652,9 @@ body {
 .calendar-source-list {
   display: grid;
   gap: 8px;
+  max-height: min(46vh, 420px);
+  overflow-y: auto;
+  padding-right: 4px;
 }
 
 .calendar-source-item {
