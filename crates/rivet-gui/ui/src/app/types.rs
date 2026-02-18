@@ -154,6 +154,14 @@ struct ExternalCalendarSyncResult {
   refresh_minutes: u32
 }
 
+#[derive(
+  Clone, PartialEq, Serialize,
+)]
+struct ExternalCalendarImportArgs {
+  source:   ExternalCalendarSource,
+  ics_text: String
+}
+
 #[derive(Clone, PartialEq)]
 struct ExternalCalendarModalState {
   mode:   ExternalCalendarModalMode,

@@ -23,6 +23,14 @@ pub struct ExternalCalendarSyncResult {
   pub refresh_minutes: u32
 }
 
+#[derive(
+  Debug, Clone, Serialize, Deserialize,
+)]
+pub struct ExternalCalendarImportArg {
+  pub source:   ExternalCalendarSourceArg,
+  pub ics_text: String
+}
+
 #[derive(Debug, Clone)]
 struct ExternalCalendarEvent {
   uid:         String,
@@ -41,21 +49,16 @@ pub async fn external_calendar_sync(
   ExternalCalendarSyncResult,
   String
 > {
-  let calendar_id = args.id.clone();
-  let refresh_minutes =
-    args.refresh_minutes;
-
   if !args.enabled {
-    return Ok(
-      ExternalCalendarSyncResult {
-        calendar_id,
-        created: 0,
-        updated: 0,
-        deleted: 0,
-        remote_events: 0,
-        refresh_minutes
-      }
-    );
+    return Ok(ExternalCalendarSyncResult {
+      calendar_id: args.id,
+      created: 0,
+      updated: 0,
+      deleted: 0,
+      remote_events: 0,
+      refresh_minutes: args
+        .refresh_minutes
+    });
   }
 
   let ics_text = fetch_ics_document(
@@ -66,27 +69,70 @@ pub async fn external_calendar_sync(
   let events =
     parse_ics_events(&ics_text, &args)
       .map_err(err_to_string)?;
+  apply_external_calendar_events(
+    &state, &args, events
+  )
+  .map_err(err_to_string)
+}
+
+#[tauri::command]
+#[instrument(skip(state, args), fields(calendar_id = %args.source.id, name = %args.source.name))]
+pub async fn external_calendar_import_ics(
+  state: State<'_, AppState>,
+  args: ExternalCalendarImportArg
+) -> Result<
+  ExternalCalendarSyncResult,
+  String
+> {
+  if args
+    .ics_text
+    .trim()
+    .is_empty()
+  {
+    return Err(
+      "ICS file is empty".to_string()
+    );
+  }
+
+  let events = parse_ics_events(
+    &args.ics_text,
+    &args.source
+  )
+  .map_err(err_to_string)?;
+  apply_external_calendar_events(
+    &state,
+    &args.source,
+    events,
+  )
+  .map_err(err_to_string)
+}
+
+fn apply_external_calendar_events(
+  state: &AppState,
+  args: &ExternalCalendarSourceArg,
+  events: Vec<ExternalCalendarEvent>
+) -> anyhow::Result<
+  ExternalCalendarSyncResult
+> {
   let remote_events = events.len();
 
   let mut created = 0_usize;
   let mut updated = 0_usize;
   let mut deleted = 0_usize;
 
-  let all_tasks = state
-    .list(TasksListArgs {
-      query:   None,
-      status:  None,
+  let all_tasks = state.list(TasksListArgs {
+      query: None,
+      status: None,
       project: None,
-      tag:     None
-    })
-    .map_err(err_to_string)?;
+      tag: None,
+  })?;
   let mut existing_by_uid =
     BTreeMap::<String, TaskDto>::new();
   for task in all_tasks {
     if !task_has_tag_value(
       &task.tags,
       CAL_SOURCE_TAG_KEY,
-      &normalize_tag_value(&args.id)
+      &normalize_tag_value(&args.id),
     ) {
       continue;
     }
@@ -98,7 +144,7 @@ pub async fn external_calendar_sync(
     if let Some(event_uid) =
       first_tag_value(
         &task.tags,
-        CAL_EVENT_TAG_KEY
+        CAL_EVENT_TAG_KEY,
       )
     {
       existing_by_uid
@@ -122,36 +168,35 @@ pub async fn external_calendar_sync(
         let merged_tags =
           merge_calendar_tags(
             &existing.tags,
-            &event.tags
+            &event.tags,
           );
         let update = TaskUpdateArgs {
           uuid:  existing.uuid,
           patch: TaskPatch {
             title: Some(
-              event.title.clone()
+              event.title.clone(),
             ),
             description: Some(
-              event.description.clone()
+              event.description
+                .clone(),
             ),
             project: Some(Some(
               format!(
                 "calendar/{}",
                 args.name.trim()
-              )
+              ),
             )),
             tags: Some(merged_tags),
             due: Some(Some(
-              event.due_rfc3339.clone()
+              event.due_rfc3339.clone(),
             )),
             wait: Some(None),
             scheduled: Some(None),
             ..TaskPatch::default()
-          }
+          },
         };
 
-        state
-          .update(update)
-          .map_err(err_to_string)?;
+        state.update(update)?;
         updated =
           updated.saturating_add(1);
       }
@@ -181,15 +226,13 @@ pub async fn external_calendar_sync(
             .clone(),
           priority:    None,
           due:         Some(
-            event.due_rfc3339.clone()
+            event.due_rfc3339.clone(),
           ),
           wait:        None,
-          scheduled:   None
+          scheduled:   None,
         };
 
-        state
-          .add(create)
-          .map_err(err_to_string)?;
+        state.add(create)?;
         created =
           created.saturating_add(1);
       }
@@ -203,9 +246,7 @@ pub async fn external_calendar_sync(
     if task.status
       != TaskStatus::Deleted
     {
-      state
-        .delete(task.uuid)
-        .map_err(err_to_string)?;
+      state.delete(task.uuid)?;
       deleted =
         deleted.saturating_add(1);
     }
@@ -221,7 +262,7 @@ pub async fn external_calendar_sync(
   );
 
   Ok(ExternalCalendarSyncResult {
-    calendar_id: args.id,
+    calendar_id: args.id.clone(),
     created,
     updated,
     deleted,

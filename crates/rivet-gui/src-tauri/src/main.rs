@@ -127,6 +127,7 @@ fn main() {
         commands::task_delete,
         commands::ui_log,
         commands::external_calendar_sync,
+        commands::external_calendar_import_ics,
         commands::window_minimize,
         commands::window_toggle_maximize,
         commands::window_close,

@@ -16,6 +16,8 @@ struct CalendarWorkspaceProps {
     Callback<MouseEvent>,
   on_sync_all_external_calendars:
     Callback<MouseEvent>,
+  on_import_external_calendar_file:
+    Callback<web_sys::Event>,
   on_sync_external_calendar:
     Callback<String>,
   on_open_edit_external_calendar:
@@ -55,6 +57,7 @@ fn calendar_workspace(
               external_last_sync={props.external_last_sync.clone()}
               on_add_source={props.on_open_add_external_calendar.clone()}
               on_sync_all_sources={props.on_sync_all_external_calendars.clone()}
+              on_import_file={props.on_import_external_calendar_file.clone()}
               on_sync_source={props.on_sync_external_calendar.clone()}
               on_edit_source={props.on_open_edit_external_calendar.clone()}
               on_delete_source={props.on_delete_external_calendar.clone()}

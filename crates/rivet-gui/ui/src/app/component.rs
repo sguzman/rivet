@@ -1499,6 +1499,177 @@ pub fn app() -> Html {
     })
   };
 
+  let on_import_external_calendar_file =
+    {
+      let external_calendars =
+        external_calendars.clone();
+      let external_calendar_busy =
+        external_calendar_busy.clone();
+      let external_calendar_last_sync =
+        external_calendar_last_sync
+          .clone();
+      let refresh_tick =
+        refresh_tick.clone();
+      Callback::from(
+        move |e: web_sys::Event| {
+          if *external_calendar_busy {
+            tracing::warn!(
+              "ignored ICS import while \
+               external calendar sync \
+               is busy"
+            );
+            return;
+          }
+
+          let Some(input) =
+            e.target_dyn_into::<
+              web_sys::HtmlInputElement
+            >()
+          else {
+            tracing::warn!(
+              "ICS import event had \
+               non-input target"
+            );
+            return;
+          };
+
+          let Some(files) = input.files()
+          else {
+            tracing::warn!(
+              "ICS import requested with \
+               no file list"
+            );
+            return;
+          };
+
+          let Some(file) = files.get(0)
+          else {
+            tracing::warn!(
+              "ICS import requested with \
+               empty file list"
+            );
+            return;
+          };
+
+          let file_name = file.name();
+          let stem = file_name
+            .strip_suffix(".ics")
+            .unwrap_or(file_name.as_str())
+            .trim();
+          let base_name =
+            if stem.is_empty() {
+              "Imported Calendar"
+            } else {
+              stem
+            };
+
+          let sources_snapshot =
+            (*external_calendars).clone();
+          let mut candidate_name =
+            base_name.to_string();
+          let mut suffix = 2_u32;
+          while sources_snapshot
+            .iter()
+            .any(|source| {
+              source.name.eq_ignore_ascii_case(
+                &candidate_name,
+              )
+            })
+          {
+            candidate_name = format!(
+              "{} {}",
+              base_name, suffix
+            );
+            suffix =
+              suffix.saturating_add(1);
+          }
+
+          input.set_value("");
+
+          let source =
+            ExternalCalendarSource {
+              id: Uuid::new_v4()
+                .to_string(),
+              name: candidate_name,
+              color: "#d64545"
+                .to_string(),
+              location: format!(
+                "file://{}",
+                file_name
+              ),
+              refresh_minutes: 0,
+              enabled: true,
+              read_only: true,
+              show_reminders: true,
+              offline_support: true
+            };
+
+          external_calendar_busy
+            .set(true);
+          let external_calendars =
+            external_calendars.clone();
+          let external_calendar_busy =
+            external_calendar_busy
+              .clone();
+          let external_calendar_last_sync =
+            external_calendar_last_sync
+              .clone();
+          let refresh_tick =
+            refresh_tick.clone();
+
+          wasm_bindgen_futures::spawn_local(async move {
+              let ics_text = match wasm_bindgen_futures::JsFuture::from(file.text()).await {
+                  | Ok(value) => value.as_string().unwrap_or_default(),
+                  | Err(error) => {
+                      tracing::error!(error = ?error, file_name = %file_name, "failed reading selected ICS file");
+                      external_calendar_last_sync.set(Some(format!("Failed to read {}.", file_name)));
+                      external_calendar_busy.set(false);
+                      return;
+                  }
+              };
+
+              if ics_text.trim().is_empty() {
+                  external_calendar_last_sync.set(Some(format!("{} is empty.", file_name)));
+                  external_calendar_busy.set(false);
+                  return;
+              }
+
+              let import_args = ExternalCalendarImportArgs {
+                  source: source.clone(),
+                  ics_text,
+              };
+
+              match invoke_tauri::<ExternalCalendarSyncResult, _>(
+                  "external_calendar_import_ics",
+                  &import_args,
+              )
+              .await
+              {
+                  | Ok(result) => {
+                      let mut next_sources = (*external_calendars).clone();
+                      next_sources.push(source.clone());
+                      external_calendars.set(next_sources);
+                      external_calendar_last_sync.set(Some(format!(
+                          "Imported {}: +{} / ~{} / -{}",
+                          source.name, result.created, result.updated, result.deleted
+                      )));
+                      refresh_tick.set((*refresh_tick).saturating_add(1));
+                  }
+                  | Err(err) => {
+                      tracing::error!(error = %err, file_name = %file_name, "ICS import command failed");
+                      external_calendar_last_sync.set(Some(format!(
+                          "Import failed for {}: {}",
+                          file_name, err
+                      )));
+                  }
+              }
+
+              external_calendar_busy.set(false);
+          });
+        }
+      )
+    };
+
   let on_select_kanban_board = {
     let active_kanban_board =
       active_kanban_board.clone();
@@ -2798,6 +2969,7 @@ pub fn app() -> Html {
                               external_last_sync={(*external_calendar_last_sync).clone()}
                               on_open_add_external_calendar={on_open_add_external_calendar.clone()}
                               on_sync_all_external_calendars={on_sync_all_external_calendars.clone()}
+                              on_import_external_calendar_file={on_import_external_calendar_file.clone()}
                               on_sync_external_calendar={on_sync_external_calendar.clone()}
                               on_open_edit_external_calendar={on_open_edit_external_calendar.clone()}
                               on_delete_external_calendar={on_delete_external_calendar.clone()}

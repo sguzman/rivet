@@ -16,6 +16,8 @@ struct CalendarSidebarPanelProps {
     Callback<MouseEvent>,
   on_sync_all_sources:
     Callback<MouseEvent>,
+  on_import_file:
+    Callback<web_sys::Event>,
   on_sync_source:
     Callback<String>,
   on_edit_source:
@@ -53,6 +55,7 @@ fn calendar_sidebar_panel(
                   last_sync={props.external_last_sync.clone()}
                   on_add={props.on_add_source.clone()}
                   on_sync_all={props.on_sync_all_sources.clone()}
+                  on_import_file={props.on_import_file.clone()}
                   on_sync_one={props.on_sync_source.clone()}
                   on_edit={props.on_edit_source.clone()}
                   on_delete={props.on_delete_source.clone()}
