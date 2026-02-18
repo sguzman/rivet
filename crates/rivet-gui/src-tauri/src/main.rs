@@ -1,7 +1,10 @@
 mod commands;
 mod state;
 
-use std::env;
+use std::{
+  env,
+  fs
+};
 
 use anyhow::Context;
 use tauri::Manager;
@@ -112,6 +115,9 @@ fn main() {
   tauri::Builder::default()
     .setup(|app| {
       configure_main_window_icon(app);
+      ensure_linux_taskbar_icon_registration(
+        app
+      );
       install_signal_handlers(
         app.handle().clone()
       );
@@ -234,8 +240,7 @@ fn configure_main_window_icon<
     (
       "mascot-square",
       &include_bytes!(
-        "../icons/\
-         mascot-square.png"
+        "../icons/mascot-square.png"
       )[..]
     ),
     (
@@ -270,7 +275,8 @@ fn configure_main_window_icon<
             error!(
               icon = name,
               error = %err,
-              "failed to apply main window icon candidate"
+              "failed to apply main \
+               window icon candidate"
             );
           }
         }
@@ -279,7 +285,8 @@ fn configure_main_window_icon<
         error!(
           icon = name,
           error = %err,
-          "failed to decode window icon candidate"
+          "failed to decode window \
+           icon candidate"
         );
       }
     }
@@ -311,4 +318,151 @@ fn configure_main_window_icon<
     "unable to set main window icon \
      from available icon candidates"
   );
+}
+
+#[cfg(target_os = "linux")]
+fn ensure_linux_taskbar_icon_registration<
+  R: tauri::Runtime
+>(
+  app: &tauri::App<R>
+) {
+  let Some(home_dir) =
+    env::var_os("HOME")
+  else {
+    warn!(
+      "HOME is unset; skipping \
+       taskbar icon registration"
+    );
+    return;
+  };
+
+  let app_id = app
+    .config()
+    .identifier
+    .trim()
+    .to_string();
+  if app_id.is_empty() {
+    warn!(
+      "empty app identifier; skipping \
+       taskbar icon registration"
+    );
+    return;
+  }
+
+  let applications_dir =
+    std::path::Path::new(&home_dir)
+      .join(
+        ".local/share/applications"
+      );
+  let icons_dir =
+    std::path::Path::new(&home_dir)
+      .join(
+        ".local/share/icons/hicolor/\
+         256x256/apps"
+      );
+
+  if let Err(error) = fs::create_dir_all(
+    &applications_dir
+  ) {
+    error!(
+      %error,
+      path = %applications_dir.display(),
+      "failed creating desktop entry \
+       directory for taskbar icon \
+       registration"
+    );
+    return;
+  }
+  if let Err(error) =
+    fs::create_dir_all(&icons_dir)
+  {
+    error!(
+      %error,
+      path = %icons_dir.display(),
+      "failed creating icon \
+       directory for taskbar icon \
+       registration"
+    );
+    return;
+  }
+
+  let icon_path = icons_dir
+    .join(format!("{app_id}.png"));
+  if let Err(error) = fs::write(
+    &icon_path,
+    include_bytes!(
+      "../icons/mascot-square.png"
+    )
+  ) {
+    error!(
+      %error,
+      path = %icon_path.display(),
+      "failed writing taskbar icon \
+       asset"
+    );
+    return;
+  }
+
+  let exec = env::current_exe()
+    .ok()
+    .and_then(|path| {
+      path
+        .as_os_str()
+        .to_str()
+        .map(|raw| raw.to_string())
+    })
+    .unwrap_or_else(|| {
+      "rivet".to_string()
+    });
+  let desktop_path = applications_dir
+    .join(format!("{app_id}.desktop"));
+  let desktop_contents = format!(
+    concat!(
+      "[Desktop Entry]\n",
+      "Type=Application\n",
+      "Name=Rivet\n",
+      "Comment=Rivet Taskwarrior GUI\n",
+      "Exec={exec}\n",
+      "Icon={icon}\n",
+      "Terminal=false\n",
+      "StartupNotify=true\n",
+      "StartupWMClass={app_id}\n",
+      "X-GNOME-WMClass={app_id}\n",
+      "Categories=Utility;\n"
+    ),
+    icon = icon_path.display()
+  );
+
+  if let Err(error) = fs::write(
+    &desktop_path,
+    desktop_contents.as_bytes()
+  ) {
+    error!(
+      %error,
+      path = %desktop_path.display(),
+      "failed writing desktop entry \
+       for taskbar icon \
+       registration"
+    );
+    return;
+  }
+
+  info!(
+    app_id = %app_id,
+    desktop_file =
+      %desktop_path.display(),
+    icon_file =
+      %icon_path.display(),
+    "registered linux desktop \
+     metadata for taskbar icon \
+     resolution"
+  );
+}
+
+#[cfg(not(target_os = "linux"))]
+fn ensure_linux_taskbar_icon_registration<
+  R: tauri::Runtime
+>(
+  _app: &tauri::App<R>
+) {
 }

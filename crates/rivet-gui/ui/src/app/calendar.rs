@@ -449,15 +449,23 @@ fn marker_for_task(
       CAL_SOURCE_TAG_KEY
     )
   {
-    let color = first_tag_value(
-      &task.tags,
-      CAL_COLOR_TAG_KEY
-    )
-    .map(normalize_marker_color)
+    let color = calendar_colors
+      .get(calendar_id)
+      .cloned()
     .or_else(|| {
       calendar_colors
-        .get(calendar_id)
+        .get(
+          &calendar_id
+            .to_ascii_lowercase()
+        )
         .cloned()
+    })
+    .or_else(|| {
+      first_tag_value(
+        &task.tags,
+        CAL_COLOR_TAG_KEY
+      )
+      .map(normalize_marker_color)
     })
     .unwrap_or_else(|| {
       "#d64545".to_string()

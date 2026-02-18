@@ -412,8 +412,12 @@ pub fn app() -> Html {
       task_refresh_pending.clone();
 
     use_effect_with(
-      *refresh_tick,
-      move |tick| {
+      (
+        *refresh_tick,
+        (*active_tab).clone(),
+        (*active_view).clone()
+      ),
+      move |(tick, _, _)| {
         let inflight = {
           let mut pending_state =
             task_refresh_inflight
@@ -491,11 +495,20 @@ pub fn app() -> Html {
                 .await
                 {
                   | Ok(list) => {
-                    tasks.set(
-                      list.clone()
-                    );
-                    facet_tasks
-                      .set(list);
+                    let tasks_changed =
+                      *tasks != list;
+                    let facets_changed =
+                      *facet_tasks != list;
+
+                    if tasks_changed {
+                      tasks.set(
+                        list.clone()
+                      );
+                    }
+                    if facets_changed {
+                      facet_tasks
+                        .set(list);
+                    }
                   }
                   | Err(err) => tracing::error!(error = %err, "tasks_list failed")
                 }
@@ -808,8 +821,6 @@ pub fn app() -> Html {
       all_filter_priority.clone();
     let all_filter_due =
       all_filter_due.clone();
-    let refresh_tick =
-      refresh_tick.clone();
     Callback::from(
       move |view: String| {
         if view != "all" {
@@ -829,10 +840,6 @@ pub fn app() -> Html {
           .set("all".to_string());
         all_filter_due
           .set("all".to_string());
-        refresh_tick.set(
-          (*refresh_tick)
-            .saturating_add(1)
-        );
       }
     )
   };
@@ -846,8 +853,6 @@ pub fn app() -> Html {
       dragging_kanban_task.clone();
     let drag_over_kanban_lane =
       drag_over_kanban_lane.clone();
-    let refresh_tick =
-      refresh_tick.clone();
     Callback::from(move |_| {
       active_tab
         .set("tasks".to_string());
@@ -856,10 +861,6 @@ pub fn app() -> Html {
         .set(BTreeSet::new());
       dragging_kanban_task.set(None);
       drag_over_kanban_lane.set(None);
-      refresh_tick.set(
-        (*refresh_tick)
-          .saturating_add(1)
-      );
     })
   };
 
@@ -868,18 +869,12 @@ pub fn app() -> Html {
     let selected = selected.clone();
     let bulk_selected =
       bulk_selected.clone();
-    let refresh_tick =
-      refresh_tick.clone();
     Callback::from(move |_| {
       active_tab
         .set("kanban".to_string());
       selected.set(None);
       bulk_selected
         .set(BTreeSet::new());
-      refresh_tick.set(
-        (*refresh_tick)
-          .saturating_add(1)
-      );
     })
   };
 
@@ -892,8 +887,6 @@ pub fn app() -> Html {
       dragging_kanban_task.clone();
     let drag_over_kanban_lane =
       drag_over_kanban_lane.clone();
-    let refresh_tick =
-      refresh_tick.clone();
     Callback::from(move |_| {
       active_tab
         .set("calendar".to_string());
@@ -902,10 +895,6 @@ pub fn app() -> Html {
         .set(BTreeSet::new());
       dragging_kanban_task.set(None);
       drag_over_kanban_lane.set(None);
-      refresh_tick.set(
-        (*refresh_tick)
-          .saturating_add(1)
-      );
     })
   };
 
@@ -1201,15 +1190,23 @@ pub fn app() -> Html {
   };
 
   let on_open_add_external_calendar = {
+    let external_calendars =
+      external_calendars.clone();
     let external_calendar_modal =
       external_calendar_modal.clone();
     Callback::from(move |_| {
+      let mut source =
+        new_external_calendar_source();
+      source.color =
+        next_external_calendar_color(
+          (*external_calendars)
+            .as_slice()
+        );
       external_calendar_modal.set(Some(
           ExternalCalendarModalState {
             mode:
               ExternalCalendarModalMode::Add,
-            source:
-              new_external_calendar_source(),
+            source,
             error: None,
           },
         ));
@@ -1289,17 +1286,20 @@ pub fn app() -> Html {
             .location
             .trim()
             .to_string();
+
+          let mut next_sources =
+            (*external_calendars).clone();
           if source
             .color
             .trim()
             .is_empty()
           {
             source.color =
-              "#d64545".to_string();
+              next_external_calendar_color(
+                &next_sources
+              );
           }
 
-          let mut next_sources =
-            (*external_calendars).clone();
           match modal_state.mode {
             | ExternalCalendarModalMode::Add => {
               next_sources.push(source);
@@ -1317,6 +1317,9 @@ pub fn app() -> Html {
               }
             }
           }
+          assign_unique_external_calendar_colors(
+            &mut next_sources
+          );
 
           external_calendars
             .set(next_sources);
@@ -1669,8 +1672,10 @@ pub fn app() -> Html {
               id: Uuid::new_v4()
                 .to_string(),
               name: candidate_name,
-              color: "#d64545"
-                .to_string(),
+              color:
+                next_external_calendar_color(
+                  &sources_snapshot
+                ),
               location: format!(
                 "file://{}",
                 file_name
@@ -2445,12 +2450,12 @@ pub fn app() -> Html {
 
   let on_kanban_move = {
     let tasks = tasks.clone();
+    let facet_tasks =
+      facet_tasks.clone();
     let kanban_columns =
       kanban_columns.clone();
     let default_kanban_lane =
       default_kanban_lane.clone();
-    let refresh_tick =
-      refresh_tick.clone();
     let dragging_kanban_task =
       dragging_kanban_task.clone();
     let drag_over_kanban_lane =
@@ -2539,8 +2544,9 @@ pub fn app() -> Html {
           }
         };
 
-        let refresh_tick =
-          refresh_tick.clone();
+        let tasks = tasks.clone();
+        let facet_tasks =
+          facet_tasks.clone();
         wasm_bindgen_futures::spawn_local(
           async move {
             match invoke_tauri::<TaskDto, _>(
@@ -2549,11 +2555,49 @@ pub fn app() -> Html {
             )
             .await
             {
-              | Ok(_) => {
-                refresh_tick.set(
-                  (*refresh_tick)
-                    .saturating_add(1)
-                );
+              | Ok(updated) => {
+                let mut next_tasks =
+                  (*tasks).clone();
+                if let Some(slot) =
+                  next_tasks.iter_mut().find(
+                    |existing| {
+                      existing.uuid
+                        == updated.uuid
+                    }
+                  )
+                {
+                  *slot = updated.clone();
+                } else {
+                  next_tasks
+                    .push(updated.clone());
+                }
+                if next_tasks
+                  != *tasks
+                {
+                  tasks.set(next_tasks);
+                }
+
+                let mut next_facet_tasks =
+                  (*facet_tasks).clone();
+                if let Some(slot) = next_facet_tasks
+                  .iter_mut()
+                  .find(|existing| {
+                    existing.uuid
+                      == updated.uuid
+                  })
+                {
+                  *slot = updated;
+                } else {
+                  next_facet_tasks
+                    .push(updated);
+                }
+                if next_facet_tasks
+                  != *facet_tasks
+                {
+                  facet_tasks.set(
+                    next_facet_tasks
+                  );
+                }
               }
               | Err(err) => tracing::error!(error = %err, %uuid, "kanban move task_update failed")
             }

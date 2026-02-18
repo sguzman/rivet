@@ -267,6 +267,9 @@ fn load_external_calendars()
             }
           }
         }
+        assign_unique_external_calendar_colors(
+          &mut sources
+        );
         return sources;
       }
       | Err(error) => {
@@ -310,8 +313,7 @@ fn new_external_calendar_source()
     id:              Uuid::new_v4()
       .to_string(),
     name:            String::new(),
-    color:           "#d64545"
-      .to_string(),
+    color:           default_external_calendar_color(),
     location:        String::new(),
     refresh_minutes: 30,
     enabled:         true,
@@ -626,6 +628,157 @@ fn build_external_calendar_color_map(
       )
     })
     .collect()
+}
+
+fn default_external_calendar_color()
+-> String {
+  external_calendar_color_candidate(0)
+}
+
+fn external_calendar_color_candidate(
+  seed: usize
+) -> String {
+  let hue =
+    seed.saturating_mul(53)
+      .saturating_add(12)
+      % 360;
+  hsl_to_hex_color(
+    hue as f32,
+    0.72,
+    0.52
+  )
+}
+
+fn hsl_to_hex_color(
+  hue: f32,
+  saturation: f32,
+  lightness: f32
+) -> String {
+  let c = (1.0
+    - (2.0 * lightness - 1.0).abs())
+    * saturation;
+  let h_prime = hue / 60.0;
+  let x = c
+    * (1.0
+      - ((h_prime % 2.0) - 1.0).abs());
+
+  let (r1, g1, b1) = if (0.0..1.0)
+    .contains(&h_prime)
+  {
+    (c, x, 0.0)
+  } else if (1.0..2.0)
+    .contains(&h_prime)
+  {
+    (x, c, 0.0)
+  } else if (2.0..3.0)
+    .contains(&h_prime)
+  {
+    (0.0, c, x)
+  } else if (3.0..4.0)
+    .contains(&h_prime)
+  {
+    (0.0, x, c)
+  } else if (4.0..5.0)
+    .contains(&h_prime)
+  {
+    (x, 0.0, c)
+  } else {
+    (c, 0.0, x)
+  };
+
+  let m = lightness - c / 2.0;
+  let to_u8 = |value: f32| -> u8 {
+    ((value + m) * 255.0)
+      .round()
+      .clamp(0.0, 255.0)
+      as u8
+  };
+
+  format!(
+    "#{:02x}{:02x}{:02x}",
+    to_u8(r1),
+    to_u8(g1),
+    to_u8(b1)
+  )
+}
+
+fn next_external_calendar_color(
+  sources: &[ExternalCalendarSource]
+) -> String {
+  let mut used =
+    BTreeSet::<String>::new();
+  for source in sources {
+    let normalized =
+      normalize_marker_color(
+        source.color.as_str()
+      );
+    used.insert(
+      normalized
+        .trim()
+        .to_ascii_lowercase()
+    );
+  }
+
+  for offset in 0_usize..512_usize {
+    let candidate =
+      external_calendar_color_candidate(
+        sources
+          .len()
+          .saturating_add(offset)
+      );
+    if !used.contains(
+      &candidate.to_ascii_lowercase()
+    ) {
+      return candidate;
+    }
+  }
+
+  default_external_calendar_color()
+}
+
+fn assign_unique_external_calendar_colors(
+  sources: &mut [ExternalCalendarSource]
+) {
+  let mut used =
+    BTreeSet::<String>::new();
+  for (index, source) in
+    sources.iter_mut().enumerate()
+  {
+    let mut color =
+      source.color.trim().to_string();
+    if color.is_empty() {
+      color =
+        external_calendar_color_candidate(
+          index
+        );
+    }
+
+    let mut key =
+      normalize_marker_color(&color)
+        .trim()
+        .to_ascii_lowercase();
+    if used.contains(&key) {
+      for offset in 0_usize..512_usize {
+        let candidate =
+          external_calendar_color_candidate(
+            index
+              .saturating_add(offset)
+          );
+        let candidate_key = candidate
+          .to_ascii_lowercase();
+        if !used
+          .contains(&candidate_key)
+        {
+          color = candidate;
+          key = candidate_key;
+          break;
+        }
+      }
+    }
+
+    source.color = color;
+    used.insert(key);
+  }
 }
 
 fn normalize_marker_color(
