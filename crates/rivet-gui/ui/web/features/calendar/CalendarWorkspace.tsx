@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
 
 import AddIcon from "@mui/icons-material/Add";
@@ -183,21 +183,37 @@ export function CalendarWorkspace() {
     }));
   }, [calendarNameMap, currentPeriodEntries]);
 
+  const [includePastPeriodTasks, setIncludePastPeriodTasks] = useState(true);
+  const [nowUtcMs, setNowUtcMs] = useState(() => Date.now());
+
   const visiblePeriodEntries = useMemo(() => {
-    if (calendarTaskFilter === "__all__") {
-      return currentPeriodEntries;
+    const byCalendar = currentPeriodEntries.filter((entry) => {
+      if (calendarTaskFilter === "__all__") {
+        return true;
+      }
+      if (calendarTaskFilter === "__none__") {
+        return firstTagValue(entry.task.tags, CAL_SOURCE_TAG_KEY) === null;
+      }
+      return firstTagValue(entry.task.tags, CAL_SOURCE_TAG_KEY) === calendarTaskFilter;
+    });
+    if (includePastPeriodTasks) {
+      return byCalendar;
     }
-    if (calendarTaskFilter === "__none__") {
-      return currentPeriodEntries.filter((entry) => firstTagValue(entry.task.tags, CAL_SOURCE_TAG_KEY) === null);
-    }
-    return currentPeriodEntries.filter((entry) => firstTagValue(entry.task.tags, CAL_SOURCE_TAG_KEY) === calendarTaskFilter);
-  }, [calendarTaskFilter, currentPeriodEntries]);
+    return byCalendar.filter((entry) => entry.dueUtcMs >= nowUtcMs);
+  }, [calendarTaskFilter, currentPeriodEntries, includePastPeriodTasks, nowUtcMs]);
 
   const [sourceEditorOpen, setSourceEditorOpen] = useState(false);
   const [sourceEditor, setSourceEditor] = useState<ExternalCalendarSource | null>(null);
   const [sourceEditorError, setSourceEditorError] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ExternalCalendarSource | null>(null);
   const importInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      setNowUtcMs(Date.now());
+    }, 30_000);
+    return () => window.clearInterval(id);
+  }, []);
 
   const openAddSource = () => {
     setSourceEditor(openNewExternalCalendar());
@@ -576,11 +592,20 @@ export function CalendarWorkspace() {
                 </MenuItem>
               ))}
             </TextField>
+            <FormControlLabel
+              control={(
+                <Checkbox
+                  checked={includePastPeriodTasks}
+                  onChange={(event) => setIncludePastPeriodTasks(event.target.checked)}
+                />
+              )}
+              label="Include tasks before now"
+            />
             <div className="min-h-0 flex-1 overflow-y-auto pr-1">
               <Stack spacing={1}>
                 {visiblePeriodEntries.length === 0 ? (
                   <Typography variant="body2" color="text.secondary">
-                    No tasks due in this calendar period for the selected calendar filter.
+                    No tasks due in this calendar period for the selected filters.
                   </Typography>
                 ) : (
                   visiblePeriodEntries.map((entry) => (
