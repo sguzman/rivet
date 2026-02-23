@@ -22,7 +22,8 @@ export function TaskListPanel(props: TaskListPanelProps) {
   const virtualizer = useVirtualizer({
     count: props.tasks.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => 88,
+    getItemKey: (index) => props.tasks[index]?.uuid ?? index,
+    estimateSize: () => 128,
     overscan: 10
   });
 
@@ -52,13 +53,22 @@ export function TaskListPanel(props: TaskListPanelProps) {
                   selected={task.uuid === props.selectedTaskId}
                   onClick={() => props.onSelectTask(task.uuid)}
                   className="!absolute !left-0 !right-0 !items-start !px-4 !py-3"
+                  data-index={item.index}
+                  ref={virtualizer.measureElement}
                   sx={{
                     transform: `translateY(${item.start}px)`
                   }}
                 >
                   <Stack spacing={1} className="w-full">
                     <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={2}>
-                      <Typography variant="subtitle2" className="truncate">
+                      <Typography
+                        variant="subtitle2"
+                        sx={{
+                          whiteSpace: "normal",
+                          wordBreak: "break-word",
+                          overflowWrap: "anywhere"
+                        }}
+                      >
                         {task.title || "Untitled Task"}
                       </Typography>
                       <StatusChip status={task.status} />
@@ -66,8 +76,14 @@ export function TaskListPanel(props: TaskListPanelProps) {
                     <ListItemText
                       primary={task.project ?? "No project"}
                       secondary={task.description || "No description"}
-                      primaryTypographyProps={{ variant: "caption" }}
-                      secondaryTypographyProps={{ variant: "caption" }}
+                      primaryTypographyProps={{
+                        variant: "caption",
+                        sx: { whiteSpace: "normal", overflowWrap: "anywhere" }
+                      }}
+                      secondaryTypographyProps={{
+                        variant: "caption",
+                        sx: { whiteSpace: "normal", overflowWrap: "anywhere" }
+                      }}
                     />
                   </Stack>
                 </ListItemButton>

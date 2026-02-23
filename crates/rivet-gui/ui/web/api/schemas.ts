@@ -116,6 +116,11 @@ export const RivetRuntimeConfigSchema = z.object({
     day_view: z.object({
       hour_start: z.number().int().optional(),
       hour_end: z.number().int().optional()
+    }).passthrough().optional(),
+    toggles: z.object({
+      de_emphasize_past_periods: z.boolean().optional(),
+      filter_tasks_before_now: z.boolean().optional(),
+      hide_past_markers: z.boolean().optional()
     }).passthrough().optional()
   }).passthrough().optional()
 }).passthrough();

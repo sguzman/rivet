@@ -58,11 +58,18 @@ export interface CalendarDayView {
   hour_end: number;
 }
 
+export interface CalendarToggles {
+  de_emphasize_past_periods: boolean;
+  filter_tasks_before_now: boolean;
+  hide_past_markers: boolean;
+}
+
 export interface EffectiveCalendarConfig {
   timezone: string;
   policies: CalendarPolicies;
   visibility: CalendarVisibility;
   day_view: CalendarDayView;
+  toggles: CalendarToggles;
 }
 
 export interface CalendarTaskMarker {

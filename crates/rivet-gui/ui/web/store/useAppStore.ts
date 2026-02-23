@@ -19,6 +19,7 @@ import {
   calendarDateFromIso,
   calendarDateToIso,
   collectCalendarDueTasks,
+  parseTaskDueUtcMs,
   resolveCalendarConfig,
   shiftCalendarFocus as shiftFocusDate,
   todayInTimezone
@@ -59,11 +60,13 @@ import {
   saveNotificationSettings
 } from "../lib/storage";
 import {
+  CAL_SOURCE_TAG_KEY,
   BOARD_TAG_KEY,
   boardIdFromTaskTags,
   buildTagColorMap,
   collectTagsForSubmit,
   defaultKanbanLane,
+  firstTagValue,
   kanbanColumnsFromSchema,
   pushTagUnique,
   removeTagsForKey,
@@ -266,6 +269,7 @@ const initialDueNotificationConfig = sanitizeDueNotificationConfig(
 );
 const initialDueNotificationSent = Array.from(loadNotificationSentRegistry());
 const initialDueNotificationPermission = browserDueNotificationPermission();
+let overdueCalendarSweepInFlight = false;
 
 export const useAppStore = create<AppState>((set, get) => {
   setCommandFailureSink((record) => {
@@ -986,6 +990,62 @@ export const useAppStore = create<AppState>((set, get) => {
 
   scanDueNotifications() {
     const state = get();
+    const nowMs = Date.now();
+
+    if (!overdueCalendarSweepInFlight) {
+      const overdueCalendarTasks = state.tasks.filter((task) => {
+        if (!(task.status === "Pending" || task.status === "Waiting")) {
+          return false;
+        }
+        if (!firstTagValue(task.tags, CAL_SOURCE_TAG_KEY)) {
+          return false;
+        }
+        const dueRaw = task.due?.trim();
+        if (!dueRaw) {
+          return false;
+        }
+        const dueUtcMs = parseTaskDueUtcMs(dueRaw);
+        if (dueUtcMs === null) {
+          return false;
+        }
+        return dueUtcMs <= nowMs;
+      });
+
+      if (overdueCalendarTasks.length > 0) {
+        overdueCalendarSweepInFlight = true;
+        logger.info("calendar.auto_complete.start", `count=${overdueCalendarTasks.length}`);
+        void (async () => {
+          try {
+            const updatedById = new Map<string, TaskDto>();
+            let failed = 0;
+
+            for (const task of overdueCalendarTasks) {
+              try {
+                const updated = await doneTask(task.uuid);
+                updatedById.set(task.uuid, updated);
+              } catch (error) {
+                failed += 1;
+                logger.warn("calendar.auto_complete.error", `${task.uuid}: ${String(error)}`);
+              }
+            }
+
+            if (updatedById.size > 0) {
+              set((current) => ({
+                tasks: current.tasks.map((task) => updatedById.get(task.uuid) ?? task)
+              }));
+            }
+
+            logger.info(
+              "calendar.auto_complete.done",
+              `completed=${updatedById.size} failed=${failed}`
+            );
+          } finally {
+            overdueCalendarSweepInFlight = false;
+          }
+        })();
+      }
+    }
+
     const permission = browserDueNotificationPermission();
     if (permission !== state.dueNotificationPermission) {
       set({ dueNotificationPermission: permission });
@@ -1001,7 +1061,7 @@ export const useAppStore = create<AppState>((set, get) => {
       effective.timezone,
       state.dueNotificationConfig,
       sent,
-      Date.now()
+      nowMs
     );
     if (events.length === 0) {
       return;

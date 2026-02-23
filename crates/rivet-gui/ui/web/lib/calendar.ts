@@ -47,6 +47,11 @@ export function resolveCalendarConfig(runtimeConfig: RivetRuntimeConfig | null):
     day_view: {
       hour_start: hourStart,
       hour_end: hourEnd
+    },
+    toggles: {
+      de_emphasize_past_periods: runtimeConfig?.calendar?.toggles?.de_emphasize_past_periods ?? true,
+      filter_tasks_before_now: runtimeConfig?.calendar?.toggles?.filter_tasks_before_now ?? true,
+      hide_past_markers: runtimeConfig?.calendar?.toggles?.hide_past_markers ?? true
     }
   };
 }

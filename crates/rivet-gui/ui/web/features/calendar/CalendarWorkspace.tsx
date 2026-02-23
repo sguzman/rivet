@@ -183,8 +183,9 @@ export function CalendarWorkspace() {
     }));
   }, [calendarNameMap, currentPeriodEntries]);
 
-  const [deEmphasizePastPeriods, setDeEmphasizePastPeriods] = useState(false);
-  const [includePastPeriodTasks, setIncludePastPeriodTasks] = useState(true);
+  const [deEmphasizePastPeriods, setDeEmphasizePastPeriods] = useState(config.toggles.de_emphasize_past_periods);
+  const [filterTasksBeforeNow, setFilterTasksBeforeNow] = useState(config.toggles.filter_tasks_before_now);
+  const [hidePastMarkers, setHidePastMarkers] = useState(config.toggles.hide_past_markers);
   const [nowUtcMs, setNowUtcMs] = useState(() => Date.now());
   const nowLocal = useMemo(() => nowDateTime(config.timezone, nowUtcMs), [config.timezone, nowUtcMs]);
   const todayLocal = useMemo(
@@ -196,6 +197,23 @@ export function CalendarWorkspace() {
     [nowLocal.month, nowLocal.year]
   );
 
+  useEffect(() => {
+    setDeEmphasizePastPeriods(config.toggles.de_emphasize_past_periods);
+    setFilterTasksBeforeNow(config.toggles.filter_tasks_before_now);
+    setHidePastMarkers(config.toggles.hide_past_markers);
+  }, [
+    config.toggles.de_emphasize_past_periods,
+    config.toggles.filter_tasks_before_now,
+    config.toggles.hide_past_markers
+  ]);
+
+  const markerEntries = useMemo(() => {
+    if (!hidePastMarkers) {
+      return allDueEntries;
+    }
+    return allDueEntries.filter((entry) => entry.dueUtcMs >= nowUtcMs);
+  }, [allDueEntries, hidePastMarkers, nowUtcMs]);
+
   const visiblePeriodEntries = useMemo(() => {
     const byCalendar = currentPeriodEntries.filter((entry) => {
       if (calendarTaskFilter === "__all__") {
@@ -206,11 +224,11 @@ export function CalendarWorkspace() {
       }
       return firstTagValue(entry.task.tags, CAL_SOURCE_TAG_KEY) === calendarTaskFilter;
     });
-    if (includePastPeriodTasks) {
-      return byCalendar;
+    if (filterTasksBeforeNow) {
+      return byCalendar.filter((entry) => entry.dueUtcMs >= nowUtcMs);
     }
-    return byCalendar.filter((entry) => entry.dueUtcMs >= nowUtcMs);
-  }, [calendarTaskFilter, currentPeriodEntries, includePastPeriodTasks, nowUtcMs]);
+    return byCalendar;
+  }, [calendarTaskFilter, currentPeriodEntries, filterTasksBeforeNow, nowUtcMs]);
 
   const [sourceEditorOpen, setSourceEditorOpen] = useState(false);
   const [sourceEditor, setSourceEditor] = useState<ExternalCalendarSource | null>(null);
@@ -264,20 +282,23 @@ export function CalendarWorkspace() {
           const monthEntries = allDueEntries.filter(
             (entry) => entry.dueLocal.year === year && entry.dueLocal.month === month
           );
+          const monthMarkers = markerEntries
+            .filter((entry) => entry.dueLocal.year === year && entry.dueLocal.month === month)
+            .map((entry) => entry.marker);
           const isCurrentMonth = year === nowLocal.year && month === nowLocal.month;
           const isPastMonth = monthStart.getTime() < todayMonthStart.getTime();
           return (
             <button
               key={month}
               type="button"
-              className={`calendar-period-card ${isCurrentMonth ? "calendar-current-period" : ""} ${deEmphasizePastPeriods && isPastMonth ? "calendar-past-muted" : ""}`}
+              className={`calendar-period-card ${isCurrentMonth ? "calendar-current-month" : ""} ${deEmphasizePastPeriods && isPastMonth ? "calendar-past-muted" : ""}`}
               onClick={() => navigateCalendar(calendarDateToIso(monthStart), "month")}
             >
               <div className="calendar-period-title">
                 {monthStart.toLocaleString("en-US", { month: "long", timeZone: "UTC" })}
               </div>
               <div className="calendar-period-count">{monthEntries.length} tasks</div>
-              <MarkerDots markers={monthEntries.map((entry) => entry.marker)} limit={config.policies.red_dot_limit} />
+              <MarkerDots markers={monthMarkers} limit={config.policies.red_dot_limit} />
             </button>
           );
         })}
@@ -295,20 +316,23 @@ export function CalendarWorkspace() {
           const monthEntries = allDueEntries.filter(
             (entry) => entry.dueLocal.year === year && entry.dueLocal.month === month
           );
+          const monthMarkers = markerEntries
+            .filter((entry) => entry.dueLocal.year === year && entry.dueLocal.month === month)
+            .map((entry) => entry.marker);
           const isCurrentMonth = year === nowLocal.year && month === nowLocal.month;
           const isPastMonth = monthStart.getTime() < todayMonthStart.getTime();
           return (
             <button
               key={month}
               type="button"
-              className={`calendar-period-card ${isCurrentMonth ? "calendar-current-period" : ""} ${deEmphasizePastPeriods && isPastMonth ? "calendar-past-muted" : ""}`}
+              className={`calendar-period-card ${isCurrentMonth ? "calendar-current-month" : ""} ${deEmphasizePastPeriods && isPastMonth ? "calendar-past-muted" : ""}`}
               onClick={() => navigateCalendar(calendarDateToIso(monthStart), "month")}
             >
               <div className="calendar-period-title">
                 {monthStart.toLocaleString("en-US", { month: "long", timeZone: "UTC" })}
               </div>
               <div className="calendar-period-count">{monthEntries.length} tasks</div>
-              <MarkerDots markers={monthEntries.map((entry) => entry.marker)} limit={config.policies.red_dot_limit} />
+              <MarkerDots markers={monthMarkers} limit={config.policies.red_dot_limit} />
             </button>
           );
         })}
@@ -331,7 +355,7 @@ export function CalendarWorkspace() {
         <div className="calendar-month-grid">
           {Array.from({ length: 42 }).map((_, offset) => {
             const day = addDays(gridStart, offset);
-            const markers = markersForDate(allDueEntries, day);
+            const markers = markersForDate(markerEntries, day);
             const outside = day.getUTCMonth() !== focus.getUTCMonth();
             const isCurrentDay = day.getUTCFullYear() === todayLocal.getUTCFullYear()
               && day.getUTCMonth() === todayLocal.getUTCMonth()
@@ -341,7 +365,7 @@ export function CalendarWorkspace() {
               <button
                 key={calendarDateToIso(day)}
                 type="button"
-                className={`calendar-day-cell ${outside ? "outside" : ""} ${markers.length > 0 ? "has-tasks" : ""} ${isCurrentDay ? "calendar-current-period" : ""} ${deEmphasizePastPeriods && isPastDay ? "calendar-past-muted" : ""}`}
+                className={`calendar-day-cell ${outside ? "outside" : ""} ${markers.length > 0 ? "has-tasks" : ""} ${isCurrentDay ? "calendar-current-day" : ""} ${deEmphasizePastPeriods && isPastDay ? "calendar-past-muted" : ""}`}
                 onClick={() => navigateCalendar(calendarDateToIso(day), "day")}
               >
                 <div className="calendar-day-label">{day.getUTCDate()}</div>
@@ -377,6 +401,7 @@ export function CalendarWorkspace() {
         {Array.from({ length: 7 }).map((_, offset) => {
           const day = addDays(start, offset);
           const dayEntries = entriesForDate(allDueEntries, day);
+          const dayMarkers = entriesForDate(markerEntries, day).map((entry) => entry.marker);
           const isCurrentDay = day.getUTCFullYear() === todayLocal.getUTCFullYear()
             && day.getUTCMonth() === todayLocal.getUTCMonth()
             && day.getUTCDate() === todayLocal.getUTCDate();
@@ -385,14 +410,14 @@ export function CalendarWorkspace() {
             <button
               key={calendarDateToIso(day)}
               type="button"
-              className={`calendar-week-card ${dayEntries.length > 0 ? "has-tasks" : ""} ${isCurrentDay ? "calendar-current-period" : ""} ${deEmphasizePastPeriods && isPastDay ? "calendar-past-muted" : ""}`}
+              className={`calendar-week-card ${dayEntries.length > 0 ? "has-tasks" : ""} ${isCurrentDay ? "calendar-current-day" : ""} ${deEmphasizePastPeriods && isPastDay ? "calendar-past-muted" : ""}`}
               onClick={() => navigateCalendar(calendarDateToIso(day), "day")}
             >
               <div className="calendar-week-card-head">
                 <span>{day.toLocaleString("en-US", { weekday: "short", day: "2-digit", timeZone: "UTC" })}</span>
                 <span className="calendar-period-count">{dayEntries.length}</span>
               </div>
-              <MarkerDots markers={dayEntries.map((entry) => entry.marker)} limit={config.policies.red_dot_limit} />
+              <MarkerDots markers={dayMarkers} limit={config.policies.red_dot_limit} />
               <Stack spacing={0.5}>
                 {dayEntries.slice(0, 5).map((entry) => (
                   <Typography key={`${entry.task.uuid}-${entry.dueUtcMs}`} variant="caption" className="truncate text-left">
@@ -414,6 +439,7 @@ export function CalendarWorkspace() {
 
   const renderDayView = () => {
     const dayEntries = entriesForDate(allDueEntries, focus).sort((a, b) => a.dueUtcMs - b.dueUtcMs);
+    const dayMarkerEntries = entriesForDate(markerEntries, focus);
     const isFocusToday = focus.getUTCFullYear() === todayLocal.getUTCFullYear()
       && focus.getUTCMonth() === todayLocal.getUTCMonth()
       && focus.getUTCDate() === todayLocal.getUTCDate();
@@ -431,7 +457,7 @@ export function CalendarWorkspace() {
           ) : null}
           {Array.from({ length: config.day_view.hour_end - config.day_view.hour_start + 1 }).map((_, offset) => {
             const hour = config.day_view.hour_start + offset;
-            const markers = dayEntries.filter((entry) => entry.dueLocal.hour === hour).map((entry) => entry.marker);
+            const markers = dayMarkerEntries.filter((entry) => entry.dueLocal.hour === hour).map((entry) => entry.marker);
             const pastHour = deEmphasizePastPeriods && (focusBeforeToday || (isFocusToday && hour < nowLocal.hour));
             return (
               <div key={hour} className={`calendar-hour-row ${pastHour ? "calendar-past-muted" : ""}`}>
@@ -532,6 +558,15 @@ export function CalendarWorkspace() {
               />
             )}
             label="De-emphasize past periods"
+          />
+          <FormControlLabel
+            control={(
+              <Checkbox
+                checked={hidePastMarkers}
+                onChange={(event) => setHidePastMarkers(event.target.checked)}
+              />
+            )}
+            label="Hide past task markers"
           />
 
           <Stack spacing={0.7}>
@@ -639,11 +674,11 @@ export function CalendarWorkspace() {
             <FormControlLabel
               control={(
                 <Checkbox
-                  checked={includePastPeriodTasks}
-                  onChange={(event) => setIncludePastPeriodTasks(event.target.checked)}
+                  checked={filterTasksBeforeNow}
+                  onChange={(event) => setFilterTasksBeforeNow(event.target.checked)}
                 />
               )}
-              label="Include tasks before now"
+              label="Filter out tasks before now"
             />
             <div className="min-h-0 flex-1 overflow-y-auto pr-1">
               <Stack spacing={1}>

@@ -45,5 +45,10 @@ export interface RivetRuntimeConfig {
       hour_start?: number;
       hour_end?: number;
     };
+    toggles?: {
+      de_emphasize_past_periods?: boolean;
+      filter_tasks_before_now?: boolean;
+      hide_past_markers?: boolean;
+    };
   };
 }

@@ -68,6 +68,11 @@ deleted = true
 hour_start = 0
 hour_end = 23
 
+[calendar.toggles] # ACTIVE
+de_emphasize_past_periods = true
+filter_tasks_before_now = true
+hide_past_markers = true
+
 [calendar.navigation] # DOCUMENTATION-ONLY
 # Current behavior assumptions in UI:
 year_month_click_target = "month"
