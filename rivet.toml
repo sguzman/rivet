@@ -80,7 +80,7 @@ quarter_month_click_target = "month"
 month_week_shortcut_target = "week"
 
 [notifications.due] # ACTIVE (UI settings + defaults)
-enabled = false
+enabled = true
 pre_notify_enabled = false
 pre_notify_minutes = 15
 pre_notify_minutes_max = 43200

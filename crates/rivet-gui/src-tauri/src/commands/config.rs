@@ -201,13 +201,15 @@ fn section_name_from_header(
   line: &str
 ) -> Option<&str> {
   let trimmed = line.trim();
-  if !trimmed.starts_with('[')
-    || !trimmed.ends_with(']')
-  {
+  if !trimmed.starts_with('[') {
     return None;
   }
-  let inner =
-    &trimmed[1..trimmed.len() - 1];
+  let close_index =
+    trimmed.find(']')?;
+  if close_index <= 1 {
+    return None;
+  }
+  let inner = &trimmed[1..close_index];
   Some(inner.trim())
 }
 
