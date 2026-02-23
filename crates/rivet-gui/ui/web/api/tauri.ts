@@ -3,6 +3,7 @@ import type { ZodType } from "zod";
 
 import { logger, setLoggerBridge } from "../lib/logger";
 import {
+  ExternalCalendarCacheEntryArraySchema,
   ExternalCalendarSourceSchema,
   ExternalCalendarSyncResultSchema,
   RivetRuntimeConfigSchema,
@@ -14,6 +15,7 @@ import {
   describeSchemaError
 } from "./schemas";
 import type {
+  ExternalCalendarCacheEntry,
   ExternalCalendarSource,
   ExternalCalendarSyncResult,
   TaskCreate,
@@ -47,6 +49,11 @@ type CommandFailureSink = (record: CommandFailureRecord) => void;
 let commandFailureSink: CommandFailureSink | null = null;
 
 type RuntimeTransportMode = "auto" | "tauri" | "mock";
+export interface ConfigEntryUpdate {
+  section: string;
+  key: string;
+  value: string | number | boolean;
+}
 
 function resolveRuntimeTransportMode(): RuntimeTransportMode {
   const raw = String(import.meta.env.VITE_RIVET_UI_RUNTIME_MODE ?? "auto").trim().toLowerCase();
@@ -236,6 +243,23 @@ async function invokeCommand<R>(command: string, args?: unknown): Promise<R> {
       case "config_snapshot": {
         return {} as R;
       }
+      case "config_apply_updates": {
+        return {} as R;
+      }
+      case "external_calendar_cache_list": {
+        return [] as R;
+      }
+      case "external_calendar_import_cached": {
+        const payload = args as { source: ExternalCalendarSource; cache_id: string };
+        return {
+          calendar_id: payload.source.id,
+          created: 0,
+          updated: 0,
+          deleted: 0,
+          remote_events: 0,
+          refresh_minutes: payload.source.refresh_minutes
+        } as R;
+      }
       case "tag_schema_snapshot": {
         return { version: 1, keys: [] } as R;
       }
@@ -342,6 +366,20 @@ export async function importExternalCalendarIcs(source: ExternalCalendarSource, 
   return parseWithSchema("external_calendar_import_ics response", response, ExternalCalendarSyncResultSchema);
 }
 
+export async function listExternalCalendarCache(): Promise<ExternalCalendarCacheEntry[]> {
+  const response = await invokeCommand<unknown>("external_calendar_cache_list");
+  return parseWithSchema("external_calendar_cache_list response", response, ExternalCalendarCacheEntryArraySchema);
+}
+
+export async function importExternalCalendarCached(source: ExternalCalendarSource, cacheId: string): Promise<ExternalCalendarSyncResult> {
+  const payload = {
+    source: parseWithSchema("external_calendar_import_cached args source", source, ExternalCalendarSourceSchema),
+    cache_id: cacheId
+  };
+  const response = await invokeCommand<unknown>("external_calendar_import_cached", payload);
+  return parseWithSchema("external_calendar_import_cached response", response, ExternalCalendarSyncResultSchema);
+}
+
 export async function loadConfigSnapshot(): Promise<RivetRuntimeConfig> {
   try {
     const response = await invokeCommand<unknown>("config_snapshot");
@@ -350,6 +388,14 @@ export async function loadConfigSnapshot(): Promise<RivetRuntimeConfig> {
     logger.warn("config_snapshot", String(error));
     return {};
   }
+}
+
+export async function applyConfigUpdates(updates: ConfigEntryUpdate[]): Promise<RivetRuntimeConfig> {
+  const payload = {
+    updates
+  };
+  const response = await invokeCommand<unknown>("config_apply_updates", payload);
+  return parseWithSchema("config_apply_updates response", response, RivetRuntimeConfigSchema);
 }
 
 export async function loadTagSchemaSnapshot(): Promise<TagSchema> {

@@ -2,12 +2,16 @@ import { useMemo } from "react";
 import { create } from "zustand";
 
 import {
+  applyConfigUpdates,
   addTask,
+  type ConfigEntryUpdate,
   type CommandFailureRecord,
   deleteTask,
   doneTask,
   healthCheck,
+  importExternalCalendarCached,
   importExternalCalendarIcs,
+  listExternalCalendarCache,
   listTasks,
   loadConfigSnapshot,
   loadTagSchemaSnapshot,
@@ -76,7 +80,7 @@ import {
 } from "../lib/tags";
 import { buildTaskFacets, filterTasks } from "./selectors";
 import type { RivetRuntimeConfig, TagSchema } from "../types/config";
-import type { ExternalCalendarSource, TaskCreate, TaskDto, TaskPatch } from "../types/core";
+import type { ExternalCalendarCacheEntry, ExternalCalendarSource, TaskCreate, TaskDto, TaskPatch } from "../types/core";
 import type { AddTaskDialogContext, DueFilter, DueNotificationConfig, PriorityFilter, RecurrenceDraft, StatusFilter, TaskFilters, ThemeMode, WorkspaceTab } from "../types/ui";
 
 function readStorageString(key: string): string | null {
@@ -165,10 +169,43 @@ function emptyTaskFilters(): TaskFilters {
   };
 }
 
+function normalizeThemeMode(value: string | undefined): ThemeMode | null {
+  if (!value) {
+    return null;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "night" || normalized === "dark") {
+    return "night";
+  }
+  if (normalized === "day" || normalized === "light") {
+    return "day";
+  }
+  return null;
+}
+
+function runtimeThemeMode(runtimeConfig: RivetRuntimeConfig | null): ThemeMode | null {
+  return normalizeThemeMode(runtimeConfig?.ui?.theme?.mode)
+    ?? normalizeThemeMode(runtimeConfig?.ui?.default_theme);
+}
+
+function runtimeThemeFollowSystem(runtimeConfig: RivetRuntimeConfig | null): boolean {
+  return runtimeConfig?.ui?.theme?.follow_system ?? false;
+}
+
+function runtimeDueConfig(runtimeConfig: RivetRuntimeConfig | null, fallback: DueNotificationConfig): DueNotificationConfig {
+  return sanitizeDueNotificationConfig({
+    enabled: runtimeConfig?.notifications?.due?.enabled ?? fallback.enabled,
+    pre_notify_enabled: runtimeConfig?.notifications?.due?.pre_notify_enabled ?? fallback.pre_notify_enabled,
+    pre_notify_minutes: runtimeConfig?.notifications?.due?.pre_notify_minutes ?? fallback.pre_notify_minutes
+  });
+}
+
 interface AppState {
   bootstrapped: boolean;
   activeTab: WorkspaceTab;
   themeMode: ThemeMode;
+  themeFollowSystem: boolean;
+  systemThemeMode: ThemeMode;
   loading: boolean;
   error: string | null;
   tasks: TaskDto[];
@@ -202,6 +239,8 @@ interface AppState {
 
   setActiveTab: (tab: WorkspaceTab) => void;
   toggleTheme: () => void;
+  setThemeFollowSystem: (enabled: boolean) => void;
+  setSystemThemeMode: (mode: ThemeMode) => void;
   selectTask: (taskId: string | null) => void;
 
   setTaskSearchFilter: (value: string) => void;
@@ -245,6 +284,7 @@ interface AppState {
   shiftCalendarFocus: (step: number) => void;
   navigateCalendar: (iso: string, view?: "year" | "quarter" | "month" | "week" | "day") => void;
   setCalendarTaskFilter: (value: string) => void;
+  setCalendarConfigToggle: (key: "de_emphasize_past_periods" | "filter_tasks_before_now" | "hide_past_markers", enabled: boolean) => void;
 
   openNewExternalCalendar: () => ExternalCalendarSource;
   saveExternalCalendarSource: (source: ExternalCalendarSource) => void;
@@ -252,6 +292,8 @@ interface AppState {
   syncExternalCalendarSource: (calendarId: string) => Promise<void>;
   syncAllExternalCalendars: () => Promise<void>;
   importExternalCalendarFile: (file: File) => Promise<void>;
+  listExternalCalendarCachedEntries: () => Promise<ExternalCalendarCacheEntry[]>;
+  importExternalCalendarFromCache: (cacheEntry: ExternalCalendarCacheEntry) => Promise<void>;
 
   openSettings: () => void;
   closeSettings: () => void;
@@ -280,10 +322,28 @@ export const useAppStore = create<AppState>((set, get) => {
     }));
   });
 
+  const persistConfig = (updates: ConfigEntryUpdate[], context: string) => {
+    if (updates.length === 0) {
+      return;
+    }
+    void (async () => {
+      try {
+        const runtimeConfig = await applyConfigUpdates(updates);
+        set({ runtimeConfig });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        logger.error("config.persist.error", `${context}: ${message}`);
+        set({ error: message });
+      }
+    })();
+  };
+
   return {
   bootstrapped: false,
   activeTab: loadWorkspaceTab(),
   themeMode: loadThemeMode(),
+  themeFollowSystem: false,
+  systemThemeMode: "day",
   loading: false,
   error: null,
   tasks: [],
@@ -336,12 +396,16 @@ export const useAppStore = create<AppState>((set, get) => {
       const effective = resolveCalendarConfig(runtimeConfig);
       const today = todayInTimezone(effective.timezone);
       const tagColorMap = buildTagColorMap(tagSchema);
+      const resolvedDueConfig = runtimeDueConfig(runtimeConfig, get().dueNotificationConfig);
+      const resolvedThemeMode = runtimeThemeMode(runtimeConfig) ?? get().themeMode;
+      const resolvedFollowSystem = runtimeThemeFollowSystem(runtimeConfig);
 
       saveKanbanBoards(get().kanbanBoards);
       saveActiveKanbanBoardId(get().activeKanbanBoardId);
       saveExternalCalendars(get().externalCalendars);
       saveCalendarViewMode(get().calendarView);
-      saveNotificationSettings(get().dueNotificationConfig);
+      saveThemeMode(resolvedThemeMode);
+      saveNotificationSettings(resolvedDueConfig);
       saveNotificationSentRegistry(new Set(get().dueNotificationSent));
 
       set({
@@ -352,6 +416,9 @@ export const useAppStore = create<AppState>((set, get) => {
         runtimeConfig,
         tagSchema,
         tagColorMap,
+        themeMode: resolvedThemeMode,
+        themeFollowSystem: resolvedFollowSystem,
+        dueNotificationConfig: resolvedDueConfig,
         calendarFocusDateIso: calendarDateToIso(today),
         dueNotificationPermission: browserDueNotificationPermission()
       });
@@ -393,10 +460,50 @@ export const useAppStore = create<AppState>((set, get) => {
   },
 
   toggleTheme() {
+    if (get().themeFollowSystem) {
+      return;
+    }
     const nextMode = get().themeMode === "day" ? "night" : "day";
     saveThemeMode(nextMode);
     set({ themeMode: nextMode });
     logger.info("theme.toggle", nextMode);
+    persistConfig(
+      [
+        {
+          section: "ui.theme",
+          key: "mode",
+          value: nextMode
+        },
+        {
+          section: "ui.theme",
+          key: "follow_system",
+          value: false
+        }
+      ],
+      "theme.toggle"
+    );
+  },
+
+  setThemeFollowSystem(enabled) {
+    set({ themeFollowSystem: enabled });
+    logger.info("theme.follow_system", String(enabled));
+    persistConfig(
+      [
+        {
+          section: "ui.theme",
+          key: "follow_system",
+          value: enabled
+        }
+      ],
+      "theme.follow_system"
+    );
+  },
+
+  setSystemThemeMode(mode) {
+    if (mode !== "day" && mode !== "night") {
+      return;
+    }
+    set({ systemThemeMode: mode });
   },
 
   selectTask(taskId) {
@@ -900,6 +1007,32 @@ export const useAppStore = create<AppState>((set, get) => {
     set({ calendarTaskFilter: value });
   },
 
+  setCalendarConfigToggle(key, enabled) {
+    set((state) => ({
+      runtimeConfig: {
+        ...state.runtimeConfig,
+        calendar: {
+          ...state.runtimeConfig?.calendar,
+          toggles: {
+            ...state.runtimeConfig?.calendar?.toggles,
+            [key]: enabled
+          }
+        }
+      }
+    }));
+    logger.info("calendar.toggle", `${key}=${enabled}`);
+    persistConfig(
+      [
+        {
+          section: "calendar.toggles",
+          key,
+          value: enabled
+        }
+      ],
+      `calendar.toggle.${key}`
+    );
+  },
+
   openNewExternalCalendar() {
     return newExternalCalendarSource(get().externalCalendars);
   },
@@ -1034,6 +1167,51 @@ export const useAppStore = create<AppState>((set, get) => {
     }
   },
 
+  async listExternalCalendarCachedEntries() {
+    try {
+      return await listExternalCalendarCache();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      set({ error: message });
+      logger.error("external_calendar.cache_list.error", message);
+      return [];
+    }
+  },
+
+  async importExternalCalendarFromCache(cacheEntry) {
+    set({ externalCalendarBusy: true, error: null });
+    logger.info("external_calendar.cache_import.start", `${cacheEntry.cache_id}:${cacheEntry.name}`);
+    try {
+      const source = newExternalCalendarSource(get().externalCalendars);
+      source.name = cacheEntry.name.trim() || "Cached Calendar";
+      source.color = cacheEntry.color.trim() || source.color;
+      source.location = cacheEntry.location.trim() || `cache://${cacheEntry.cache_id}`;
+      source.imported_ics_file = true;
+      source.refresh_minutes = 0;
+      source.enabled = true;
+
+      const result = await importExternalCalendarCached(source, cacheEntry.cache_id);
+      const nextSources = assignUniqueExternalCalendarColors([...get().externalCalendars, source]);
+      saveExternalCalendars(nextSources);
+      await get().loadTasks();
+
+      set({
+        externalCalendars: nextSources,
+        externalCalendarBusy: false,
+        externalCalendarLastSync: `Imported cached ${source.name}: +${result.created} / ~${result.updated} / -${result.deleted}`
+      });
+      logger.info("external_calendar.cache_import.done", `${cacheEntry.cache_id} events=${result.remote_events}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      set({
+        externalCalendarBusy: false,
+        error: message,
+        externalCalendarLastSync: `Cached import failed for ${cacheEntry.name}: ${message}`
+      });
+      logger.error("external_calendar.cache_import.error", `${cacheEntry.cache_id}: ${message}`);
+    }
+  },
+
   openSettings() {
     set({
       settingsOpen: true,
@@ -1046,46 +1224,77 @@ export const useAppStore = create<AppState>((set, get) => {
   },
 
   setDueNotificationsEnabled(enabled) {
-    set((state) => {
-      const next = sanitizeDueNotificationConfig({
-        ...state.dueNotificationConfig,
-        enabled,
-        pre_notify_enabled: enabled ? state.dueNotificationConfig.pre_notify_enabled : false
-      });
-      saveNotificationSettings(next);
-      logger.info("settings.notifications.enabled", String(next.enabled));
-      return {
-        dueNotificationConfig: next
-      };
+    const current = get().dueNotificationConfig;
+    const next = sanitizeDueNotificationConfig({
+      ...current,
+      enabled,
+      pre_notify_enabled: enabled ? current.pre_notify_enabled : false
     });
+    saveNotificationSettings(next);
+    set({ dueNotificationConfig: next });
+    logger.info("settings.notifications.enabled", String(next.enabled));
+    persistConfig(
+      [
+        {
+          section: "notifications.due",
+          key: "enabled",
+          value: next.enabled
+        },
+        {
+          section: "notifications.due",
+          key: "pre_notify_enabled",
+          value: next.pre_notify_enabled
+        },
+        {
+          section: "notifications.due",
+          key: "pre_notify_minutes",
+          value: next.pre_notify_minutes
+        }
+      ],
+      "settings.notifications.enabled"
+    );
   },
 
   setDuePreNotifyEnabled(enabled) {
-    set((state) => {
-      const next = sanitizeDueNotificationConfig({
-        ...state.dueNotificationConfig,
-        pre_notify_enabled: enabled
-      });
-      saveNotificationSettings(next);
-      logger.info("settings.notifications.pre_enabled", String(next.pre_notify_enabled));
-      return {
-        dueNotificationConfig: next
-      };
+    const current = get().dueNotificationConfig;
+    const next = sanitizeDueNotificationConfig({
+      ...current,
+      pre_notify_enabled: enabled
     });
+    saveNotificationSettings(next);
+    set({ dueNotificationConfig: next });
+    logger.info("settings.notifications.pre_enabled", String(next.pre_notify_enabled));
+    persistConfig(
+      [
+        {
+          section: "notifications.due",
+          key: "pre_notify_enabled",
+          value: next.pre_notify_enabled
+        }
+      ],
+      "settings.notifications.pre_enabled"
+    );
   },
 
   setDuePreNotifyMinutes(minutes) {
-    set((state) => {
-      const next = sanitizeDueNotificationConfig({
-        ...state.dueNotificationConfig,
-        pre_notify_minutes: minutes
-      });
-      saveNotificationSettings(next);
-      logger.info("settings.notifications.pre_minutes", String(next.pre_notify_minutes));
-      return {
-        dueNotificationConfig: next
-      };
+    const current = get().dueNotificationConfig;
+    const next = sanitizeDueNotificationConfig({
+      ...current,
+      pre_notify_minutes: minutes
     });
+    saveNotificationSettings(next);
+    set({ dueNotificationConfig: next });
+    logger.info("settings.notifications.pre_minutes", String(next.pre_notify_minutes));
+    persistConfig(
+      [
+        {
+          section: "notifications.due",
+          key: "pre_notify_minutes",
+          value: next.pre_notify_minutes
+        }
+      ],
+      "settings.notifications.pre_minutes"
+    );
   },
 
   async requestDueNotificationPermission() {

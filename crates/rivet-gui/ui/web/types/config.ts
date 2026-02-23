@@ -26,6 +26,21 @@ export interface RivetRuntimeConfig {
   time?: {
     timezone?: string;
   };
+  notifications?: {
+    due?: {
+      enabled?: boolean;
+      pre_notify_enabled?: boolean;
+      pre_notify_minutes?: number;
+      scan_interval_seconds?: number;
+    };
+  };
+  ui?: {
+    default_theme?: "day" | "night" | string;
+    theme?: {
+      mode?: "day" | "night" | string;
+      follow_system?: boolean;
+    };
+  };
   calendar?: {
     version?: number;
     timezone?: string;

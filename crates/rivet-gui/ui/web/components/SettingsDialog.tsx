@@ -16,9 +16,11 @@ interface SettingsDialogProps {
   open: boolean;
   runtimeMode: string;
   loggingDirectory: string;
+  themeFollowSystem: boolean;
   dueConfig: DueNotificationConfig;
   duePermission: DueNotificationPermission;
   onClose: () => void;
+  onToggleThemeFollowSystem: (enabled: boolean) => void;
   onToggleEnabled: (enabled: boolean) => void;
   onTogglePreEnabled: (enabled: boolean) => void;
   onPreMinutesChange: (minutes: number) => void;
@@ -48,6 +50,19 @@ export function SettingsDialog(props: SettingsDialogProps) {
             <Typography variant="subtitle2">Runtime</Typography>
             <Typography variant="body2">mode: {props.runtimeMode}</Typography>
             <Typography variant="body2">logs: {props.loggingDirectory}</Typography>
+          </Stack>
+
+          <Stack spacing={1.25}>
+            <Typography variant="subtitle2">Theme</Typography>
+            <FormControlLabel
+              control={(
+                <Switch
+                  checked={props.themeFollowSystem}
+                  onChange={(event) => props.onToggleThemeFollowSystem(event.target.checked)}
+                />
+              )}
+              label="Follow system day/night theme"
+            />
           </Stack>
 
           <Stack spacing={1.25}>

@@ -45,7 +45,7 @@ import {
 import { CAL_SOURCE_TAG_KEY, firstTagValue } from "../../lib/tags";
 import { useBoardColorMap, useExternalCalendarColorMap } from "../../store/useAppStore";
 import { useCalendarWorkspaceSlice } from "../../store/slices";
-import type { ExternalCalendarSource } from "../../types/core";
+import type { ExternalCalendarCacheEntry, ExternalCalendarSource } from "../../types/core";
 import type { CalendarTaskMarker, CalendarViewMode } from "../../types/ui";
 
 function MarkerDots(props: { markers: CalendarTaskMarker[]; limit: number }) {
@@ -136,13 +136,16 @@ export function CalendarWorkspace() {
     setCalendarView,
     shiftCalendarFocus,
     setCalendarTaskFilter,
+    setCalendarConfigToggle,
     navigateCalendar,
     openNewExternalCalendar,
     saveExternalCalendarSource,
     deleteExternalCalendarSource,
     syncExternalCalendarSource,
     syncAllExternalCalendars,
-    importExternalCalendarFile
+    importExternalCalendarFile,
+    listExternalCalendarCachedEntries,
+    importExternalCalendarFromCache
   } = useCalendarWorkspaceSlice();
 
   const boardColorMap = useBoardColorMap();
@@ -234,6 +237,10 @@ export function CalendarWorkspace() {
   const [sourceEditor, setSourceEditor] = useState<ExternalCalendarSource | null>(null);
   const [sourceEditorError, setSourceEditorError] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ExternalCalendarSource | null>(null);
+  const [cacheDialogOpen, setCacheDialogOpen] = useState(false);
+  const [cacheEntries, setCacheEntries] = useState<ExternalCalendarCacheEntry[]>([]);
+  const [cacheSelection, setCacheSelection] = useState<string>("");
+  const [cacheBusy, setCacheBusy] = useState(false);
   const importInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -554,7 +561,11 @@ export function CalendarWorkspace() {
             control={(
               <Checkbox
                 checked={deEmphasizePastPeriods}
-                onChange={(event) => setDeEmphasizePastPeriods(event.target.checked)}
+                onChange={(event) => {
+                  const checked = event.target.checked;
+                  setDeEmphasizePastPeriods(checked);
+                  setCalendarConfigToggle("de_emphasize_past_periods", checked);
+                }}
               />
             )}
             label="De-emphasize past periods"
@@ -563,7 +574,11 @@ export function CalendarWorkspace() {
             control={(
               <Checkbox
                 checked={hidePastMarkers}
-                onChange={(event) => setHidePastMarkers(event.target.checked)}
+                onChange={(event) => {
+                  const checked = event.target.checked;
+                  setHidePastMarkers(checked);
+                  setCalendarConfigToggle("hide_past_markers", checked);
+                }}
               />
             )}
             label="Hide past task markers"
@@ -591,6 +606,22 @@ export function CalendarWorkspace() {
                   onClick={() => importInputRef.current?.click()}
                 >
                   Import ICS File
+                </Button>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  onClick={() => {
+                    setCacheBusy(true);
+                    void (async () => {
+                      const cached = await listExternalCalendarCachedEntries();
+                      setCacheEntries(cached);
+                      setCacheSelection(cached[0]?.cache_id ?? "");
+                      setCacheDialogOpen(true);
+                      setCacheBusy(false);
+                    })();
+                  }}
+                >
+                  Import Cached ICS
                 </Button>
                 <input
                   ref={importInputRef}
@@ -675,7 +706,11 @@ export function CalendarWorkspace() {
               control={(
                 <Checkbox
                   checked={filterTasksBeforeNow}
-                  onChange={(event) => setFilterTasksBeforeNow(event.target.checked)}
+                  onChange={(event) => {
+                    const checked = event.target.checked;
+                    setFilterTasksBeforeNow(checked);
+                    setCalendarConfigToggle("filter_tasks_before_now", checked);
+                  }}
                 />
               )}
               label="Filter out tasks before now"
@@ -833,6 +868,62 @@ export function CalendarWorkspace() {
             }}
           >
             Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={cacheDialogOpen} onClose={() => setCacheDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Import Cached ICS</DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={1.25}>
+            {cacheEntries.length === 0 ? (
+              <Typography variant="body2" color="text.secondary">
+                No cached ICS snapshots found.
+              </Typography>
+            ) : (
+              <>
+                <TextField
+                  select
+                  label="Cached snapshot"
+                  value={cacheSelection}
+                  onChange={(event) => setCacheSelection(event.target.value)}
+                >
+                  {cacheEntries.map((entry) => (
+                    <MenuItem key={entry.cache_id} value={entry.cache_id}>
+                      {entry.name} ({entry.kind}) - {entry.cached_at}
+                    </MenuItem>
+                  ))}
+                </TextField>
+                {cacheEntries.find((entry) => entry.cache_id === cacheSelection) ? (
+                  <Typography variant="caption" color="text.secondary">
+                    {cacheEntries.find((entry) => entry.cache_id === cacheSelection)?.location}
+                  </Typography>
+                ) : null}
+              </>
+            )}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCacheDialogOpen(false)} disabled={externalBusy || cacheBusy}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            disabled={cacheEntries.length === 0 || !cacheSelection || externalBusy || cacheBusy}
+            onClick={() => {
+              const selected = cacheEntries.find((entry) => entry.cache_id === cacheSelection);
+              if (!selected) {
+                return;
+              }
+              setCacheBusy(true);
+              void (async () => {
+                await importExternalCalendarFromCache(selected);
+                setCacheBusy(false);
+                setCacheDialogOpen(false);
+              })();
+            }}
+          >
+            Import
           </Button>
         </DialogActions>
       </Dialog>

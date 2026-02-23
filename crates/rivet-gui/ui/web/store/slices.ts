@@ -8,7 +8,10 @@ export function useShellSlice() {
     activeTab: state.activeTab,
     setActiveTab: state.setActiveTab,
     themeMode: state.themeMode,
+    themeFollowSystem: state.themeFollowSystem,
+    systemThemeMode: state.systemThemeMode,
     toggleTheme: state.toggleTheme,
+    setSystemThemeMode: state.setSystemThemeMode,
     addTaskDialogOpen: state.addTaskDialogOpen,
     addTaskDialogContext: state.addTaskDialogContext,
     openAddTaskDialog: state.openAddTaskDialog,
@@ -29,6 +32,8 @@ export function useSettingsSlice() {
     closeSettings: state.closeSettings,
     dueConfig: state.dueNotificationConfig,
     duePermission: state.dueNotificationPermission,
+    themeFollowSystem: state.themeFollowSystem,
+    setThemeFollowSystem: state.setThemeFollowSystem,
     setDueNotificationsEnabled: state.setDueNotificationsEnabled,
     setDuePreNotifyEnabled: state.setDuePreNotifyEnabled,
     setDuePreNotifyMinutes: state.setDuePreNotifyMinutes,
@@ -117,12 +122,15 @@ export function useCalendarWorkspaceSlice() {
     setCalendarView: state.setCalendarView,
     shiftCalendarFocus: state.shiftCalendarFocus,
     setCalendarTaskFilter: state.setCalendarTaskFilter,
+    setCalendarConfigToggle: state.setCalendarConfigToggle,
     navigateCalendar: state.navigateCalendar,
     openNewExternalCalendar: state.openNewExternalCalendar,
     saveExternalCalendarSource: state.saveExternalCalendarSource,
     deleteExternalCalendarSource: state.deleteExternalCalendarSource,
     syncExternalCalendarSource: state.syncExternalCalendarSource,
     syncAllExternalCalendars: state.syncAllExternalCalendars,
-    importExternalCalendarFile: state.importExternalCalendarFile
+    importExternalCalendarFile: state.importExternalCalendarFile,
+    listExternalCalendarCachedEntries: state.listExternalCalendarCachedEntries,
+    importExternalCalendarFromCache: state.importExternalCalendarFromCache
   })));
 }

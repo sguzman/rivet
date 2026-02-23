@@ -79,11 +79,10 @@ year_month_click_target = "month"
 quarter_month_click_target = "month"
 month_week_shortcut_target = "week"
 
-[notifications.due] # DOCUMENTATION-ONLY (defaults currently in local storage/UI logic)
-# These are current default assumptions:
-enabled_default = false
-pre_notify_enabled_default = false
-pre_notify_minutes_default = 15
+[notifications.due] # ACTIVE (UI settings + defaults)
+enabled = false
+pre_notify_enabled = false
+pre_notify_minutes = 15
 pre_notify_minutes_max = 43200
 scan_interval_seconds = 30
 
@@ -186,6 +185,10 @@ default_theme = "day"
 default_workspace_tab = "tasks"
 default_calendar_view = "month"
 calendar_unaffiliated_color = "#7f8691"
+
+[ui.theme] # ACTIVE
+mode = "day"
+follow_system = false
 
 [ui.window] # DOCUMENTATION-ONLY
 # Current custom top bar styling assumptions:

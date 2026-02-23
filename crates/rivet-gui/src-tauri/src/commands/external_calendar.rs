@@ -33,6 +33,14 @@ pub struct ExternalCalendarImportArg {
   pub ics_text: String
 }
 
+#[derive(
+  Debug, Clone, Serialize, Deserialize,
+)]
+pub struct ExternalCalendarImportCachedArg {
+  pub source:   ExternalCalendarSourceArg,
+  pub cache_id: String
+}
+
 #[derive(Debug, Clone)]
 struct ExternalCalendarEvent {
   uid:         String,
@@ -40,6 +48,30 @@ struct ExternalCalendarEvent {
   description: String,
   due_rfc3339: String,
   tags:        Vec<String>
+}
+
+#[derive(
+  Debug, Clone, Serialize, Deserialize,
+)]
+struct ExternalCalendarCacheRecord {
+  cache_id: String,
+  source_id: String,
+  name: String,
+  location: String,
+  color: String,
+  cached_at: String,
+  kind: String,
+  ics_path: String
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ExternalCalendarCacheEntry {
+  pub cache_id: String,
+  pub name:     String,
+  pub location: String,
+  pub color:    String,
+  pub cached_at: String,
+  pub kind:     String
 }
 
 #[tauri::command]
@@ -79,6 +111,19 @@ pub async fn external_calendar_sync(
   )
   .await
   .map_err(err_to_string)?;
+  if let Err(error) =
+    cache_ics_payload(
+      &args,
+      &ics_text,
+      "remote_sync",
+    )
+  {
+    warn!(
+      calendar_id = %args.id,
+      error = %error,
+      "failed caching remote ICS payload"
+    );
+  }
   let events =
     parse_ics_events(&ics_text, &args)
       .map_err(err_to_string)?;
@@ -109,9 +154,101 @@ pub async fn external_calendar_import_ics(
     );
   }
 
+  if let Err(error) =
+    cache_ics_payload(
+      &args.source,
+      &args.ics_text,
+      "file_import",
+    )
+  {
+    warn!(
+      calendar_id = %args.source.id,
+      error = %error,
+      "failed caching imported ICS payload"
+    );
+  }
+
   let events = parse_ics_events(
     &args.ics_text,
     &args.source
+  )
+  .map_err(err_to_string)?;
+  apply_external_calendar_events(
+    &state,
+    &args.source,
+    events,
+  )
+  .map_err(err_to_string)
+}
+
+#[tauri::command]
+#[instrument(fields(request_id = ?request_id))]
+pub async fn external_calendar_cache_list(
+  request_id: Option<String>
+) -> Result<
+  Vec<ExternalCalendarCacheEntry>,
+  String
+> {
+  info!(
+    request_id = ?request_id,
+    "external_calendar_cache_list command invoked"
+  );
+  list_cached_ics_entries()
+    .map_err(err_to_string)
+}
+
+#[tauri::command]
+#[instrument(skip(state, args), fields(request_id = ?request_id, calendar_id = %args.source.id, cache_id = %args.cache_id))]
+pub async fn external_calendar_import_cached(
+  state: State<'_, AppState>,
+  args: ExternalCalendarImportCachedArg,
+  request_id: Option<String>
+) -> Result<
+  ExternalCalendarSyncResult,
+  String
+> {
+  info!(
+    request_id = ?request_id,
+    calendar_id = %args.source.id,
+    cache_id = %args.cache_id,
+    "external_calendar_import_cached command invoked"
+  );
+  let cache = load_cache_record(
+    &args.cache_id
+  )
+  .map_err(err_to_string)?;
+  let ics_text =
+    std::fs::read_to_string(
+      &cache.ics_path
+    )
+    .map_err(anyhow::Error::new)
+    .with_context(|| {
+      format!(
+        "failed to read cached ICS \
+         payload {}",
+        cache.ics_path
+      )
+    })
+    .map_err(err_to_string)?;
+
+  if let Err(error) =
+    cache_ics_payload(
+      &args.source,
+      &ics_text,
+      "cache_reimport",
+    )
+  {
+    warn!(
+      calendar_id = %args.source.id,
+      cache_id = %args.cache_id,
+      error = %error,
+      "failed caching reimported ICS payload"
+    );
+  }
+
+  let events = parse_ics_events(
+    &ics_text,
+    &args.source,
   )
   .map_err(err_to_string)?;
   apply_external_calendar_events(
@@ -927,6 +1064,281 @@ fn parse_rrule(
       .insert(key, value.to_string());
   }
   values
+}
+
+fn resolve_gui_data_dir()
+-> std::path::PathBuf {
+  if let Ok(path) =
+    std::env::var("RIVET_GUI_DATA")
+  {
+    return std::path::PathBuf::from(
+      path
+    );
+  }
+
+  if let Ok(cwd) =
+    std::env::current_dir()
+  {
+    return cwd.join(".rivet_gui_data");
+  }
+
+  std::path::PathBuf::from(
+    ".rivet_gui_data"
+  )
+}
+
+fn external_calendar_cache_dir()
+-> std::path::PathBuf {
+  resolve_gui_data_dir().join(
+    "calendar_ics_cache"
+  )
+}
+
+fn sanitize_cache_fragment(
+  value: &str
+) -> String {
+  let sanitized = value
+    .chars()
+    .map(|ch| {
+      if ch.is_ascii_alphanumeric()
+        || ch == '-'
+        || ch == '_'
+      {
+        ch
+      } else {
+        '_'
+      }
+    })
+    .collect::<String>();
+  let trimmed =
+    sanitized.trim_matches('_');
+  if trimmed.is_empty() {
+    "calendar".to_string()
+  } else {
+    trimmed.to_string()
+  }
+}
+
+fn cache_ics_payload(
+  source: &ExternalCalendarSourceArg,
+  ics_text: &str,
+  kind: &str
+) -> anyhow::Result<String> {
+  let cache_dir =
+    external_calendar_cache_dir();
+  std::fs::create_dir_all(
+    &cache_dir
+  )
+  .map_err(anyhow::Error::new)
+  .with_context(|| {
+    format!(
+      "failed creating calendar cache directory {}",
+      cache_dir.display()
+    )
+  })?;
+
+  let now = Utc::now();
+  let cache_id = format!(
+    "{}-{}-{}",
+    sanitize_cache_fragment(
+      &source.id
+    ),
+    now.format(
+      "%Y%m%dT%H%M%S"
+    ),
+    uuid::Uuid::new_v4()
+  );
+
+  let ics_path = cache_dir.join(
+    format!("{cache_id}.ics")
+  );
+  std::fs::write(
+    &ics_path, ics_text
+  )
+  .map_err(anyhow::Error::new)
+  .with_context(|| {
+    format!(
+      "failed writing cached ICS file {}",
+      ics_path.display()
+    )
+  })?;
+
+  let record = ExternalCalendarCacheRecord {
+    cache_id: cache_id.clone(),
+    source_id: source.id.clone(),
+    name: source.name.clone(),
+    location: source.location.clone(),
+    color: source.color.clone(),
+    cached_at: now.to_rfc3339(),
+    kind: kind.to_string(),
+    ics_path: ics_path.display().to_string()
+  };
+  let metadata_path = cache_dir.join(
+    format!("{cache_id}.json")
+  );
+  let metadata_raw =
+    serde_json::to_string_pretty(
+      &record
+    )
+    .map_err(anyhow::Error::new)
+    .context(
+      "failed encoding ICS cache metadata"
+    )?;
+  std::fs::write(
+    &metadata_path,
+    metadata_raw
+  )
+  .map_err(anyhow::Error::new)
+  .with_context(|| {
+    format!(
+      "failed writing ICS cache metadata {}",
+      metadata_path.display()
+    )
+  })?;
+
+  Ok(cache_id)
+}
+
+fn load_cache_record(
+  cache_id: &str
+) -> anyhow::Result<
+  ExternalCalendarCacheRecord
+> {
+  let normalized =
+    sanitize_cache_fragment(cache_id);
+  let metadata_path =
+    external_calendar_cache_dir().join(
+      format!("{normalized}.json")
+    );
+  let metadata_raw =
+    std::fs::read_to_string(
+      &metadata_path
+    )
+    .map_err(anyhow::Error::new)
+    .with_context(|| {
+      format!(
+        "failed reading cache metadata {}",
+        metadata_path.display()
+      )
+    })?;
+  let record =
+    serde_json::from_str::<
+      ExternalCalendarCacheRecord
+    >(&metadata_raw)
+    .map_err(anyhow::Error::new)
+    .with_context(|| {
+      format!(
+        "failed parsing cache metadata {}",
+        metadata_path.display()
+      )
+    })?;
+  Ok(record)
+}
+
+fn list_cached_ics_entries()
+-> anyhow::Result<
+  Vec<ExternalCalendarCacheEntry>
+> {
+  let cache_dir =
+    external_calendar_cache_dir();
+  if !cache_dir.is_dir() {
+    return Ok(Vec::new());
+  }
+
+  let mut entries = Vec::new();
+  for dir_entry in std::fs::read_dir(
+    &cache_dir
+  )
+  .map_err(anyhow::Error::new)
+  .with_context(|| {
+    format!(
+      "failed reading cache directory {}",
+      cache_dir.display()
+    )
+  })? {
+    let dir_entry =
+      match dir_entry {
+        | Ok(entry) => entry,
+        | Err(error) => {
+          warn!(
+            error = %error,
+            "failed iterating ICS cache directory entry"
+          );
+          continue;
+        }
+      };
+    let path = dir_entry.path();
+    let is_json = path
+      .extension()
+      .and_then(|value| {
+        value.to_str()
+      })
+      .is_some_and(|value| {
+        value.eq_ignore_ascii_case(
+          "json"
+        )
+      });
+    if !is_json {
+      continue;
+    }
+
+    let raw = match std::fs::read_to_string(
+      &path
+    ) {
+      | Ok(raw) => raw,
+      | Err(error) => {
+        warn!(
+          path = %path.display(),
+          error = %error,
+          "failed reading ICS cache metadata file"
+        );
+        continue;
+      }
+    };
+    let record =
+      match serde_json::from_str::<
+        ExternalCalendarCacheRecord
+      >(&raw) {
+        | Ok(record) => record,
+        | Err(error) => {
+          warn!(
+            path = %path.display(),
+            error = %error,
+            "failed parsing ICS cache metadata"
+          );
+          continue;
+        }
+      };
+    if !std::path::Path::new(
+      &record.ics_path
+    )
+    .is_file()
+    {
+      warn!(
+        cache_id = %record.cache_id,
+        ics_path = %record.ics_path,
+        "skipping ICS cache entry with missing ICS payload file"
+      );
+      continue;
+    }
+    entries.push(
+      ExternalCalendarCacheEntry {
+        cache_id: record.cache_id,
+        name: record.name,
+        location: record.location,
+        color: record.color,
+        cached_at: record.cached_at,
+        kind: record.kind
+      }
+    );
+  }
+
+  entries.sort_by(|left, right| {
+    right
+      .cached_at
+      .cmp(&left.cached_at)
+  });
+  Ok(entries)
 }
 
 fn find_property<'a>(

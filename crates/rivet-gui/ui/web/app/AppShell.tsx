@@ -29,6 +29,8 @@ export function AppShell() {
     activeTab,
     setActiveTab,
     themeMode,
+    themeFollowSystem,
+    systemThemeMode,
     toggleTheme,
     addTaskDialogOpen,
     addTaskDialogContext,
@@ -47,6 +49,7 @@ export function AppShell() {
     closeSettings,
     dueConfig,
     duePermission,
+    setThemeFollowSystem,
     setDueNotificationsEnabled,
     setDuePreNotifyEnabled,
     setDuePreNotifyMinutes,
@@ -64,6 +67,7 @@ export function AppShell() {
   const runtimeMode = runtimeConfig?.app?.mode ?? runtimeConfig?.mode ?? "prod";
   const loggingDirectory = runtimeConfig?.logging?.directory ?? "logs";
   const isDevMode = runtimeMode === "dev";
+  const themeIconMode = themeFollowSystem ? systemThemeMode : themeMode;
   const onProfilerRender = useCallback<ProfilerOnRenderCallback>(
     (id, phase, actualDuration, baseDuration) => {
       if (!isDevMode) {
@@ -175,9 +179,10 @@ export function AppShell() {
               variant="outlined"
               size="small"
               onClick={toggleTheme}
-              startIcon={themeMode === "day" ? <DarkModeIcon fontSize="small" /> : <LightModeIcon fontSize="small" />}
+              disabled={themeFollowSystem}
+              startIcon={themeIconMode === "day" ? <DarkModeIcon fontSize="small" /> : <LightModeIcon fontSize="small" />}
             >
-              {themeMode === "day" ? "Night" : "Day"}
+              {themeFollowSystem ? `System (${systemThemeMode})` : (themeMode === "day" ? "Night" : "Day")}
             </Button>
             <Button
               variant="outlined"
@@ -236,7 +241,9 @@ export function AppShell() {
         loggingDirectory={loggingDirectory}
         dueConfig={dueConfig}
         duePermission={duePermission}
+        themeFollowSystem={themeFollowSystem}
         onClose={closeSettings}
+        onToggleThemeFollowSystem={setThemeFollowSystem}
         onToggleEnabled={setDueNotificationsEnabled}
         onTogglePreEnabled={setDuePreNotifyEnabled}
         onPreMinutesChange={setDuePreNotifyMinutes}

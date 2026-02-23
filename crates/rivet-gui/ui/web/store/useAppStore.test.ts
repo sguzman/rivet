@@ -3,11 +3,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { TaskCreate, TaskDto } from "../types/core";
 
 const mocks = vi.hoisted(() => ({
+  applyConfigUpdatesMock: vi.fn(),
   addTaskMock: vi.fn(),
   deleteTaskMock: vi.fn(),
   doneTaskMock: vi.fn(),
   healthCheckMock: vi.fn(),
+  importExternalCalendarCachedMock: vi.fn(),
   importExternalCalendarIcsMock: vi.fn(),
+  listExternalCalendarCacheMock: vi.fn(),
   listTasksMock: vi.fn(),
   loadConfigSnapshotMock: vi.fn(),
   loadTagSchemaSnapshotMock: vi.fn(),
@@ -18,11 +21,14 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../api/tauri", () => ({
+  applyConfigUpdates: mocks.applyConfigUpdatesMock,
   addTask: mocks.addTaskMock,
   deleteTask: mocks.deleteTaskMock,
   doneTask: mocks.doneTaskMock,
   healthCheck: mocks.healthCheckMock,
+  importExternalCalendarCached: mocks.importExternalCalendarCachedMock,
   importExternalCalendarIcs: mocks.importExternalCalendarIcsMock,
+  listExternalCalendarCache: mocks.listExternalCalendarCacheMock,
   listTasks: mocks.listTasksMock,
   loadConfigSnapshot: mocks.loadConfigSnapshotMock,
   loadTagSchemaSnapshot: mocks.loadTagSchemaSnapshotMock,
@@ -69,10 +75,13 @@ const createInput: TaskCreate = {
 describe("useAppStore modal and save regressions", () => {
   beforeEach(() => {
     mocks.addTaskMock.mockReset();
+    mocks.applyConfigUpdatesMock.mockReset();
     mocks.deleteTaskMock.mockReset();
     mocks.doneTaskMock.mockReset();
     mocks.healthCheckMock.mockReset();
+    mocks.importExternalCalendarCachedMock.mockReset();
     mocks.importExternalCalendarIcsMock.mockReset();
+    mocks.listExternalCalendarCacheMock.mockReset();
     mocks.listTasksMock.mockReset();
     mocks.loadConfigSnapshotMock.mockReset();
     mocks.loadTagSchemaSnapshotMock.mockReset();

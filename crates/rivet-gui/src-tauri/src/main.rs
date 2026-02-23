@@ -428,6 +428,7 @@ fn main() {
     .invoke_handler(
       tauri::generate_handler![
         commands::config_snapshot,
+        commands::config_apply_updates,
         commands::tag_schema_snapshot,
         commands::tasks_list,
         commands::task_add,
@@ -438,6 +439,8 @@ fn main() {
         commands::ui_log,
         commands::external_calendar_sync,
         commands::external_calendar_import_ics,
+        commands::external_calendar_cache_list,
+        commands::external_calendar_import_cached,
         commands::window_minimize,
         commands::window_toggle_maximize,
         commands::window_close,

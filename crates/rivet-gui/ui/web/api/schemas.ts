@@ -70,6 +70,17 @@ export const ExternalCalendarSyncResultSchema = z.object({
   refresh_minutes: z.number().int().min(0)
 });
 
+export const ExternalCalendarCacheEntrySchema = z.object({
+  cache_id: z.string().min(1),
+  name: z.string(),
+  location: z.string(),
+  color: z.string(),
+  cached_at: z.string(),
+  kind: z.string()
+});
+
+export const ExternalCalendarCacheEntryArraySchema = z.array(ExternalCalendarCacheEntrySchema);
+
 export const TagKeySchema = z.object({
   id: z.string(),
   label: z.string().optional(),
@@ -97,6 +108,21 @@ export const RivetRuntimeConfigSchema = z.object({
   }).passthrough().optional(),
   time: z.object({
     timezone: z.string().optional()
+  }).passthrough().optional(),
+  notifications: z.object({
+    due: z.object({
+      enabled: z.boolean().optional(),
+      pre_notify_enabled: z.boolean().optional(),
+      pre_notify_minutes: z.number().int().optional(),
+      scan_interval_seconds: z.number().int().optional()
+    }).passthrough().optional()
+  }).passthrough().optional(),
+  ui: z.object({
+    default_theme: z.string().optional(),
+    theme: z.object({
+      mode: z.string().optional(),
+      follow_system: z.boolean().optional()
+    }).passthrough().optional()
   }).passthrough().optional(),
   calendar: z.object({
     version: z.number().int().optional(),

@@ -280,12 +280,19 @@ export function KanbanWorkspace() {
             {boards.map((board) => (
               <Button
                 key={board.id}
-                variant={board.id === activeBoardId ? "contained" : "outlined"}
+                variant="outlined"
                 onClick={() => setActiveBoard(board.id)}
                 className="!justify-start"
                 sx={{
                   borderColor: board.color,
-                  color: board.id === activeBoardId ? "primary.contrastText" : board.color
+                  color: board.id === activeBoardId ? "#ffffff" : board.color,
+                  backgroundColor: board.id === activeBoardId ? board.color : "transparent",
+                  "&:hover": {
+                    borderColor: board.color,
+                    backgroundColor: board.id === activeBoardId
+                      ? board.color
+                      : "color-mix(in srgb, transparent 80%, currentColor 20%)"
+                  }
                 }}
               >
                 {board.name}

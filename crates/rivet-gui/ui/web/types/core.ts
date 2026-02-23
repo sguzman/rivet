@@ -76,3 +76,12 @@ export interface ExternalCalendarSyncResult {
   remote_events: number;
   refresh_minutes: number;
 }
+
+export interface ExternalCalendarCacheEntry {
+  cache_id: string;
+  name: string;
+  location: string;
+  color: string;
+  cached_at: string;
+  kind: string;
+}
