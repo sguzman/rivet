@@ -183,8 +183,18 @@ export function CalendarWorkspace() {
     }));
   }, [calendarNameMap, currentPeriodEntries]);
 
+  const [deEmphasizePastPeriods, setDeEmphasizePastPeriods] = useState(false);
   const [includePastPeriodTasks, setIncludePastPeriodTasks] = useState(true);
   const [nowUtcMs, setNowUtcMs] = useState(() => Date.now());
+  const nowLocal = useMemo(() => nowDateTime(config.timezone, nowUtcMs), [config.timezone, nowUtcMs]);
+  const todayLocal = useMemo(
+    () => toCalendarDate(nowLocal.year, nowLocal.month, nowLocal.day),
+    [nowLocal.day, nowLocal.month, nowLocal.year]
+  );
+  const todayMonthStart = useMemo(
+    () => firstDayOfMonth(nowLocal.year, nowLocal.month),
+    [nowLocal.month, nowLocal.year]
+  );
 
   const visiblePeriodEntries = useMemo(() => {
     const byCalendar = currentPeriodEntries.filter((entry) => {
@@ -254,11 +264,13 @@ export function CalendarWorkspace() {
           const monthEntries = allDueEntries.filter(
             (entry) => entry.dueLocal.year === year && entry.dueLocal.month === month
           );
+          const isCurrentMonth = year === nowLocal.year && month === nowLocal.month;
+          const isPastMonth = monthStart.getTime() < todayMonthStart.getTime();
           return (
             <button
               key={month}
               type="button"
-              className="calendar-period-card"
+              className={`calendar-period-card ${isCurrentMonth ? "calendar-current-period" : ""} ${deEmphasizePastPeriods && isPastMonth ? "calendar-past-muted" : ""}`}
               onClick={() => navigateCalendar(calendarDateToIso(monthStart), "month")}
             >
               <div className="calendar-period-title">
@@ -283,11 +295,13 @@ export function CalendarWorkspace() {
           const monthEntries = allDueEntries.filter(
             (entry) => entry.dueLocal.year === year && entry.dueLocal.month === month
           );
+          const isCurrentMonth = year === nowLocal.year && month === nowLocal.month;
+          const isPastMonth = monthStart.getTime() < todayMonthStart.getTime();
           return (
             <button
               key={month}
               type="button"
-              className="calendar-period-card"
+              className={`calendar-period-card ${isCurrentMonth ? "calendar-current-period" : ""} ${deEmphasizePastPeriods && isPastMonth ? "calendar-past-muted" : ""}`}
               onClick={() => navigateCalendar(calendarDateToIso(monthStart), "month")}
             >
               <div className="calendar-period-title">
@@ -319,11 +333,15 @@ export function CalendarWorkspace() {
             const day = addDays(gridStart, offset);
             const markers = markersForDate(allDueEntries, day);
             const outside = day.getUTCMonth() !== focus.getUTCMonth();
+            const isCurrentDay = day.getUTCFullYear() === todayLocal.getUTCFullYear()
+              && day.getUTCMonth() === todayLocal.getUTCMonth()
+              && day.getUTCDate() === todayLocal.getUTCDate();
+            const isPastDay = day.getTime() < todayLocal.getTime();
             return (
               <button
                 key={calendarDateToIso(day)}
                 type="button"
-                className={`calendar-day-cell ${outside ? "outside" : ""} ${markers.length > 0 ? "has-tasks" : ""}`}
+                className={`calendar-day-cell ${outside ? "outside" : ""} ${markers.length > 0 ? "has-tasks" : ""} ${isCurrentDay ? "calendar-current-period" : ""} ${deEmphasizePastPeriods && isPastDay ? "calendar-past-muted" : ""}`}
                 onClick={() => navigateCalendar(calendarDateToIso(day), "day")}
               >
                 <div className="calendar-day-label">{day.getUTCDate()}</div>
@@ -359,11 +377,15 @@ export function CalendarWorkspace() {
         {Array.from({ length: 7 }).map((_, offset) => {
           const day = addDays(start, offset);
           const dayEntries = entriesForDate(allDueEntries, day);
+          const isCurrentDay = day.getUTCFullYear() === todayLocal.getUTCFullYear()
+            && day.getUTCMonth() === todayLocal.getUTCMonth()
+            && day.getUTCDate() === todayLocal.getUTCDate();
+          const isPastDay = day.getTime() < todayLocal.getTime();
           return (
             <button
               key={calendarDateToIso(day)}
               type="button"
-              className={`calendar-week-card ${dayEntries.length > 0 ? "has-tasks" : ""}`}
+              className={`calendar-week-card ${dayEntries.length > 0 ? "has-tasks" : ""} ${isCurrentDay ? "calendar-current-period" : ""} ${deEmphasizePastPeriods && isPastDay ? "calendar-past-muted" : ""}`}
               onClick={() => navigateCalendar(calendarDateToIso(day), "day")}
             >
               <div className="calendar-week-card-head">
@@ -392,14 +414,27 @@ export function CalendarWorkspace() {
 
   const renderDayView = () => {
     const dayEntries = entriesForDate(allDueEntries, focus).sort((a, b) => a.dueUtcMs - b.dueUtcMs);
+    const isFocusToday = focus.getUTCFullYear() === todayLocal.getUTCFullYear()
+      && focus.getUTCMonth() === todayLocal.getUTCMonth()
+      && focus.getUTCDate() === todayLocal.getUTCDate();
+    const focusBeforeToday = focus.getTime() < todayLocal.getTime();
+    const hourStart = config.day_view.hour_start;
+    const hourEnd = config.day_view.hour_end;
+    const nowHourFloat = nowLocal.hour + nowLocal.minute / 60;
+    const rawOffset = (nowHourFloat - hourStart) / (hourEnd - hourStart + 1);
+    const nowLineOffset = Math.max(0, Math.min(1, rawOffset)) * 100;
     return (
       <div className="calendar-day-view">
         <div className="calendar-day-hours">
+          {isFocusToday && nowHourFloat >= hourStart && nowHourFloat <= hourEnd + 1 ? (
+            <div className="calendar-now-line" style={{ top: `${nowLineOffset}%` }} />
+          ) : null}
           {Array.from({ length: config.day_view.hour_end - config.day_view.hour_start + 1 }).map((_, offset) => {
             const hour = config.day_view.hour_start + offset;
             const markers = dayEntries.filter((entry) => entry.dueLocal.hour === hour).map((entry) => entry.marker);
+            const pastHour = deEmphasizePastPeriods && (focusBeforeToday || (isFocusToday && hour < nowLocal.hour));
             return (
-              <div key={hour} className="calendar-hour-row">
+              <div key={hour} className={`calendar-hour-row ${pastHour ? "calendar-past-muted" : ""}`}>
                 <span className="calendar-hour-label">{String(hour).padStart(2, "0")}:00</span>
                 <MarkerDots markers={markers} limit={config.policies.red_dot_limit} />
               </div>
@@ -489,6 +524,15 @@ export function CalendarWorkspace() {
           <Typography variant="caption" color="text.secondary">
             due tasks: {allDueEntries.length}
           </Typography>
+          <FormControlLabel
+            control={(
+              <Checkbox
+                checked={deEmphasizePastPeriods}
+                onChange={(event) => setDeEmphasizePastPeriods(event.target.checked)}
+              />
+            )}
+            label="De-emphasize past periods"
+          />
 
           <Stack spacing={0.7}>
             <Typography variant="caption" color="text.secondary">Marker legend</Typography>
@@ -782,4 +826,36 @@ function todayDate(timezone: string) {
     }
   }
   return { year, month, day };
+}
+
+function nowDateTime(timezone: string, nowUtcMs: number) {
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  });
+  const parts = formatter.formatToParts(new Date(nowUtcMs));
+  let year = 1970;
+  let month = 1;
+  let day = 1;
+  let hour = 0;
+  let minute = 0;
+  for (const part of parts) {
+    if (part.type === "year") {
+      year = Number(part.value);
+    } else if (part.type === "month") {
+      month = Number(part.value);
+    } else if (part.type === "day") {
+      day = Number(part.value);
+    } else if (part.type === "hour") {
+      hour = Number(part.value);
+    } else if (part.type === "minute") {
+      minute = Number(part.value);
+    }
+  }
+  return { year, month, day, hour, minute };
 }
