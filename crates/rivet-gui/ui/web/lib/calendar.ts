@@ -280,6 +280,25 @@ export function parseTaskDueUtcMs(rawDue: string): number | null {
   return parsed;
 }
 
+export function isCalendarEventTask(task: TaskDto): boolean {
+  return firstTagValue(task.tags, CAL_SOURCE_TAG_KEY) !== null;
+}
+
+export function canManuallyCompleteTask(task: TaskDto, nowUtcMs: number): boolean {
+  if (!isCalendarEventTask(task)) {
+    return true;
+  }
+  const dueRaw = task.due?.trim();
+  if (!dueRaw) {
+    return false;
+  }
+  const dueUtcMs = parseTaskDueUtcMs(dueRaw);
+  if (dueUtcMs === null) {
+    return false;
+  }
+  return dueUtcMs <= nowUtcMs;
+}
+
 export function zonedDateTimeParts(utcMs: number, timezone: string): ZonedDateTimeParts {
   const formatter = new Intl.DateTimeFormat("en-US", {
     timeZone: timezone,

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { DragEvent } from "react";
 
 import AddIcon from "@mui/icons-material/Add";
@@ -21,6 +21,7 @@ import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 
 import { TagChip } from "../../components/TagChip";
+import { canManuallyCompleteTask } from "../../lib/calendar";
 import { boardIdFromTaskTags, humanizeLane, kanbanLaneFromTask } from "../../lib/tags";
 import {
   useKanbanColumns,
@@ -37,7 +38,9 @@ function KanbanCard(props: {
   currentBoardId: string | null;
   onMove: (lane: string) => void;
   onMoveBoard: (boardId: string) => void;
+  canDone: boolean;
   onDone: () => void;
+  onUndone: () => void;
   onDelete: () => void;
   onDragStart: (event: DragEvent<HTMLDivElement>) => void;
   onDragEnd: () => void;
@@ -110,8 +113,20 @@ function KanbanCard(props: {
             </Button>
           ) : null}
           {(props.task.status === "Pending" || props.task.status === "Waiting") ? (
-            <Button size="small" variant="contained" color="success" onClick={props.onDone}>
+            <Button
+              size="small"
+              variant="contained"
+              color="success"
+              onClick={props.onDone}
+              disabled={!props.canDone}
+              title={props.canDone ? undefined : "Calendar events auto-complete when due."}
+            >
               Done
+            </Button>
+          ) : null}
+          {props.task.status === "Completed" ? (
+            <Button size="small" variant="outlined" color="warning" onClick={props.onUndone}>
+              Uncomplete
             </Button>
           ) : null}
           <Button size="small" variant="outlined" color="error" onClick={props.onDelete}>
@@ -144,6 +159,7 @@ export function KanbanWorkspace() {
     moveTask,
     moveTaskToBoard,
     markTaskDone,
+    markTaskUndone,
     removeTask,
     setStatusFilter,
     setProjectFilter,
@@ -155,6 +171,7 @@ export function KanbanWorkspace() {
 
   const columns = useKanbanColumns();
   const { visibleTasks: tasks, projectFacets, tagFacets } = useKanbanViewData();
+  const [nowUtcMs, setNowUtcMs] = useState(() => Date.now());
 
   const activeBoard = boards.find((entry) => entry.id === activeBoardId) ?? null;
 
@@ -162,6 +179,13 @@ export function KanbanWorkspace() {
   const [createDraft, setCreateDraft] = useState("");
   const [renameOpen, setRenameOpen] = useState(false);
   const [renameDraft, setRenameDraft] = useState("");
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      setNowUtcMs(Date.now());
+    }, 30_000);
+    return () => window.clearInterval(intervalId);
+  }, []);
 
   const tasksByLane = useMemo(() => {
     const fallbackLane = columns[0] ?? "todo";
@@ -336,8 +360,12 @@ export function KanbanWorkspace() {
                           onMoveBoard={(boardId) => {
                             void moveTaskToBoard(task.uuid, boardId, entry.column);
                           }}
+                          canDone={canManuallyCompleteTask(task, nowUtcMs)}
                           onDone={() => {
                             void markTaskDone(task.uuid);
+                          }}
+                          onUndone={() => {
+                            void markTaskUndone(task.uuid);
                           }}
                           onDelete={() => {
                             void removeTask(task.uuid);

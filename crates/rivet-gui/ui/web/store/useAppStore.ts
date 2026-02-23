@@ -13,13 +13,15 @@ import {
   loadTagSchemaSnapshot,
   setCommandFailureSink,
   syncExternalCalendar,
+  uncompleteTask,
   updateTask
 } from "../api/tauri";
 import {
+  canManuallyCompleteTask,
   calendarDateFromIso,
   calendarDateToIso,
   collectCalendarDueTasks,
-  parseTaskDueUtcMs,
+  isCalendarEventTask,
   resolveCalendarConfig,
   shiftCalendarFocus as shiftFocusDate,
   todayInTimezone
@@ -60,13 +62,11 @@ import {
   saveNotificationSettings
 } from "../lib/storage";
 import {
-  CAL_SOURCE_TAG_KEY,
   BOARD_TAG_KEY,
   boardIdFromTaskTags,
   buildTagColorMap,
   collectTagsForSubmit,
   defaultKanbanLane,
-  firstTagValue,
   kanbanColumnsFromSchema,
   pushTagUnique,
   removeTagsForKey,
@@ -224,8 +224,10 @@ interface AppState {
   createTask: (input: TaskCreate) => Promise<void>;
   updateTaskByUuid: (uuid: string, patch: TaskPatch) => Promise<TaskDto | null>;
   markTaskDone: (uuid: string) => Promise<void>;
+  markTaskUndone: (uuid: string) => Promise<void>;
   removeTask: (uuid: string) => Promise<void>;
   markTasksDoneBulk: (uuids: string[]) => Promise<void>;
+  markTasksUndoneBulk: (uuids: string[]) => Promise<void>;
   removeTasksBulk: (uuids: string[]) => Promise<void>;
 
   setActiveKanbanBoard: (boardId: string | null) => void;
@@ -528,6 +530,20 @@ export const useAppStore = create<AppState>((set, get) => {
   },
 
   async markTaskDone(uuid) {
+    const task = get().tasks.find((entry) => entry.uuid === uuid);
+    if (!task) {
+      return;
+    }
+    if (!(task.status === "Pending" || task.status === "Waiting")) {
+      return;
+    }
+    if (!canManuallyCompleteTask(task, Date.now())) {
+      const message = "Calendar events can only be completed after their due time has passed.";
+      set({ error: message });
+      logger.warn("task.done.blocked", `${uuid}: calendar task due date not reached`);
+      return;
+    }
+
     set({ loading: true, error: null });
     logger.info("task.done.start", uuid);
     try {
@@ -541,6 +557,28 @@ export const useAppStore = create<AppState>((set, get) => {
       const message = error instanceof Error ? error.message : String(error);
       set({ loading: false, error: message });
       logger.error("task.done.error", `${uuid}: ${message}`);
+    }
+  },
+
+  async markTaskUndone(uuid) {
+    const task = get().tasks.find((entry) => entry.uuid === uuid);
+    if (!task || task.status !== "Completed") {
+      return;
+    }
+
+    set({ loading: true, error: null });
+    logger.info("task.uncomplete.start", uuid);
+    try {
+      const updated = await uncompleteTask(uuid);
+      set((state) => ({
+        loading: false,
+        tasks: state.tasks.map((entry) => (entry.uuid === uuid ? updated : entry))
+      }));
+      logger.info("task.uncomplete.done", uuid);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      set({ loading: false, error: message });
+      logger.error("task.uncomplete.error", `${uuid}: ${message}`);
     }
   },
 
@@ -571,12 +609,39 @@ export const useAppStore = create<AppState>((set, get) => {
       return;
     }
 
+    const nowMs = Date.now();
+    const taskById = new Map(get().tasks.map((task) => [task.uuid, task] as const));
+    const eligible: string[] = [];
+    const blockedCalendar: string[] = [];
+    for (const uuid of targetIds) {
+      const task = taskById.get(uuid);
+      if (!task) {
+        continue;
+      }
+      if (!(task.status === "Pending" || task.status === "Waiting")) {
+        continue;
+      }
+      if (!canManuallyCompleteTask(task, nowMs)) {
+        blockedCalendar.push(uuid);
+        continue;
+      }
+      eligible.push(uuid);
+    }
+
+    if (eligible.length === 0) {
+      if (blockedCalendar.length > 0) {
+        const message = `Blocked ${blockedCalendar.length} calendar task(s): due time has not passed yet.`;
+        set({ error: message });
+      }
+      return;
+    }
+
     set({ loading: true, error: null });
-    logger.info("task.done.bulk.start", `count=${targetIds.length}`);
+    logger.info("task.done.bulk.start", `count=${eligible.length}`);
 
     const updatedById = new Map<string, TaskDto>();
     const failed: string[] = [];
-    for (const uuid of targetIds) {
+    for (const uuid of eligible) {
       try {
         const updated = await doneTask(uuid);
         updatedById.set(uuid, updated);
@@ -586,14 +651,55 @@ export const useAppStore = create<AppState>((set, get) => {
       }
     }
 
+    const failureMessage = failed.length > 0 ? `Failed to complete ${failed.length} task(s).` : null;
+    const blockedMessage = blockedCalendar.length > 0 ? `Blocked ${blockedCalendar.length} calendar task(s) before due time.` : null;
+    const errorMessage = [failureMessage, blockedMessage].filter((entry) => Boolean(entry)).join(" ");
     set((state) => ({
       loading: false,
-      error: failed.length > 0 ? `Failed to complete ${failed.length} task(s).` : state.error,
+      error: errorMessage || null,
       tasks: state.tasks.map((task) => updatedById.get(task.uuid) ?? task)
     }));
     logger.info(
       "task.done.bulk.done",
-      `completed=${updatedById.size} failed=${failed.length}`
+      `completed=${updatedById.size} failed=${failed.length} blocked=${blockedCalendar.length}`
+    );
+  },
+
+  async markTasksUndoneBulk(uuids) {
+    const targetIds = [...new Set(uuids)];
+    if (targetIds.length === 0) {
+      return;
+    }
+
+    const taskById = new Map(get().tasks.map((task) => [task.uuid, task] as const));
+    const eligible = targetIds.filter((uuid) => taskById.get(uuid)?.status === "Completed");
+    if (eligible.length === 0) {
+      return;
+    }
+
+    set({ loading: true, error: null });
+    logger.info("task.uncomplete.bulk.start", `count=${eligible.length}`);
+
+    const updatedById = new Map<string, TaskDto>();
+    const failed: string[] = [];
+    for (const uuid of eligible) {
+      try {
+        const updated = await uncompleteTask(uuid);
+        updatedById.set(uuid, updated);
+      } catch (error) {
+        failed.push(uuid);
+        logger.warn("task.uncomplete.bulk.item_error", `${uuid}: ${String(error)}`);
+      }
+    }
+
+    set((state) => ({
+      loading: false,
+      error: failed.length > 0 ? `Failed to uncomplete ${failed.length} task(s).` : null,
+      tasks: state.tasks.map((task) => updatedById.get(task.uuid) ?? task)
+    }));
+    logger.info(
+      "task.uncomplete.bulk.done",
+      `reopened=${updatedById.size} failed=${failed.length}`
     );
   },
 
@@ -993,38 +1099,45 @@ export const useAppStore = create<AppState>((set, get) => {
     const nowMs = Date.now();
 
     if (!overdueCalendarSweepInFlight) {
-      const overdueCalendarTasks = state.tasks.filter((task) => {
-        if (!(task.status === "Pending" || task.status === "Waiting")) {
-          return false;
-        }
-        if (!firstTagValue(task.tags, CAL_SOURCE_TAG_KEY)) {
-          return false;
-        }
-        const dueRaw = task.due?.trim();
-        if (!dueRaw) {
-          return false;
-        }
-        const dueUtcMs = parseTaskDueUtcMs(dueRaw);
-        if (dueUtcMs === null) {
-          return false;
-        }
-        return dueUtcMs <= nowMs;
-      });
+      const overdueCalendarTasks = state.tasks.filter((task) => (
+        (task.status === "Pending" || task.status === "Waiting")
+        && isCalendarEventTask(task)
+        && canManuallyCompleteTask(task, nowMs)
+      ));
+      const prematurelyCompletedCalendarTasks = state.tasks.filter((task) => (
+        task.status === "Completed"
+        && isCalendarEventTask(task)
+        && !canManuallyCompleteTask(task, nowMs)
+      ));
 
-      if (overdueCalendarTasks.length > 0) {
+      if (overdueCalendarTasks.length > 0 || prematurelyCompletedCalendarTasks.length > 0) {
         overdueCalendarSweepInFlight = true;
-        logger.info("calendar.auto_complete.start", `count=${overdueCalendarTasks.length}`);
+        logger.info(
+          "calendar.auto_sweep.start",
+          `complete=${overdueCalendarTasks.length} reopen=${prematurelyCompletedCalendarTasks.length}`
+        );
         void (async () => {
           try {
             const updatedById = new Map<string, TaskDto>();
-            let failed = 0;
+            let completeFailed = 0;
+            let reopenFailed = 0;
+
+            for (const task of prematurelyCompletedCalendarTasks) {
+              try {
+                const updated = await uncompleteTask(task.uuid);
+                updatedById.set(task.uuid, updated);
+              } catch (error) {
+                reopenFailed += 1;
+                logger.warn("calendar.auto_reopen.error", `${task.uuid}: ${String(error)}`);
+              }
+            }
 
             for (const task of overdueCalendarTasks) {
               try {
                 const updated = await doneTask(task.uuid);
                 updatedById.set(task.uuid, updated);
               } catch (error) {
-                failed += 1;
+                completeFailed += 1;
                 logger.warn("calendar.auto_complete.error", `${task.uuid}: ${String(error)}`);
               }
             }
@@ -1036,8 +1149,8 @@ export const useAppStore = create<AppState>((set, get) => {
             }
 
             logger.info(
-              "calendar.auto_complete.done",
-              `completed=${updatedById.size} failed=${failed}`
+              "calendar.auto_sweep.done",
+              `updated=${updatedById.size} complete_failed=${completeFailed} reopen_failed=${reopenFailed}`
             );
           } finally {
             overdueCalendarSweepInFlight = false;

@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   loadTagSchemaSnapshotMock: vi.fn(),
   setCommandFailureSinkMock: vi.fn(),
   syncExternalCalendarMock: vi.fn(),
+  uncompleteTaskMock: vi.fn(),
   updateTaskMock: vi.fn()
 }));
 
@@ -27,6 +28,7 @@ vi.mock("../api/tauri", () => ({
   loadTagSchemaSnapshot: mocks.loadTagSchemaSnapshotMock,
   setCommandFailureSink: mocks.setCommandFailureSinkMock,
   syncExternalCalendar: mocks.syncExternalCalendarMock,
+  uncompleteTask: mocks.uncompleteTaskMock,
   updateTask: mocks.updateTaskMock
 }));
 
@@ -75,6 +77,7 @@ describe("useAppStore modal and save regressions", () => {
     mocks.loadConfigSnapshotMock.mockReset();
     mocks.loadTagSchemaSnapshotMock.mockReset();
     mocks.syncExternalCalendarMock.mockReset();
+    mocks.uncompleteTaskMock.mockReset();
     mocks.updateTaskMock.mockReset();
 
     useAppStore.setState(initialState, true);

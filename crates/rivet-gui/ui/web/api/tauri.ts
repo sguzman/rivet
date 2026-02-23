@@ -181,6 +181,25 @@ async function invokeCommand<R>(command: string, args?: unknown): Promise<R> {
         }
         return target as R;
       }
+      case "task_uncomplete": {
+        const payload = args as TaskIdArg;
+        const tasks = parseStoredTasks().map((entry) => {
+          if (entry.uuid !== payload.uuid) {
+            return entry;
+          }
+          return {
+            ...entry,
+            status: "Pending" as const,
+            modified: new Date().toISOString()
+          };
+        });
+        writeStoredTasks(tasks);
+        const target = tasks.find((entry) => entry.uuid === payload.uuid);
+        if (!target) {
+          throw new Error(`task not found: ${payload.uuid}`);
+        }
+        return target as R;
+      }
       case "task_delete": {
         const payload = args as TaskIdArg;
         const tasks = parseStoredTasks().filter((entry) => entry.uuid !== payload.uuid);
@@ -297,6 +316,11 @@ export async function updateTask(args: TaskUpdateArgs): Promise<TaskDto> {
 export async function doneTask(uuid: string): Promise<TaskDto> {
   const response = await invokeCommand<unknown>("task_done", { uuid });
   return parseWithSchema("task_done response", response, TaskDtoSchema);
+}
+
+export async function uncompleteTask(uuid: string): Promise<TaskDto> {
+  const response = await invokeCommand<unknown>("task_uncomplete", { uuid });
+  return parseWithSchema("task_uncomplete response", response, TaskDtoSchema);
 }
 
 export async function deleteTask(uuid: string): Promise<void> {

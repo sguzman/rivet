@@ -13,7 +13,10 @@ interface TaskDetailsPanelProps {
   busy: boolean;
   onEdit: (taskId: string) => void;
   onDone: (taskId: string) => void;
+  onUndone: (taskId: string) => void;
   onDelete: (taskId: string) => void;
+  canMarkDone: boolean;
+  doneBlockedMessage: string | null;
 }
 
 export function TaskDetailsPanel(props: TaskDetailsPanelProps) {
@@ -69,10 +72,18 @@ export function TaskDetailsPanel(props: TaskDetailsPanelProps) {
             <Button
               variant="contained"
               color="success"
-              disabled={props.busy || props.task.status === "Completed"}
+              disabled={props.busy || props.task.status === "Completed" || !props.canMarkDone}
               onClick={() => props.onDone(props.task!.uuid)}
             >
               Done
+            </Button>
+            <Button
+              variant="outlined"
+              color="warning"
+              disabled={props.busy || props.task.status !== "Completed"}
+              onClick={() => props.onUndone(props.task!.uuid)}
+            >
+              Uncomplete
             </Button>
             <Button
               variant="outlined"
@@ -83,6 +94,11 @@ export function TaskDetailsPanel(props: TaskDetailsPanelProps) {
               Delete
             </Button>
           </Stack>
+          {props.doneBlockedMessage ? (
+            <Typography variant="caption" color="warning.main">
+              {props.doneBlockedMessage}
+            </Typography>
+          ) : null}
         </Stack>
       ) : (
         <Typography variant="body2" color="text.secondary">

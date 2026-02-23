@@ -77,6 +77,21 @@ pub async fn task_done(
 
 #[tauri::command]
 #[instrument(skip(state), fields(request_id = ?request_id, uuid = %args.uuid))]
+pub async fn task_uncomplete(
+  state: State<'_, AppState>,
+  args: TaskIdArg,
+  request_id: Option<String>
+) -> Result<TaskDto, String> {
+  info!(request_id = ?request_id, uuid = %args.uuid, "task_uncomplete command invoked");
+  let result = state.uncomplete(args.uuid);
+  if let Err(err) = result.as_ref() {
+    error!(request_id = ?request_id, error = %err, "task_uncomplete command failed");
+  }
+  result.map_err(err_to_string)
+}
+
+#[tauri::command]
+#[instrument(skip(state), fields(request_id = ?request_id, uuid = %args.uuid))]
 pub async fn task_delete(
   state: State<'_, AppState>,
   args: TaskIdArg,

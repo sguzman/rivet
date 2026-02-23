@@ -269,6 +269,44 @@ impl AppState {
   }
 
   #[instrument(skip(self))]
+  pub fn uncomplete(
+    &self,
+    uuid: Uuid
+  ) -> anyhow::Result<TaskDto> {
+    let now = Utc::now();
+    let store = self.store.lock();
+    let mut pending =
+      store.load_pending()?;
+    let mut completed =
+      store.load_completed()?;
+
+    let idx = completed
+      .iter()
+      .position(|task| {
+        task.uuid == uuid
+      })
+      .ok_or_else(|| {
+        anyhow::anyhow!(
+          "task not found"
+        )
+      })?;
+
+    let mut task = completed.remove(idx);
+    task.status = Status::Pending;
+    task.end = None;
+    task.modified = now;
+    pending.push(task.clone());
+    pending.sort_by_key(|t| {
+      t.id.unwrap_or(u64::MAX)
+    });
+
+    store.save_pending(&pending)?;
+    store.save_completed(&completed)?;
+
+    Ok(task_to_dto(task))
+  }
+
+  #[instrument(skip(self))]
   pub fn delete(
     &self,
     uuid: Uuid

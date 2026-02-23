@@ -63,8 +63,10 @@ export function useTaskWorkspaceSlice() {
     selectTask: state.selectTask,
     updateTask: state.updateTaskByUuid,
     markTaskDone: state.markTaskDone,
+    markTaskUndone: state.markTaskUndone,
     removeTask: state.removeTask,
     markTasksDoneBulk: state.markTasksDoneBulk,
+    markTasksUndoneBulk: state.markTasksUndoneBulk,
     removeTasksBulk: state.removeTasksBulk
   })));
 }
@@ -90,6 +92,7 @@ export function useKanbanWorkspaceSlice() {
     moveTask: state.moveKanbanTask,
     moveTaskToBoard: state.moveKanbanTaskToBoard,
     markTaskDone: state.markTaskDone,
+    markTaskUndone: state.markTaskUndone,
     removeTask: state.removeTask,
     setStatusFilter: state.setKanbanStatusFilter,
     setProjectFilter: state.setKanbanProjectFilter,

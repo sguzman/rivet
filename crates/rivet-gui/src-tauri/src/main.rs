@@ -433,6 +433,7 @@ fn main() {
         commands::task_add,
         commands::task_update,
         commands::task_done,
+        commands::task_uncomplete,
         commands::task_delete,
         commands::ui_log,
         commands::external_calendar_sync,

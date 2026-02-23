@@ -1,6 +1,7 @@
-import { useRef } from "react";
+import { useMemo, useRef } from "react";
 
 import { useVirtualizer } from "@tanstack/react-virtual";
+import Checkbox from "@mui/material/Checkbox";
 import List from "@mui/material/List";
 import ListItemButton from "@mui/material/ListItemButton";
 import ListItemText from "@mui/material/ListItemText";
@@ -14,11 +15,14 @@ import type { TaskDto } from "../types/core";
 interface TaskListPanelProps {
   tasks: TaskDto[];
   selectedTaskId: string | null;
-  onSelectTask: (taskId: string) => void;
+  selectMode: boolean;
+  selectedTaskIds: string[];
+  onTaskClick: (taskId: string, index: number, modifiers: { ctrlOrMeta: boolean; shift: boolean }) => void;
 }
 
 export function TaskListPanel(props: TaskListPanelProps) {
   const parentRef = useRef<HTMLDivElement | null>(null);
+  const selectedTaskSet = useMemo(() => new Set(props.selectedTaskIds), [props.selectedTaskIds]);
   const virtualizer = useVirtualizer({
     count: props.tasks.length,
     getScrollElement: () => parentRef.current,
@@ -47,11 +51,19 @@ export function TaskListPanel(props: TaskListPanelProps) {
               if (!task) {
                 return null;
               }
+              const isSelected = props.selectMode
+                ? selectedTaskSet.has(task.uuid)
+                : task.uuid === props.selectedTaskId;
               return (
                 <ListItemButton
                   key={task.uuid}
-                  selected={task.uuid === props.selectedTaskId}
-                  onClick={() => props.onSelectTask(task.uuid)}
+                  selected={isSelected}
+                  onClick={(event) => {
+                    props.onTaskClick(task.uuid, item.index, {
+                      ctrlOrMeta: event.ctrlKey || event.metaKey,
+                      shift: event.shiftKey
+                    });
+                  }}
                   className="!absolute !left-0 !right-0 !items-start !px-4 !py-3"
                   data-index={item.index}
                   ref={virtualizer.measureElement}
@@ -61,16 +73,27 @@ export function TaskListPanel(props: TaskListPanelProps) {
                 >
                   <Stack spacing={1} className="w-full">
                     <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={2}>
-                      <Typography
-                        variant="subtitle2"
-                        sx={{
-                          whiteSpace: "normal",
-                          wordBreak: "break-word",
-                          overflowWrap: "anywhere"
-                        }}
-                      >
-                        {task.title || "Untitled Task"}
-                      </Typography>
+                      <Stack direction="row" spacing={1} alignItems="center" className="min-w-0 flex-1">
+                        {props.selectMode ? (
+                          <Checkbox
+                            size="small"
+                            checked={isSelected}
+                            tabIndex={-1}
+                            disableRipple
+                            sx={{ p: 0.25 }}
+                          />
+                        ) : null}
+                        <Typography
+                          variant="subtitle2"
+                          sx={{
+                            whiteSpace: "normal",
+                            wordBreak: "break-word",
+                            overflowWrap: "anywhere"
+                          }}
+                        >
+                          {task.title || "Untitled Task"}
+                        </Typography>
+                      </Stack>
                       <StatusChip status={task.status} />
                     </Stack>
                     <ListItemText
