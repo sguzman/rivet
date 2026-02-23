@@ -90,8 +90,10 @@
 
 ## 5. Command Bridge Hardening Before UI Rewrite
 
-- [ ] Document all Tauri command contracts in one place (input/output/error
+- [x] Document all Tauri command contracts in one place (input/output/error
   format).
+- [x] Command contract reference published at
+  `docs/tauri-command-contracts.md`.
 - [x] Validate command argument naming consistency for TS invoke payloads.
 - [x] Add backend command trace IDs to correlate frontend invokes with Rust
   logs.
@@ -126,7 +128,7 @@
 
 ## 8. Tasks Feature Migration Plan
 
-- [ ] Port task list rendering with performant virtualization strategy for large
+- [x] Port task list rendering with performant virtualization strategy for large
   datasets.
 - [x] Port filters and facets:
 - [x] project/tag/completion/priority/due/search
@@ -190,11 +192,11 @@
 
 - [x] Generate/maintain TS types for all command DTOs from Rust shared contracts
   where practical.
-- [ ] Add runtime validation for external data boundaries (zod/io-ts) at API
+- [x] Add runtime validation for external data boundaries (zod/io-ts) at API
   edge.
 - [x] Enforce strict TS (`noImplicitAny`, `strictNullChecks`, etc.).
-- [ ] Add lint + format gates for TS/React/Tailwind.
-- [ ] Add API contract tests to detect Rust/TS drift.
+- [x] Add lint + format gates for TS/React/Tailwind.
+- [x] Add API contract tests to detect Rust/TS drift.
 
 ## 13. Logging and Observability Plan
 
@@ -209,11 +211,11 @@
 
 ## 14. Performance and Responsiveness Plan
 
-- [ ] Add React profiler pass on heavy views (Tasks/Calendar).
-- [ ] Memoize derived selectors for filters and facets.
+- [x] Add React profiler pass on heavy views (Tasks/Calendar).
+- [x] Memoize derived selectors for filters and facets.
 - [ ] Batch updates to avoid re-render storms.
-- [ ] Use virtualized list for large task sets.
-- [ ] Debounce expensive query/filter operations.
+- [x] Use virtualized list for large task sets.
+- [x] Debounce expensive query/filter operations.
 - [ ] Benchmark before/after against frozen baseline.
 
 ## 15. QA and Parity Validation Plan
@@ -247,14 +249,14 @@
 
 ## 17. CI/CD Plan
 
-- [ ] Add frontend CI stages:
-- [ ] `pnpm install`
-- [ ] `pnpm --dir ui run check`
-- [ ] `pnpm --dir ui run build`
-- [ ] Keep Rust checks:
-- [ ] `cargo fmt --check`
-- [ ] `cargo clippy ...`
-- [ ] `cargo test`
+- [x] Add frontend CI stages:
+- [x] `pnpm install`
+- [x] `pnpm --dir ui run check`
+- [x] `pnpm --dir ui run build`
+- [x] Keep Rust checks:
+- [x] `cargo fmt --check`
+- [x] `cargo clippy ...`
+- [x] `cargo test`
 - [ ] Add integrated app build check (`cargo tauri build` smoke in CI when
   feasible).
 - [ ] Add artifact retention for frontend build + tauri logs in dev pipelines.

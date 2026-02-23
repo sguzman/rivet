@@ -1,6 +1,18 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { ZodType } from "zod";
 
 import { logger, setLoggerBridge } from "../lib/logger";
+import {
+  ExternalCalendarSourceSchema,
+  ExternalCalendarSyncResultSchema,
+  RivetRuntimeConfigSchema,
+  TagSchemaSchema,
+  TaskCreateSchema,
+  TaskDtoArraySchema,
+  TaskDtoSchema,
+  TaskUpdateArgsSchema,
+  describeSchemaError
+} from "./schemas";
 import type {
   ExternalCalendarSource,
   ExternalCalendarSyncResult,
@@ -42,6 +54,19 @@ const isTauriRuntime = (): boolean => {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 };
 
+function parseWithSchema<T>(
+  context: string,
+  value: unknown,
+  parser: ZodType<T>
+): T {
+  const result = parser.safeParse(value);
+  if (!result.success) {
+    const message = describeSchemaError(context, result.error);
+    throw new Error(message);
+  }
+  return result.data;
+}
+
 function parseStoredTasks(): TaskDto[] {
   if (typeof window === "undefined") {
     return [];
@@ -53,11 +78,8 @@ function parseStoredTasks(): TaskDto[] {
   }
 
   try {
-    const parsed = JSON.parse(raw) as TaskDto[];
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-    return parsed;
+    const parsed = JSON.parse(raw);
+    return parseWithSchema("mock.tasks", parsed, TaskDtoArraySchema);
   } catch {
     return [];
   }
@@ -222,24 +244,31 @@ setLoggerBridge(async (event, detail) => {
 });
 
 export async function healthCheck(): Promise<void> {
-  await invokeCommand<TaskDto[]>("tasks_list", DEFAULT_TASK_QUERY);
+  const response = await invokeCommand<unknown>("tasks_list", DEFAULT_TASK_QUERY);
+  parseWithSchema("tasks_list healthcheck", response, TaskDtoArraySchema);
 }
 
 export async function listTasks(args: TasksListArgs = DEFAULT_TASK_QUERY): Promise<TaskDto[]> {
-  return invokeCommand<TaskDto[]>("tasks_list", args);
+  const response = await invokeCommand<unknown>("tasks_list", args);
+  return parseWithSchema("tasks_list response", response, TaskDtoArraySchema);
 }
 
 export async function addTask(args: TaskCreate): Promise<TaskDto> {
   logger.info("invoke.task_add", "adding task from React shell");
-  return invokeCommand<TaskDto>("task_add", args);
+  const payload = parseWithSchema("task_add args", args, TaskCreateSchema);
+  const response = await invokeCommand<unknown>("task_add", payload);
+  return parseWithSchema("task_add response", response, TaskDtoSchema);
 }
 
 export async function updateTask(args: TaskUpdateArgs): Promise<TaskDto> {
-  return invokeCommand<TaskDto>("task_update", args);
+  const payload = parseWithSchema("task_update args", args, TaskUpdateArgsSchema);
+  const response = await invokeCommand<unknown>("task_update", payload);
+  return parseWithSchema("task_update response", response, TaskDtoSchema);
 }
 
 export async function doneTask(uuid: string): Promise<TaskDto> {
-  return invokeCommand<TaskDto>("task_done", { uuid });
+  const response = await invokeCommand<unknown>("task_done", { uuid });
+  return parseWithSchema("task_done response", response, TaskDtoSchema);
 }
 
 export async function deleteTask(uuid: string): Promise<void> {
@@ -247,19 +276,24 @@ export async function deleteTask(uuid: string): Promise<void> {
 }
 
 export async function syncExternalCalendar(source: ExternalCalendarSource): Promise<ExternalCalendarSyncResult> {
-  return invokeCommand<ExternalCalendarSyncResult>("external_calendar_sync", source);
+  const payload = parseWithSchema("external_calendar_sync args", source, ExternalCalendarSourceSchema);
+  const response = await invokeCommand<unknown>("external_calendar_sync", payload);
+  return parseWithSchema("external_calendar_sync response", response, ExternalCalendarSyncResultSchema);
 }
 
 export async function importExternalCalendarIcs(source: ExternalCalendarSource, icsText: string): Promise<ExternalCalendarSyncResult> {
-  return invokeCommand<ExternalCalendarSyncResult>("external_calendar_import_ics", {
-    source,
+  const payload = {
+    source: parseWithSchema("external_calendar_import_ics args source", source, ExternalCalendarSourceSchema),
     ics_text: icsText
-  });
+  };
+  const response = await invokeCommand<unknown>("external_calendar_import_ics", payload);
+  return parseWithSchema("external_calendar_import_ics response", response, ExternalCalendarSyncResultSchema);
 }
 
 export async function loadConfigSnapshot(): Promise<RivetRuntimeConfig> {
   try {
-    return await invokeCommand<RivetRuntimeConfig>("config_snapshot");
+    const response = await invokeCommand<unknown>("config_snapshot");
+    return parseWithSchema("config_snapshot response", response, RivetRuntimeConfigSchema);
   } catch (error) {
     logger.warn("config_snapshot", String(error));
     return {};
@@ -268,7 +302,8 @@ export async function loadConfigSnapshot(): Promise<RivetRuntimeConfig> {
 
 export async function loadTagSchemaSnapshot(): Promise<TagSchema> {
   try {
-    return await invokeCommand<TagSchema>("tag_schema_snapshot");
+    const response = await invokeCommand<unknown>("tag_schema_snapshot");
+    return parseWithSchema("tag_schema_snapshot response", response, TagSchemaSchema);
   } catch (error) {
     logger.warn("tag_schema_snapshot", String(error));
     return { version: 1, keys: [] };

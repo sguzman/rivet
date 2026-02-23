@@ -588,6 +588,7 @@ mod tags_tests {
       recurrence_days:      vec![],
       recurrence_months:    vec![],
       recurrence_month_day: String::new(),
+      allow_recurrence:     true,
       error:                None
     }
   }

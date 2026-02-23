@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { create } from "zustand";
 
 import {
@@ -238,6 +239,28 @@ function facetCounts(items: string[]): Array<{ value: string; count: number }> {
   return [...map.entries()]
     .map(([value, count]) => ({ value, count }))
     .sort((a, b) => a.value.localeCompare(b.value));
+}
+
+interface TaskFacetBundle {
+  projectFacets: Array<{ value: string; count: number }>;
+  tagFacets: Array<{ value: string; count: number }>;
+}
+
+function buildTaskFacets(tasks: TaskDto[]): TaskFacetBundle {
+  const projects: string[] = [];
+  const tags: string[] = [];
+
+  for (const task of tasks) {
+    projects.push(task.project ?? "");
+    for (const tag of task.tags) {
+      tags.push(tag);
+    }
+  }
+
+  return {
+    projectFacets: facetCounts(projects),
+    tagFacets: facetCounts(tags)
+  };
 }
 
 interface AppState {
@@ -1014,20 +1037,23 @@ export const useAppStore = create<AppState>((set, get) => {
   };
 });
 
-export function useFilteredTasks(): TaskDto[] {
+export function useTaskViewData(): {
+  visibleTasks: TaskDto[];
+  projectFacets: Array<{ value: string; count: number }>;
+  tagFacets: Array<{ value: string; count: number }>;
+} {
   const tasks = useAppStore((state) => state.tasks);
   const filters = useAppStore((state) => state.taskFilters);
-  return tasks.filter((task) => matchesFilters(task, filters));
-}
 
-export function useTaskProjectFacets(): Array<{ value: string; count: number }> {
-  const tasks = useFilteredTasks();
-  return facetCounts(tasks.map((task) => task.project ?? ""));
-}
-
-export function useTaskTagFacets(): Array<{ value: string; count: number }> {
-  const tasks = useFilteredTasks();
-  return facetCounts(tasks.flatMap((task) => task.tags));
+  return useMemo(() => {
+    const visibleTasks = tasks.filter((task) => matchesFilters(task, filters));
+    const facets = buildTaskFacets(visibleTasks);
+    return {
+      visibleTasks,
+      projectFacets: facets.projectFacets,
+      tagFacets: facets.tagFacets
+    };
+  }, [tasks, filters]);
 }
 
 export function useSelectedTask(): TaskDto | null {
@@ -1044,33 +1070,33 @@ export function useKanbanColumns(): string[] {
   return kanbanColumnsFromSchema(schema);
 }
 
-export function useKanbanBoardTasks(): TaskDto[] {
+export function useKanbanViewData(): {
+  boardTasks: TaskDto[];
+  visibleTasks: TaskDto[];
+  projectFacets: Array<{ value: string; count: number }>;
+  tagFacets: Array<{ value: string; count: number }>;
+} {
   const tasks = useAppStore((state) => state.tasks);
   const activeBoardId = useAppStore((state) => state.activeKanbanBoardId);
-
-  return tasks.filter((task) => {
-    if (!activeBoardId) {
-      return false;
-    }
-    const boardId = boardIdFromTaskTags(task.tags);
-    return boardId === activeBoardId;
-  });
-}
-
-export function useKanbanVisibleTasks(): TaskDto[] {
-  const boardTasks = useKanbanBoardTasks();
   const filters = useAppStore((state) => state.kanbanFilters);
-  return boardTasks.filter((task) => matchesFilters(task, filters));
-}
 
-export function useKanbanProjectFacets(): Array<{ value: string; count: number }> {
-  const tasks = useKanbanBoardTasks();
-  return facetCounts(tasks.map((task) => task.project ?? ""));
-}
-
-export function useKanbanTagFacets(): Array<{ value: string; count: number }> {
-  const tasks = useKanbanBoardTasks();
-  return facetCounts(tasks.flatMap((task) => task.tags));
+  return useMemo(() => {
+    const boardTasks = tasks.filter((task) => {
+      if (!activeBoardId) {
+        return false;
+      }
+      const boardId = boardIdFromTaskTags(task.tags);
+      return boardId === activeBoardId;
+    });
+    const visibleTasks = boardTasks.filter((task) => matchesFilters(task, filters));
+    const facets = buildTaskFacets(boardTasks);
+    return {
+      boardTasks,
+      visibleTasks,
+      projectFacets: facets.projectFacets,
+      tagFacets: facets.tagFacets
+    };
+  }, [tasks, activeBoardId, filters]);
 }
 
 export function useBoardColorMap(): Record<string, string> {

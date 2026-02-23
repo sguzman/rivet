@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { Profiler, useCallback, useEffect, useState } from "react";
+import type { ProfilerOnRenderCallback } from "react";
 
 import AddIcon from "@mui/icons-material/Add";
 import BugReportIcon from "@mui/icons-material/BugReport";
@@ -19,6 +20,7 @@ import { SettingsDialog } from "../components/SettingsDialog";
 import { CalendarWorkspace } from "../features/calendar/CalendarWorkspace";
 import { KanbanWorkspace } from "../features/kanban/KanbanWorkspace";
 import { TasksWorkspace } from "../features/tasks/TasksWorkspace";
+import { logger } from "../lib/logger";
 import { useAppStore } from "../store/useAppStore";
 
 export function AppShell() {
@@ -59,6 +61,18 @@ export function AppShell() {
   const runtimeMode = runtimeConfig?.app?.mode ?? runtimeConfig?.mode ?? "prod";
   const loggingDirectory = runtimeConfig?.logging?.directory ?? "logs";
   const isDevMode = runtimeMode === "dev";
+  const onProfilerRender = useCallback<ProfilerOnRenderCallback>(
+    (id, phase, actualDuration, baseDuration) => {
+      if (!isDevMode) {
+        return;
+      }
+      logger.debug(
+        "render.profile",
+        `${id} phase=${phase} actual_ms=${actualDuration.toFixed(2)} base_ms=${baseDuration.toFixed(2)}`
+      );
+    },
+    [isDevMode]
+  );
 
   useEffect(() => {
     scanDueNotifications();
@@ -185,9 +199,21 @@ export function AppShell() {
       </AppBar>
 
       <main className="min-h-0 flex-1 overflow-hidden">
-        {activeTab === "tasks" ? <TasksWorkspace /> : null}
-        {activeTab === "kanban" ? <KanbanWorkspace /> : null}
-        {activeTab === "calendar" ? <CalendarWorkspace /> : null}
+        {activeTab === "tasks" ? (
+          <Profiler id="tasks.workspace" onRender={onProfilerRender}>
+            <TasksWorkspace />
+          </Profiler>
+        ) : null}
+        {activeTab === "kanban" ? (
+          <Profiler id="kanban.workspace" onRender={onProfilerRender}>
+            <KanbanWorkspace />
+          </Profiler>
+        ) : null}
+        {activeTab === "calendar" ? (
+          <Profiler id="calendar.workspace" onRender={onProfilerRender}>
+            <CalendarWorkspace />
+          </Profiler>
+        ) : null}
       </main>
 
       <AddTaskDialog

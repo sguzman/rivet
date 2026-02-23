@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+
 import Alert from "@mui/material/Alert";
 import Button from "@mui/material/Button";
 import MenuItem from "@mui/material/MenuItem";
@@ -10,10 +12,8 @@ import { TaskDetailsPanel } from "../../components/TaskDetailsPanel";
 import { TaskListPanel } from "../../components/TaskListPanel";
 import {
   useAppStore,
-  useFilteredTasks,
   useSelectedTask,
-  useTaskProjectFacets,
-  useTaskTagFacets
+  useTaskViewData
 } from "../../store/useAppStore";
 
 export function TasksWorkspace() {
@@ -33,10 +33,16 @@ export function TasksWorkspace() {
   const markTaskDone = useAppStore((state) => state.markTaskDone);
   const removeTask = useAppStore((state) => state.removeTask);
 
-  const visibleTasks = useFilteredTasks();
+  const { visibleTasks, projectFacets, tagFacets } = useTaskViewData();
   const selectedTask = useSelectedTask();
-  const projectFacets = useTaskProjectFacets();
-  const tagFacets = useTaskTagFacets();
+  const [searchInput, setSearchInput] = useState(filters.search);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      setSearchFilter(searchInput);
+    }, 180);
+    return () => window.clearTimeout(timeout);
+  }, [searchInput, setSearchFilter]);
 
   return (
     <div className="grid h-full min-h-0 grid-cols-[minmax(0,1fr)_360px] gap-3 p-3">
@@ -48,8 +54,8 @@ export function TasksWorkspace() {
             <Typography variant="h6">Task Filters</Typography>
             <TextField
               label="Search"
-              value={filters.search}
-              onChange={(event) => setSearchFilter(event.target.value)}
+              value={searchInput}
+              onChange={(event) => setSearchInput(event.target.value)}
               size="small"
             />
             <TextField
@@ -117,7 +123,13 @@ export function TasksWorkspace() {
               <MenuItem value="has_due">Has due</MenuItem>
               <MenuItem value="no_due">No due</MenuItem>
             </TextField>
-            <Button variant="outlined" onClick={clearFilters}>
+            <Button
+              variant="outlined"
+              onClick={() => {
+                clearFilters();
+                setSearchInput("");
+              }}
+            >
               Clear Filters
             </Button>
             {loading ? <Alert severity="info">Loading...</Alert> : null}

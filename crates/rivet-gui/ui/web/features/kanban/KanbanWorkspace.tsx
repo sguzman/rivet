@@ -25,9 +25,7 @@ import { humanizeLane, kanbanLaneFromTask } from "../../lib/tags";
 import {
   useAppStore,
   useKanbanColumns,
-  useKanbanProjectFacets,
-  useKanbanTagFacets,
-  useKanbanVisibleTasks
+  useKanbanViewData
 } from "../../store/useAppStore";
 import type { TaskDto } from "../../types/core";
 
@@ -133,9 +131,7 @@ export function KanbanWorkspace() {
   const clearFilters = useAppStore((state) => state.clearKanbanFilters);
 
   const columns = useKanbanColumns();
-  const tasks = useKanbanVisibleTasks();
-  const projectFacets = useKanbanProjectFacets();
-  const tagFacets = useKanbanTagFacets();
+  const { visibleTasks: tasks, projectFacets, tagFacets } = useKanbanViewData();
 
   const activeBoard = boards.find((entry) => entry.id === activeBoardId) ?? null;
 

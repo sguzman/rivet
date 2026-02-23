@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  ui:
+    name: UI (lint/check/test/build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Lint
+        run: pnpm ui:lint
+      - name: Typecheck
+        run: pnpm ui:check
+      - name: Contract tests
+        run: pnpm ui:test
+      - name: Build
+        run: pnpm ui:build
+
+  rust:
+    name: Rust (fmt/clippy/test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Format check
+        run: cargo fmt --all --check
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --locked --exclude rivet_gui_tauri --exclude rivet_gui_ui
+      - name: Tests
+        run: cargo test --workspace --all-targets --locked --exclude rivet_gui_tauri --exclude rivet_gui_ui
