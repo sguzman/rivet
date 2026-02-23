@@ -22,6 +22,22 @@ const DEFAULT_TASK_QUERY: TasksListArgs = {
   tag: null
 };
 
+export interface CommandFailureRecord {
+  command: string;
+  request_id: string;
+  duration_ms: number;
+  error: string;
+  timestamp: string;
+}
+
+type CommandFailureSink = (record: CommandFailureRecord) => void;
+
+let commandFailureSink: CommandFailureSink | null = null;
+
+export function setCommandFailureSink(sink: CommandFailureSink | null): void {
+  commandFailureSink = sink;
+}
+
 const isTauriRuntime = (): boolean => {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 };
@@ -81,11 +97,11 @@ async function invokeCommand<R>(command: string, args?: unknown): Promise<R> {
 
   const run = async (): Promise<R> => {
     if (isTauriRuntime()) {
-      const payload = typeof args === "undefined" ? undefined : { ...(args as object), _request_id: requestId };
+      const payload = typeof args === "undefined" ? undefined : args;
       if (typeof payload === "undefined") {
-        return invoke<R>(command);
+        return invoke<R>(command, { request_id: requestId });
       }
-      return invoke<R>(command, { args: payload });
+      return invoke<R>(command, { args: payload, request_id: requestId });
     }
 
     switch (command) {
@@ -182,6 +198,13 @@ async function invokeCommand<R>(command: string, args?: unknown): Promise<R> {
     const message = error instanceof Error ? error.message : String(error);
     const elapsed = Math.round((performance.now() - startedAt) * 100) / 100;
     logger.error("invoke.error", `${command} request_id=${requestId} duration_ms=${elapsed} error=${message}`);
+    commandFailureSink?.({
+      command,
+      request_id: requestId,
+      duration_ms: elapsed,
+      error: message,
+      timestamp: new Date().toISOString()
+    });
     throw error;
   } finally {
     if (timeoutId !== null) {

@@ -43,14 +43,16 @@ struct ExternalCalendarEvent {
 }
 
 #[tauri::command]
-#[instrument(skip(state), fields(calendar_id = %args.id, name = %args.name, enabled = args.enabled))]
+#[instrument(skip(state), fields(request_id = ?request_id, calendar_id = %args.id, name = %args.name, enabled = args.enabled))]
 pub async fn external_calendar_sync(
   state: State<'_, AppState>,
-  args: ExternalCalendarSourceArg
+  args: ExternalCalendarSourceArg,
+  request_id: Option<String>
 ) -> Result<
   ExternalCalendarSyncResult,
   String
 > {
+  info!(request_id = ?request_id, calendar_id = %args.id, "external_calendar_sync command invoked");
   if args.imported_ics_file {
     return Err(
       "Imported ICS calendars are \
@@ -87,14 +89,16 @@ pub async fn external_calendar_sync(
 }
 
 #[tauri::command]
-#[instrument(skip(state, args), fields(calendar_id = %args.source.id, name = %args.source.name))]
+#[instrument(skip(state, args), fields(request_id = ?request_id, calendar_id = %args.source.id, name = %args.source.name))]
 pub async fn external_calendar_import_ics(
   state: State<'_, AppState>,
-  args: ExternalCalendarImportArg
+  args: ExternalCalendarImportArg,
+  request_id: Option<String>
 ) -> Result<
   ExternalCalendarSyncResult,
   String
 > {
+  info!(request_id = ?request_id, calendar_id = %args.source.id, "external_calendar_import_ics command invoked");
   if args
     .ics_text
     .trim()

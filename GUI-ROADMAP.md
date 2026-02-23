@@ -93,7 +93,7 @@
 - [ ] Document all Tauri command contracts in one place (input/output/error
   format).
 - [x] Validate command argument naming consistency for TS invoke payloads.
-- [ ] Add backend command trace IDs to correlate frontend invokes with Rust
+- [x] Add backend command trace IDs to correlate frontend invokes with Rust
   logs.
 - [x] Ensure long-running commands have timeout/cancellation strategy in
   frontend API layer.
@@ -108,7 +108,7 @@
 - [x] Phase B: Tasks workspace.
 - [x] Phase C: Kanban workspace.
 - [x] Phase D: Calendar workspace.
-- [ ] Phase E: Settings + notifications + modal ecosystem polish.
+- [x] Phase E: Settings + notifications + modal ecosystem polish.
 - [ ] Keep Yew UI branchable fallback until each phase passes parity checklist.
 - [ ] Define feature-flag style cutover (build-time or runtime) during
   transition.
@@ -119,7 +119,7 @@
 - [x] header/window chrome region
 - [x] workspace tabs (`Tasks`, `Kanban`, `Calendar`)
 - [x] main 3-column adaptable layout
-- [ ] Port global actions and global keyboard handlers.
+- [x] Port global actions and global keyboard handlers.
 - [x] Port global modal host and z-index layering model.
 - [x] Implement structured frontend logger (`ui/src/lib/logger.ts`) with
   tracing-style event names.
@@ -184,7 +184,7 @@
 - [ ] Ensure one canonical source of truth for:
 - [x] timezone
 - [x] calendar policies
-- [ ] mode/logging indicators for diagnostics UI.
+- [x] mode/logging indicators for diagnostics UI.
 
 ## 12. Data and Type Safety Strategy
 
@@ -204,8 +204,8 @@
 - [ ] Keep backend tracing as-is with dev log file mode.
 - [ ] Define shared correlation id propagation:
 - [x] frontend invoke includes request id
-- [ ] tauri logs request id
-- [ ] Display diagnostics panel for last N command failures in dev mode.
+- [x] tauri logs request id
+- [x] Display diagnostics panel for last N command failures in dev mode.
 
 ## 14. Performance and Responsiveness Plan
 

@@ -84,19 +84,23 @@ fn read_toml_snapshot(
 }
 
 #[tauri::command]
-#[instrument]
+#[instrument(fields(request_id = ?request_id))]
 pub async fn config_snapshot(
+  request_id: Option<String>
 ) -> Result<serde_json::Value, String>
 {
+  tracing::info!(request_id = ?request_id, "config_snapshot command invoked");
   read_toml_snapshot("rivet.toml")
     .map_err(err_to_string)
 }
 
 #[tauri::command]
-#[instrument]
+#[instrument(fields(request_id = ?request_id))]
 pub async fn tag_schema_snapshot(
+  request_id: Option<String>
 ) -> Result<serde_json::Value, String>
 {
+  tracing::info!(request_id = ?request_id, "tag_schema_snapshot command invoked");
   read_toml_snapshot(
     "crates/rivet-gui/ui/assets/tags.toml",
   )

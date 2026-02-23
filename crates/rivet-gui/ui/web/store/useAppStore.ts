@@ -2,6 +2,7 @@ import { create } from "zustand";
 
 import {
   addTask,
+  type CommandFailureRecord,
   deleteTask,
   doneTask,
   healthCheck,
@@ -9,6 +10,7 @@ import {
   listTasks,
   loadConfigSnapshot,
   loadTagSchemaSnapshot,
+  setCommandFailureSink,
   syncExternalCalendar,
   updateTask
 } from "../api/tauri";
@@ -22,13 +24,25 @@ import {
 } from "../lib/calendar";
 import { logger } from "../lib/logger";
 import {
+  browserDueNotificationPermission,
+  collectDueNotificationEvents,
+  defaultDueNotificationConfig,
+  emitDueNotification,
+  requestDueNotificationPermission as requestBrowserDueNotificationPermission,
+  sanitizeDueNotificationConfig,
+  type DueNotificationPermission
+} from "../lib/notifications";
+import {
   CALENDAR_VIEW_STORAGE_KEY,
+  DUE_NOTIFICATION_SENT_STORAGE_KEY,
   EXTERNAL_CALENDARS_STORAGE_KEY,
   KANBAN_ACTIVE_BOARD_STORAGE_KEY,
   KANBAN_BOARDS_STORAGE_KEY,
   THEME_STORAGE_KEY,
   WORKSPACE_TAB_STORAGE_KEY,
   assignUniqueExternalCalendarColors,
+  loadNotificationSentRegistry,
+  loadNotificationSettings,
   loadActiveKanbanBoardId,
   loadExternalCalendars,
   loadKanbanBoards,
@@ -39,7 +53,9 @@ import {
   saveActiveKanbanBoardId,
   saveExternalCalendars,
   saveKanbanBoards,
-  saveKanbanCompactCards
+  saveKanbanCompactCards,
+  saveNotificationSentRegistry,
+  saveNotificationSettings
 } from "../lib/storage";
 import {
   BOARD_TAG_KEY,
@@ -56,7 +72,7 @@ import {
 } from "../lib/tags";
 import type { RivetRuntimeConfig, TagSchema } from "../types/config";
 import type { ExternalCalendarSource, TaskCreate, TaskDto, TaskPatch, TaskStatus } from "../types/core";
-import type { AddTaskDialogContext, DueFilter, PriorityFilter, RecurrenceDraft, StatusFilter, TaskFilters, ThemeMode, WorkspaceTab } from "../types/ui";
+import type { AddTaskDialogContext, DueFilter, DueNotificationConfig, PriorityFilter, RecurrenceDraft, StatusFilter, TaskFilters, ThemeMode, WorkspaceTab } from "../types/ui";
 
 function readStorageString(key: string): string | null {
   if (typeof window === "undefined") {
@@ -250,6 +266,11 @@ interface AppState {
   externalCalendars: ExternalCalendarSource[];
   externalCalendarBusy: boolean;
   externalCalendarLastSync: string | null;
+  settingsOpen: boolean;
+  dueNotificationConfig: DueNotificationConfig;
+  dueNotificationPermission: DueNotificationPermission;
+  dueNotificationSent: string[];
+  commandFailures: CommandFailureRecord[];
 
   bootstrap: () => Promise<void>;
   loadTasks: () => Promise<void>;
@@ -301,13 +322,34 @@ interface AppState {
   syncExternalCalendarSource: (calendarId: string) => Promise<void>;
   syncAllExternalCalendars: () => Promise<void>;
   importExternalCalendarFile: (file: File) => Promise<void>;
+
+  openSettings: () => void;
+  closeSettings: () => void;
+  setDueNotificationsEnabled: (enabled: boolean) => void;
+  setDuePreNotifyEnabled: (enabled: boolean) => void;
+  setDuePreNotifyMinutes: (minutes: number) => void;
+  requestDueNotificationPermission: () => Promise<void>;
+  scanDueNotifications: () => void;
+  clearCommandFailures: () => void;
 }
 
 const initialBoards = loadKanbanBoardsSafe();
 const initialActiveBoardId = loadActiveBoardSafe(initialBoards);
 const initialExternalCalendars = loadExternalCalendarsSafe();
+const initialDueNotificationConfig = sanitizeDueNotificationConfig(
+  loadNotificationSettings<DueNotificationConfig>(defaultDueNotificationConfig())
+);
+const initialDueNotificationSent = Array.from(loadNotificationSentRegistry());
+const initialDueNotificationPermission = browserDueNotificationPermission();
 
-export const useAppStore = create<AppState>((set, get) => ({
+export const useAppStore = create<AppState>((set, get) => {
+  setCommandFailureSink((record) => {
+    set((state) => ({
+      commandFailures: [record, ...state.commandFailures].slice(0, 30)
+    }));
+  });
+
+  return {
   bootstrapped: false,
   activeTab: loadWorkspaceTab(),
   themeMode: loadThemeMode(),
@@ -340,6 +382,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   externalCalendars: initialExternalCalendars,
   externalCalendarBusy: false,
   externalCalendarLastSync: null,
+  settingsOpen: false,
+  dueNotificationConfig: initialDueNotificationConfig,
+  dueNotificationPermission: initialDueNotificationPermission,
+  dueNotificationSent: initialDueNotificationSent,
+  commandFailures: [],
 
   async bootstrap() {
     if (get().bootstrapped) {
@@ -363,6 +410,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       saveActiveKanbanBoardId(get().activeKanbanBoardId);
       saveExternalCalendars(get().externalCalendars);
       saveCalendarViewMode(get().calendarView);
+      saveNotificationSettings(get().dueNotificationConfig);
+      saveNotificationSentRegistry(new Set(get().dueNotificationSent));
 
       set({
         bootstrapped: true,
@@ -372,7 +421,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         runtimeConfig,
         tagSchema,
         tagColorMap,
-        calendarFocusDateIso: calendarDateToIso(today)
+        calendarFocusDateIso: calendarDateToIso(today),
+        dueNotificationPermission: browserDueNotificationPermission()
       });
       logger.info("app.bootstrap.done", `tasks=${tasks.length} timezone=${effective.timezone}`);
     } catch (error) {
@@ -850,8 +900,119 @@ export const useAppStore = create<AppState>((set, get) => ({
       });
       logger.error("external_calendar.import.error", `${file.name}: ${message}`);
     }
+  },
+
+  openSettings() {
+    set({
+      settingsOpen: true,
+      dueNotificationPermission: browserDueNotificationPermission()
+    });
+  },
+
+  closeSettings() {
+    set({ settingsOpen: false });
+  },
+
+  setDueNotificationsEnabled(enabled) {
+    set((state) => {
+      const next = sanitizeDueNotificationConfig({
+        ...state.dueNotificationConfig,
+        enabled,
+        pre_notify_enabled: enabled ? state.dueNotificationConfig.pre_notify_enabled : false
+      });
+      saveNotificationSettings(next);
+      logger.info("settings.notifications.enabled", String(next.enabled));
+      return {
+        dueNotificationConfig: next
+      };
+    });
+  },
+
+  setDuePreNotifyEnabled(enabled) {
+    set((state) => {
+      const next = sanitizeDueNotificationConfig({
+        ...state.dueNotificationConfig,
+        pre_notify_enabled: enabled
+      });
+      saveNotificationSettings(next);
+      logger.info("settings.notifications.pre_enabled", String(next.pre_notify_enabled));
+      return {
+        dueNotificationConfig: next
+      };
+    });
+  },
+
+  setDuePreNotifyMinutes(minutes) {
+    set((state) => {
+      const next = sanitizeDueNotificationConfig({
+        ...state.dueNotificationConfig,
+        pre_notify_minutes: minutes
+      });
+      saveNotificationSettings(next);
+      logger.info("settings.notifications.pre_minutes", String(next.pre_notify_minutes));
+      return {
+        dueNotificationConfig: next
+      };
+    });
+  },
+
+  async requestDueNotificationPermission() {
+    const permission = await requestBrowserDueNotificationPermission();
+    set({ dueNotificationPermission: permission });
+    logger.info("settings.notifications.permission", permission);
+  },
+
+  scanDueNotifications() {
+    const state = get();
+    const permission = browserDueNotificationPermission();
+    if (permission !== state.dueNotificationPermission) {
+      set({ dueNotificationPermission: permission });
+    }
+    if (permission !== "granted") {
+      return;
+    }
+
+    const effective = resolveCalendarConfig(state.runtimeConfig);
+    const sent = new Set(state.dueNotificationSent);
+    const events = collectDueNotificationEvents(
+      state.tasks,
+      effective.timezone,
+      state.dueNotificationConfig,
+      sent,
+      Date.now()
+    );
+    if (events.length === 0) {
+      return;
+    }
+
+    let changed = false;
+    for (const event of events) {
+      const emitted = emitDueNotification(event.title, event.body);
+      if (!emitted) {
+        logger.warn("notifications.emit.failed", event.key);
+        continue;
+      }
+      sent.add(event.key);
+      changed = true;
+      logger.info("notifications.emit.ok", event.key);
+    }
+
+    if (changed) {
+      const nextSent = Array.from(sent);
+      saveNotificationSentRegistry(sent);
+      set({ dueNotificationSent: nextSent });
+      logger.debug(
+        "notifications.sent_registry",
+        `${DUE_NOTIFICATION_SENT_STORAGE_KEY} size=${nextSent.length}`
+      );
+    }
+  },
+
+  clearCommandFailures() {
+    set({ commandFailures: [] });
   }
-}));
+  };
+});
 
 export function useFilteredTasks(): TaskDto[] {
   const tasks = useAppStore((state) => state.tasks);

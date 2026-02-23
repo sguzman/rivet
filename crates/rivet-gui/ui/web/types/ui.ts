@@ -100,3 +100,9 @@ export interface ExternalCalendarState {
   busy: boolean;
   lastSyncMessage: string | null;
 }
+
+export interface DueNotificationConfig {
+  enabled: boolean;
+  pre_notify_enabled: boolean;
+  pre_notify_minutes: number;
+}

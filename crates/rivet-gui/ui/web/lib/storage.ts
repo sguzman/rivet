@@ -10,6 +10,8 @@ export const KANBAN_BOARDS_STORAGE_KEY = "rivet.kanban.boards";
 export const KANBAN_ACTIVE_BOARD_STORAGE_KEY = "rivet.kanban.active_board";
 export const EXTERNAL_CALENDARS_STORAGE_KEY = "rivet.external_calendars";
 export const KANBAN_COMPACT_CARDS_STORAGE_KEY = "rivet.kanban.compact_cards";
+export const DUE_NOTIFICATION_SETTINGS_STORAGE_KEY = "rivet.notifications.due.settings";
+export const DUE_NOTIFICATION_SENT_STORAGE_KEY = "rivet.notifications.due.sent";
 
 function readStorageItem(key: string): string | null {
   if (typeof window === "undefined") {
@@ -280,4 +282,25 @@ export function newExternalCalendarSource(existing: ExternalCalendarSource[]): E
     show_reminders: true,
     offline_support: true
   };
+}
+
+export function loadNotificationSettings<T>(fallback: T): T {
+  const parsed = parseJson<T>(readStorageItem(DUE_NOTIFICATION_SETTINGS_STORAGE_KEY));
+  return parsed ?? fallback;
+}
+
+export function saveNotificationSettings<T>(settings: T): void {
+  writeStorageItem(DUE_NOTIFICATION_SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+}
+
+export function loadNotificationSentRegistry(): Set<string> {
+  const parsed = parseJson<string[]>(readStorageItem(DUE_NOTIFICATION_SENT_STORAGE_KEY));
+  if (!parsed || !Array.isArray(parsed)) {
+    return new Set<string>();
+  }
+  return new Set(parsed.filter((entry) => typeof entry === "string" && entry.trim().length > 0));
+}
+
+export function saveNotificationSentRegistry(entries: Set<string>): void {
+  writeStorageItem(DUE_NOTIFICATION_SENT_STORAGE_KEY, JSON.stringify(Array.from(entries)));
 }
