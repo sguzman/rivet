@@ -8,6 +8,7 @@ import Stack from "@mui/material/Stack";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 
+import { TaskEditDialog } from "../../components/TaskEditDialog";
 import { TaskDetailsPanel } from "../../components/TaskDetailsPanel";
 import { TaskListPanel } from "../../components/TaskListPanel";
 import {
@@ -21,6 +22,9 @@ export function TasksWorkspace() {
     loading,
     error,
     selectedTaskId,
+    tagSchema,
+    tagColorMap,
+    kanbanBoards,
     filters,
     setSearchFilter,
     setStatusFilter,
@@ -30,13 +34,23 @@ export function TasksWorkspace() {
     setDueFilter,
     clearFilters,
     selectTask,
+    updateTask,
     markTaskDone,
-    removeTask
+    removeTask,
+    markTasksDoneBulk,
+    removeTasksBulk
   } = useTaskWorkspaceSlice();
 
   const { visibleTasks, projectFacets, tagFacets } = useTaskViewData();
   const selectedTask = useSelectedTask();
   const [searchInput, setSearchInput] = useState(filters.search);
+  const [editOpen, setEditOpen] = useState(false);
+
+  useEffect(() => {
+    if (!selectedTask && editOpen) {
+      setEditOpen(false);
+    }
+  }, [selectedTask, editOpen]);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -44,6 +58,10 @@ export function TasksWorkspace() {
     }, 180);
     return () => window.clearTimeout(timeout);
   }, [searchInput, setSearchFilter]);
+
+  const doneCandidates = visibleTasks.filter((task) => task.status === "Pending" || task.status === "Waiting");
+  const doneCandidateIds = doneCandidates.map((task) => task.uuid);
+  const deleteCandidateIds = visibleTasks.map((task) => task.uuid);
 
   return (
     <div className="grid h-full min-h-0 grid-cols-[minmax(0,1fr)_360px] gap-3 p-3">
@@ -133,13 +151,58 @@ export function TasksWorkspace() {
             >
               Clear Filters
             </Button>
+            <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
+              <Button
+                variant="contained"
+                color="success"
+                disabled={loading || doneCandidateIds.length === 0}
+                onClick={() => {
+                  void markTasksDoneBulk(doneCandidateIds);
+                }}
+              >
+                Complete Filtered ({doneCandidateIds.length})
+              </Button>
+              <Button
+                variant="outlined"
+                color="error"
+                disabled={loading || deleteCandidateIds.length === 0}
+                onClick={() => {
+                  if (!window.confirm(`Delete ${deleteCandidateIds.length} filtered task(s)? This cannot be undone.`)) {
+                    return;
+                  }
+                  void removeTasksBulk(deleteCandidateIds);
+                }}
+              >
+                Delete Filtered ({deleteCandidateIds.length})
+              </Button>
+            </Stack>
             {loading ? <Alert severity="info">Loading...</Alert> : null}
             {error ? <Alert severity="error">{error}</Alert> : null}
           </Stack>
         </Paper>
 
-        <TaskDetailsPanel task={selectedTask} busy={loading} onDone={markTaskDone} onDelete={removeTask} />
+        <TaskDetailsPanel
+          task={selectedTask}
+          busy={loading}
+          onEdit={() => setEditOpen(true)}
+          onDone={markTaskDone}
+          onDelete={removeTask}
+        />
       </Stack>
+
+      <TaskEditDialog
+        open={editOpen}
+        task={selectedTask}
+        busy={loading}
+        tagSchema={tagSchema}
+        tagColorMap={tagColorMap}
+        kanbanBoards={kanbanBoards}
+        onClose={() => setEditOpen(false)}
+        onSubmit={async (uuid, patch) => {
+          const updated = await updateTask(uuid, patch);
+          return updated !== null;
+        }}
+      />
     </div>
   );
 }

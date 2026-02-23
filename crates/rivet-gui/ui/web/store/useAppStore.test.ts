@@ -34,7 +34,7 @@ import { useAppStore } from "./useAppStore";
 
 const initialState = useAppStore.getState();
 
-function sampleTask(title: string): TaskDto {
+function sampleTask(title: string, overrides: Partial<TaskDto> = {}): TaskDto {
   return {
     uuid: `uuid-${title.toLowerCase().replace(/\s+/g, "-")}`,
     id: null,
@@ -48,7 +48,8 @@ function sampleTask(title: string): TaskDto {
     wait: null,
     scheduled: null,
     created: new Date().toISOString(),
-    modified: new Date().toISOString()
+    modified: new Date().toISOString(),
+    ...overrides
   };
 }
 
@@ -132,5 +133,103 @@ describe("useAppStore modal and save regressions", () => {
     expect(current.error).toBeNull();
     expect(current.tasks[0]?.uuid).toBe(created.uuid);
     expect(current.selectedTaskId).toBe(created.uuid);
+  });
+
+  it("updates tasks via updateTaskByUuid and unwinds loading", async () => {
+    const existing = sampleTask("Editable task", {
+      description: "Before edit",
+      tags: ["kanban:todo", "board:main"]
+    });
+    const updated = {
+      ...existing,
+      title: "Edited title",
+      description: "After edit",
+      tags: ["kanban:working", "board:main"],
+      modified: new Date(Date.now() + 1_000).toISOString()
+    };
+
+    useAppStore.setState({
+      tasks: [existing],
+      selectedTaskId: existing.uuid
+    });
+    mocks.updateTaskMock.mockResolvedValueOnce(updated);
+
+    const result = await useAppStore.getState().updateTaskByUuid(existing.uuid, {
+      title: "Edited title",
+      description: "After edit",
+      tags: ["kanban:working", "board:main"]
+    });
+
+    expect(result).not.toBeNull();
+    const current = useAppStore.getState();
+    expect(current.loading).toBe(false);
+    expect(current.error).toBeNull();
+    expect(current.tasks[0]?.title).toBe("Edited title");
+    expect(current.tasks[0]?.description).toBe("After edit");
+    expect(current.tasks[0]?.tags).toEqual(["kanban:working", "board:main"]);
+  });
+
+  it("supports bulk completion and bulk deletion", async () => {
+    const one = sampleTask("Bulk one");
+    const two = sampleTask("Bulk two");
+    const three = sampleTask("Bulk three");
+
+    useAppStore.setState({
+      tasks: [one, two, three],
+      selectedTaskId: two.uuid
+    });
+
+    mocks.doneTaskMock.mockResolvedValueOnce({ ...one, status: "Completed" });
+    mocks.doneTaskMock.mockResolvedValueOnce({ ...two, status: "Completed" });
+    await useAppStore.getState().markTasksDoneBulk([one.uuid, two.uuid, two.uuid]);
+
+    let current = useAppStore.getState();
+    expect(current.loading).toBe(false);
+    expect(current.tasks.find((task) => task.uuid === one.uuid)?.status).toBe("Completed");
+    expect(current.tasks.find((task) => task.uuid === two.uuid)?.status).toBe("Completed");
+    expect(mocks.doneTaskMock).toHaveBeenCalledTimes(2);
+
+    mocks.deleteTaskMock.mockResolvedValueOnce(undefined);
+    mocks.deleteTaskMock.mockRejectedValueOnce(new Error("delete failed"));
+    await useAppStore.getState().removeTasksBulk([one.uuid, three.uuid]);
+
+    current = useAppStore.getState();
+    expect(current.loading).toBe(false);
+    expect(current.tasks.some((task) => task.uuid === one.uuid)).toBe(false);
+    expect(current.tasks.some((task) => task.uuid === three.uuid)).toBe(true);
+    expect(current.error).toContain("Failed to delete");
+  });
+
+  it("moves a task between kanban boards and lanes with updated tags", async () => {
+    const source = sampleTask("Kanban move", {
+      tags: ["kanban:todo", "board:alpha"]
+    });
+    const moved = sampleTask("Kanban move", {
+      uuid: source.uuid,
+      tags: ["kanban:working", "board:beta"]
+    });
+
+    useAppStore.setState({
+      tasks: [source],
+      tagSchema: {
+        version: 1,
+        keys: [
+          { id: "kanban", values: ["todo", "working", "finished"] }
+        ]
+      }
+    });
+    mocks.updateTaskMock.mockResolvedValueOnce(moved);
+
+    await useAppStore.getState().moveKanbanTaskToBoard(source.uuid, "beta", "working");
+
+    expect(mocks.updateTaskMock).toHaveBeenCalledTimes(1);
+    expect(mocks.updateTaskMock.mock.calls[0]?.[0]).toMatchObject({
+      uuid: source.uuid,
+      patch: {
+        tags: ["kanban:working", "board:beta"]
+      }
+    });
+    const current = useAppStore.getState();
+    expect(current.tasks[0]?.tags).toEqual(["kanban:working", "board:beta"]);
   });
 });

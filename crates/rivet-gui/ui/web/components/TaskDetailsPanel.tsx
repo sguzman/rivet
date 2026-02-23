@@ -11,6 +11,7 @@ import type { TaskDto } from "../types/core";
 interface TaskDetailsPanelProps {
   task: TaskDto | null;
   busy: boolean;
+  onEdit: (taskId: string) => void;
   onDone: (taskId: string) => void;
   onDelete: (taskId: string) => void;
 }
@@ -58,6 +59,13 @@ export function TaskDetailsPanel(props: TaskDetailsPanelProps) {
           </Stack>
           <Divider />
           <Stack direction="row" spacing={1}>
+            <Button
+              variant="outlined"
+              disabled={props.busy}
+              onClick={() => props.onEdit(props.task!.uuid)}
+            >
+              Edit
+            </Button>
             <Button
               variant="contained"
               color="success"

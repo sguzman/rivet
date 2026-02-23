@@ -40,10 +40,23 @@ jobs:
           retention-days: 14
 
   e2e:
-    name: UI E2E Smoke (mock runtime)
+    name: UI E2E Smoke (${{ matrix.variant }})
     runs-on: ubuntu-latest
     needs: ui
     continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: day-small
+            theme: day
+            task_count: 0
+          - variant: night-small
+            theme: night
+            task_count: 0
+          - variant: night-large
+            theme: night
+            task_count: 800
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -58,12 +71,15 @@ jobs:
       - name: Install Playwright browser
         run: pnpm --dir crates/rivet-gui/ui exec playwright install --with-deps chromium
       - name: Run smoke tests
+        env:
+          RIVET_E2E_THEME: ${{ matrix.theme }}
+          RIVET_E2E_TASK_COUNT: ${{ matrix.task_count }}
         run: pnpm ui:e2e
       - name: Upload Playwright artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-artifacts
+          name: playwright-artifacts-${{ matrix.variant }}
           path: |
             crates/rivet-gui/ui/playwright-report
             crates/rivet-gui/ui/test-results

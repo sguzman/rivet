@@ -222,6 +222,8 @@ interface AppState {
   updateTaskByUuid: (uuid: string, patch: TaskPatch) => Promise<TaskDto | null>;
   markTaskDone: (uuid: string) => Promise<void>;
   removeTask: (uuid: string) => Promise<void>;
+  markTasksDoneBulk: (uuids: string[]) => Promise<void>;
+  removeTasksBulk: (uuids: string[]) => Promise<void>;
 
   setActiveKanbanBoard: (boardId: string | null) => void;
   createKanbanBoard: (requestedName: string) => void;
@@ -503,17 +505,19 @@ export const useAppStore = create<AppState>((set, get) => {
   },
 
   async updateTaskByUuid(uuid, patch) {
+    set({ loading: true, error: null });
     logger.debug("task.update.start", uuid);
     try {
       const updated = await updateTask({ uuid, patch });
       set((state) => ({
+        loading: false,
         tasks: state.tasks.map((task) => (task.uuid === uuid ? updated : task))
       }));
       logger.debug("task.update.done", uuid);
       return updated;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      set({ error: message });
+      set({ loading: false, error: message });
       logger.error("task.update.error", `${uuid}: ${message}`);
       return null;
     }
@@ -555,6 +559,77 @@ export const useAppStore = create<AppState>((set, get) => {
       set({ loading: false, error: message });
       logger.error("task.delete.error", `${uuid}: ${message}`);
     }
+  },
+
+  async markTasksDoneBulk(uuids) {
+    const targetIds = [...new Set(uuids)];
+    if (targetIds.length === 0) {
+      return;
+    }
+
+    set({ loading: true, error: null });
+    logger.info("task.done.bulk.start", `count=${targetIds.length}`);
+
+    const updatedById = new Map<string, TaskDto>();
+    const failed: string[] = [];
+    for (const uuid of targetIds) {
+      try {
+        const updated = await doneTask(uuid);
+        updatedById.set(uuid, updated);
+      } catch (error) {
+        failed.push(uuid);
+        logger.warn("task.done.bulk.item_error", `${uuid}: ${String(error)}`);
+      }
+    }
+
+    set((state) => ({
+      loading: false,
+      error: failed.length > 0 ? `Failed to complete ${failed.length} task(s).` : state.error,
+      tasks: state.tasks.map((task) => updatedById.get(task.uuid) ?? task)
+    }));
+    logger.info(
+      "task.done.bulk.done",
+      `completed=${updatedById.size} failed=${failed.length}`
+    );
+  },
+
+  async removeTasksBulk(uuids) {
+    const targetIds = [...new Set(uuids)];
+    if (targetIds.length === 0) {
+      return;
+    }
+
+    set({ loading: true, error: null });
+    logger.info("task.delete.bulk.start", `count=${targetIds.length}`);
+
+    const deleted = new Set<string>();
+    const failed: string[] = [];
+    for (const uuid of targetIds) {
+      try {
+        await deleteTask(uuid);
+        deleted.add(uuid);
+      } catch (error) {
+        failed.push(uuid);
+        logger.warn("task.delete.bulk.item_error", `${uuid}: ${String(error)}`);
+      }
+    }
+
+    set((state) => {
+      const nextTasks = state.tasks.filter((task) => !deleted.has(task.uuid));
+      const selectedTaskId = state.selectedTaskId && deleted.has(state.selectedTaskId)
+        ? nextTasks[0]?.uuid ?? null
+        : state.selectedTaskId;
+      return {
+        loading: false,
+        error: failed.length > 0 ? `Failed to delete ${failed.length} task(s).` : state.error,
+        tasks: nextTasks,
+        selectedTaskId
+      };
+    });
+    logger.info(
+      "task.delete.bulk.done",
+      `deleted=${deleted.size} failed=${failed.length}`
+    );
   },
 
   setActiveKanbanBoard(boardId) {

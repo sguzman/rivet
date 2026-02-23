@@ -49,6 +49,9 @@ export function useTaskWorkspaceSlice() {
     loading: state.loading,
     error: state.error,
     selectedTaskId: state.selectedTaskId,
+    tagSchema: state.tagSchema,
+    tagColorMap: state.tagColorMap,
+    kanbanBoards: state.kanbanBoards,
     filters: state.taskFilters,
     setSearchFilter: state.setTaskSearchFilter,
     setStatusFilter: state.setTaskStatusFilter,
@@ -58,8 +61,11 @@ export function useTaskWorkspaceSlice() {
     setDueFilter: state.setTaskDueFilter,
     clearFilters: state.clearTaskFilters,
     selectTask: state.selectTask,
+    updateTask: state.updateTaskByUuid,
     markTaskDone: state.markTaskDone,
-    removeTask: state.removeTask
+    removeTask: state.removeTask,
+    markTasksDoneBulk: state.markTasksDoneBulk,
+    removeTasksBulk: state.removeTasksBulk
   })));
 }
 

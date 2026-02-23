@@ -234,8 +234,8 @@
 - [x] drag instability
 - [ ] Run matrix:
 - [ ] Linux/Wayland primary
-- [ ] dark/light themes
-- [ ] large dataset (hundreds of tasks)
+- [x] dark/light themes
+- [x] large dataset (hundreds of tasks)
 
 ## 16. Cutover Plan
 

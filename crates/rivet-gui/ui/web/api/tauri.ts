@@ -136,7 +136,10 @@ async function invokeCommand<R>(command: string, args?: unknown): Promise<R> {
   const requestId = crypto.randomUUID();
   const startedAt = performance.now();
   const timeoutMs = command.startsWith("external_calendar_") ? EXTERNAL_CALENDAR_TIMEOUT_MS : DEFAULT_TIMEOUT_MS;
-  logger.debug("invoke.start", `${command} request_id=${requestId}`);
+  const instrumentCommand = command !== "ui_log";
+  if (instrumentCommand) {
+    logger.debug("invoke.start", `${command} request_id=${requestId}`);
+  }
 
   const run = async (): Promise<R> => {
     if (isTauriRuntime()) {
@@ -235,19 +238,23 @@ async function invokeCommand<R>(command: string, args?: unknown): Promise<R> {
   try {
     const result = await Promise.race([run(), timeout]);
     const elapsed = Math.round((performance.now() - startedAt) * 100) / 100;
-    logger.info("invoke.success", `${command} request_id=${requestId} duration_ms=${elapsed}`);
+    if (instrumentCommand) {
+      logger.info("invoke.success", `${command} request_id=${requestId} duration_ms=${elapsed}`);
+    }
     return result;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const elapsed = Math.round((performance.now() - startedAt) * 100) / 100;
-    logger.error("invoke.error", `${command} request_id=${requestId} duration_ms=${elapsed} error=${message}`);
-    commandFailureSink?.({
-      command,
-      request_id: requestId,
-      duration_ms: elapsed,
-      error: message,
-      timestamp: new Date().toISOString()
-    });
+    if (instrumentCommand) {
+      logger.error("invoke.error", `${command} request_id=${requestId} duration_ms=${elapsed} error=${message}`);
+      commandFailureSink?.({
+        command,
+        request_id: requestId,
+        duration_ms: elapsed,
+        error: message,
+        timestamp: new Date().toISOString()
+      });
+    }
     throw error;
   } finally {
     if (timeoutId !== null) {
