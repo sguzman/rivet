@@ -43,7 +43,8 @@ import {
   weekdayLabels
 } from "../../lib/calendar";
 import { CAL_SOURCE_TAG_KEY, firstTagValue } from "../../lib/tags";
-import { useAppStore, useBoardColorMap, useExternalCalendarColorMap } from "../../store/useAppStore";
+import { useBoardColorMap, useExternalCalendarColorMap } from "../../store/useAppStore";
+import { useCalendarWorkspaceSlice } from "../../store/slices";
 import type { ExternalCalendarSource } from "../../types/core";
 import type { CalendarTaskMarker, CalendarViewMode } from "../../types/ui";
 
@@ -122,26 +123,27 @@ function ExternalCalendarCard(props: {
 }
 
 export function CalendarWorkspace() {
-  const tasks = useAppStore((state) => state.tasks);
-  const runtimeConfig = useAppStore((state) => state.runtimeConfig);
-  const calendarView = useAppStore((state) => state.calendarView);
-  const calendarFocusDateIso = useAppStore((state) => state.calendarFocusDateIso);
-  const calendarTaskFilter = useAppStore((state) => state.calendarTaskFilter);
-  const externalCalendars = useAppStore((state) => state.externalCalendars);
-  const externalBusy = useAppStore((state) => state.externalCalendarBusy);
-  const externalLastSync = useAppStore((state) => state.externalCalendarLastSync);
-  const error = useAppStore((state) => state.error);
-
-  const setCalendarView = useAppStore((state) => state.setCalendarView);
-  const shiftCalendarFocus = useAppStore((state) => state.shiftCalendarFocus);
-  const setCalendarTaskFilter = useAppStore((state) => state.setCalendarTaskFilter);
-  const navigateCalendar = useAppStore((state) => state.navigateCalendar);
-  const openNewExternalCalendar = useAppStore((state) => state.openNewExternalCalendar);
-  const saveExternalCalendarSource = useAppStore((state) => state.saveExternalCalendarSource);
-  const deleteExternalCalendarSource = useAppStore((state) => state.deleteExternalCalendarSource);
-  const syncExternalCalendarSource = useAppStore((state) => state.syncExternalCalendarSource);
-  const syncAllExternalCalendars = useAppStore((state) => state.syncAllExternalCalendars);
-  const importExternalCalendarFile = useAppStore((state) => state.importExternalCalendarFile);
+  const {
+    tasks,
+    runtimeConfig,
+    calendarView,
+    calendarFocusDateIso,
+    calendarTaskFilter,
+    externalCalendars,
+    externalBusy,
+    externalLastSync,
+    error,
+    setCalendarView,
+    shiftCalendarFocus,
+    setCalendarTaskFilter,
+    navigateCalendar,
+    openNewExternalCalendar,
+    saveExternalCalendarSource,
+    deleteExternalCalendarSource,
+    syncExternalCalendarSource,
+    syncAllExternalCalendars,
+    importExternalCalendarFile
+  } = useCalendarWorkspaceSlice();
 
   const boardColorMap = useBoardColorMap();
   const calendarColorMap = useExternalCalendarColorMap();

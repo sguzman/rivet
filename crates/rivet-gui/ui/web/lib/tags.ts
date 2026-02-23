@@ -267,6 +267,27 @@ export function collectTagsForSubmit(input: CollectSubmitTagsInput): string[] {
   return tags;
 }
 
+export function tagsForKanbanMove(
+  tags: string[],
+  lane: string,
+  boardId?: string | null
+): string[] {
+  const next = [...tags];
+  removeTagsForKey(next, KANBAN_TAG_KEY);
+  pushTagUnique(next, `${KANBAN_TAG_KEY}:${lane}`);
+
+  // `undefined` means keep board unchanged; null/"" means clear board.
+  if (typeof boardId !== "undefined") {
+    removeTagsForKey(next, BOARD_TAG_KEY);
+    const normalizedBoardId = boardId?.trim() ?? "";
+    if (normalizedBoardId.length > 0) {
+      pushTagUnique(next, `${BOARD_TAG_KEY}:${normalizedBoardId}`);
+    }
+  }
+
+  return next;
+}
+
 export function boardIdFromTaskTags(tags: string[]): string | null {
   return firstTagValue(tags, BOARD_TAG_KEY);
 }

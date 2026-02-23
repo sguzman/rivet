@@ -60,7 +60,6 @@ import {
 } from "../lib/storage";
 import {
   BOARD_TAG_KEY,
-  KANBAN_TAG_KEY,
   boardIdFromTaskTags,
   buildTagColorMap,
   collectTagsForSubmit,
@@ -69,6 +68,7 @@ import {
   pushTagUnique,
   removeTagsForKey,
   splitTags,
+  tagsForKanbanMove,
   taskHasTagValue
 } from "../lib/tags";
 import type { RivetRuntimeConfig, TagSchema } from "../types/config";
@@ -332,6 +332,7 @@ interface AppState {
   setDraggingKanbanTask: (taskId: string | null) => void;
   setDragOverKanbanLane: (lane: string | null) => void;
   moveKanbanTask: (taskId: string, lane: string) => Promise<void>;
+  moveKanbanTaskToBoard: (taskId: string, boardId: string | null, lane?: string) => Promise<void>;
 
   setCalendarView: (view: "year" | "quarter" | "month" | "week" | "day") => void;
   setCalendarFocusDateIso: (iso: string) => void;
@@ -765,11 +766,26 @@ export const useAppStore = create<AppState>((set, get) => {
     const columns = kanbanColumnsFromSchema(get().tagSchema);
     const fallbackLane = defaultKanbanLane(get().tagSchema);
     const targetLane = columns.includes(lane) ? lane : fallbackLane;
-    const nextTags = [...task.tags];
-    removeTagsForKey(nextTags, KANBAN_TAG_KEY);
-    pushTagUnique(nextTags, `${KANBAN_TAG_KEY}:${targetLane}`);
+    const nextTags = tagsForKanbanMove(task.tags, targetLane);
 
     logger.info("kanban.task.move", `${taskId} -> ${targetLane}`);
+    await get().updateTaskByUuid(taskId, { tags: nextTags });
+  },
+
+  async moveKanbanTaskToBoard(taskId, boardId, lane) {
+    const task = get().tasks.find((entry) => entry.uuid === taskId);
+    if (!task) {
+      return;
+    }
+    if (!(task.status === "Pending" || task.status === "Waiting")) {
+      return;
+    }
+
+    const columns = kanbanColumnsFromSchema(get().tagSchema);
+    const fallbackLane = defaultKanbanLane(get().tagSchema);
+    const targetLane = lane && columns.includes(lane) ? lane : fallbackLane;
+    const nextTags = tagsForKanbanMove(task.tags, targetLane, boardId);
+    logger.info("kanban.task.move_board", `${taskId} -> board=${boardId ?? "(none)"} lane=${targetLane}`);
     await get().updateTaskByUuid(taskId, { tags: nextTags });
   },
 

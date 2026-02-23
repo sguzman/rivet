@@ -21,36 +21,39 @@ import { CalendarWorkspace } from "../features/calendar/CalendarWorkspace";
 import { KanbanWorkspace } from "../features/kanban/KanbanWorkspace";
 import { TasksWorkspace } from "../features/tasks/TasksWorkspace";
 import { logger } from "../lib/logger";
-import { useAppStore } from "../store/useAppStore";
+import { useDiagnosticsSlice, useSettingsSlice, useShellSlice } from "../store/slices";
 
 export function AppShell() {
-  const bootstrap = useAppStore((state) => state.bootstrap);
-  const activeTab = useAppStore((state) => state.activeTab);
-  const setActiveTab = useAppStore((state) => state.setActiveTab);
-  const themeMode = useAppStore((state) => state.themeMode);
-  const toggleTheme = useAppStore((state) => state.toggleTheme);
-  const addTaskDialogOpen = useAppStore((state) => state.addTaskDialogOpen);
-  const addTaskDialogContext = useAppStore((state) => state.addTaskDialogContext);
-  const openAddTaskDialog = useAppStore((state) => state.openAddTaskDialog);
-  const closeAddTaskDialog = useAppStore((state) => state.closeAddTaskDialog);
-  const createTask = useAppStore((state) => state.createTask);
-  const loading = useAppStore((state) => state.loading);
-  const runtimeConfig = useAppStore((state) => state.runtimeConfig);
-  const tagSchema = useAppStore((state) => state.tagSchema);
-  const tagColorMap = useAppStore((state) => state.tagColorMap);
-  const kanbanBoards = useAppStore((state) => state.kanbanBoards);
-  const settingsOpen = useAppStore((state) => state.settingsOpen);
-  const openSettings = useAppStore((state) => state.openSettings);
-  const closeSettings = useAppStore((state) => state.closeSettings);
-  const dueConfig = useAppStore((state) => state.dueNotificationConfig);
-  const duePermission = useAppStore((state) => state.dueNotificationPermission);
-  const setDueNotificationsEnabled = useAppStore((state) => state.setDueNotificationsEnabled);
-  const setDuePreNotifyEnabled = useAppStore((state) => state.setDuePreNotifyEnabled);
-  const setDuePreNotifyMinutes = useAppStore((state) => state.setDuePreNotifyMinutes);
-  const requestDueNotificationPermission = useAppStore((state) => state.requestDueNotificationPermission);
-  const scanDueNotifications = useAppStore((state) => state.scanDueNotifications);
-  const commandFailures = useAppStore((state) => state.commandFailures);
-  const clearCommandFailures = useAppStore((state) => state.clearCommandFailures);
+  const {
+    bootstrap,
+    activeTab,
+    setActiveTab,
+    themeMode,
+    toggleTheme,
+    addTaskDialogOpen,
+    addTaskDialogContext,
+    openAddTaskDialog,
+    closeAddTaskDialog,
+    createTask,
+    loading,
+    runtimeConfig,
+    tagSchema,
+    tagColorMap,
+    kanbanBoards
+  } = useShellSlice();
+  const {
+    settingsOpen,
+    openSettings,
+    closeSettings,
+    dueConfig,
+    duePermission,
+    setDueNotificationsEnabled,
+    setDuePreNotifyEnabled,
+    setDuePreNotifyMinutes,
+    requestDueNotificationPermission,
+    scanDueNotifications
+  } = useSettingsSlice();
+  const { commandFailures, clearCommandFailures } = useDiagnosticsSlice();
 
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
 

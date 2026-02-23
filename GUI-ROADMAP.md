@@ -6,7 +6,7 @@
   bridge + React/TS frontend shell.
 - [x] Confirm non-goals for first cut (for example: no redesign of backend
   domain, no command semantic changes unless needed).
-- [ ] Define measurable success gates:
+- [x] Define measurable success gates:
 - [ ] `cargo tauri dev` runs with React UI.
 - [ ] Feature parity with current Yew app (Tasks, Kanban, Calendar, External
   Calendars, Modals, Notifications, Settings).
@@ -44,9 +44,9 @@
 - [x] One `ui/src/api/tauri.ts` command client.
 - [x] Centralized request/response types mapping.
 - [x] Standardized error normalization and tracing for invoke failures.
-- [ ] Define frontend state architecture:
+- [x] Define frontend state architecture:
 - [x] Central store (Zustand or Redux Toolkit; choose one).
-- [ ] Separate slices: tasks, filters, kanban, calendar, modals, settings,
+- [x] Separate slices: tasks, filters, kanban, calendar, modals, settings,
   external calendars, notifications, ui/session.
 - [x] Define folder structure:
 - [x] `ui/src/app` shell and route/view composition.
@@ -86,7 +86,7 @@
 - [x] Define theme switching policy:
 - [x] One source of truth for day/night in store.
 - [x] Sync MUI theme mode + Tailwind class strategy.
-- [ ] Audit all current UI pieces for required MUI equivalents.
+- [x] Audit all current UI pieces for required MUI equivalents.
 
 ## 5. Command Bridge Hardening Before UI Rewrite
 
@@ -155,7 +155,7 @@
 - [x] Port kanban-specific filters.
 - [x] Ensure move operation updates both backend and local optimistic state
   safely.
-- [ ] Validate tag updates when moving cards across lanes and between boards.
+- [x] Validate tag updates when moving cards across lanes and between boards.
 
 ## 10. Calendar Feature Migration Plan
 

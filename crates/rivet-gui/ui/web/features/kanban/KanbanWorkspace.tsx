@@ -21,19 +21,22 @@ import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 
 import { TagChip } from "../../components/TagChip";
-import { humanizeLane, kanbanLaneFromTask } from "../../lib/tags";
+import { boardIdFromTaskTags, humanizeLane, kanbanLaneFromTask } from "../../lib/tags";
 import {
-  useAppStore,
   useKanbanColumns,
   useKanbanViewData
 } from "../../store/useAppStore";
+import { useKanbanWorkspaceSlice } from "../../store/slices";
 import type { TaskDto } from "../../types/core";
 
 function KanbanCard(props: {
   task: TaskDto;
   compact: boolean;
   columns: string[];
+  boardOptions: Array<{ id: string; name: string }>;
+  currentBoardId: string | null;
   onMove: (lane: string) => void;
+  onMoveBoard: (boardId: string) => void;
   onDone: () => void;
   onDelete: () => void;
   onDragStart: (event: DragEvent<HTMLDivElement>) => void;
@@ -43,6 +46,7 @@ function KanbanCard(props: {
   const laneIndex = props.columns.findIndex((entry) => entry === lane);
   const nextLane = props.columns[(laneIndex + 1) % props.columns.length] ?? lane;
   const showActionMove = props.columns.length > 1 && nextLane !== lane;
+  const canMoveBoard = props.boardOptions.length > 1;
 
   return (
     <Paper
@@ -68,6 +72,9 @@ function KanbanCard(props: {
               <Typography variant="caption" className="rounded-md border border-current/15 px-1.5 py-0.5">
                 project:{props.task.project ?? "—"}
               </Typography>
+              <Typography variant="caption" className="rounded-md border border-current/15 px-1.5 py-0.5">
+                board:{props.boardOptions.find((entry) => entry.id === props.currentBoardId)?.name ?? "—"}
+              </Typography>
               {props.task.due ? (
                 <Typography variant="caption" className="rounded-md border border-current/15 px-1.5 py-0.5">
                   due:{props.task.due}
@@ -79,6 +86,21 @@ function KanbanCard(props: {
                 <TagChip key={tag} tag={tag} size="small" />
               ))}
             </Stack>
+            {canMoveBoard ? (
+              <TextField
+                select
+                size="small"
+                label="Board"
+                value={props.currentBoardId ?? ""}
+                onChange={(event) => props.onMoveBoard(event.target.value)}
+              >
+                {props.boardOptions.map((entry) => (
+                  <MenuItem key={entry.id} value={entry.id}>
+                    {entry.name}
+                  </MenuItem>
+                ))}
+              </TextField>
+            ) : null}
           </>
         ) : null}
         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
@@ -102,34 +124,34 @@ function KanbanCard(props: {
 }
 
 export function KanbanWorkspace() {
-  const error = useAppStore((state) => state.error);
-  const loading = useAppStore((state) => state.loading);
-  const openAddTaskDialog = useAppStore((state) => state.openAddTaskDialog);
-
-  const boards = useAppStore((state) => state.kanbanBoards);
-  const activeBoardId = useAppStore((state) => state.activeKanbanBoardId);
-  const compactCards = useAppStore((state) => state.kanbanCompactCards);
-  const draggingTaskId = useAppStore((state) => state.draggingKanbanTaskId);
-  const dragOverLane = useAppStore((state) => state.dragOverKanbanLane);
-  const filters = useAppStore((state) => state.kanbanFilters);
-
-  const setActiveBoard = useAppStore((state) => state.setActiveKanbanBoard);
-  const createBoard = useAppStore((state) => state.createKanbanBoard);
-  const renameBoard = useAppStore((state) => state.renameActiveKanbanBoard);
-  const deleteBoard = useAppStore((state) => state.deleteActiveKanbanBoard);
-  const toggleCompact = useAppStore((state) => state.toggleKanbanCompactCards);
-  const setDragging = useAppStore((state) => state.setDraggingKanbanTask);
-  const setDragOver = useAppStore((state) => state.setDragOverKanbanLane);
-  const moveTask = useAppStore((state) => state.moveKanbanTask);
-  const markTaskDone = useAppStore((state) => state.markTaskDone);
-  const removeTask = useAppStore((state) => state.removeTask);
-
-  const setStatusFilter = useAppStore((state) => state.setKanbanStatusFilter);
-  const setProjectFilter = useAppStore((state) => state.setKanbanProjectFilter);
-  const setTagFilter = useAppStore((state) => state.setKanbanTagFilter);
-  const setPriorityFilter = useAppStore((state) => state.setKanbanPriorityFilter);
-  const setDueFilter = useAppStore((state) => state.setKanbanDueFilter);
-  const clearFilters = useAppStore((state) => state.clearKanbanFilters);
+  const {
+    error,
+    loading,
+    openAddTaskDialog,
+    boards,
+    activeBoardId,
+    compactCards,
+    draggingTaskId,
+    dragOverLane,
+    filters,
+    setActiveBoard,
+    createBoard,
+    renameBoard,
+    deleteBoard,
+    toggleCompact,
+    setDragging,
+    setDragOver,
+    moveTask,
+    moveTaskToBoard,
+    markTaskDone,
+    removeTask,
+    setStatusFilter,
+    setProjectFilter,
+    setTagFilter,
+    setPriorityFilter,
+    setDueFilter,
+    clearFilters
+  } = useKanbanWorkspaceSlice();
 
   const columns = useKanbanColumns();
   const { visibleTasks: tasks, projectFacets, tagFacets } = useKanbanViewData();
@@ -306,8 +328,13 @@ export function KanbanWorkspace() {
                           task={task}
                           compact={compactCards}
                           columns={columns}
+                          boardOptions={boards.map((board) => ({ id: board.id, name: board.name }))}
+                          currentBoardId={boardIdFromTaskTags(task.tags)}
                           onMove={(nextLane) => {
                             void moveTask(task.uuid, nextLane);
+                          }}
+                          onMoveBoard={(boardId) => {
+                            void moveTaskToBoard(task.uuid, boardId, entry.column);
                           }}
                           onDone={() => {
                             void markTaskDone(task.uuid);

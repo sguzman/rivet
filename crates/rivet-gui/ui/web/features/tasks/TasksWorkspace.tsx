@@ -11,27 +11,28 @@ import Typography from "@mui/material/Typography";
 import { TaskDetailsPanel } from "../../components/TaskDetailsPanel";
 import { TaskListPanel } from "../../components/TaskListPanel";
 import {
-  useAppStore,
   useSelectedTask,
   useTaskViewData
 } from "../../store/useAppStore";
+import { useTaskWorkspaceSlice } from "../../store/slices";
 
 export function TasksWorkspace() {
-  const loading = useAppStore((state) => state.loading);
-  const error = useAppStore((state) => state.error);
-  const selectedTaskId = useAppStore((state) => state.selectedTaskId);
-  const filters = useAppStore((state) => state.taskFilters);
-
-  const setSearchFilter = useAppStore((state) => state.setTaskSearchFilter);
-  const setStatusFilter = useAppStore((state) => state.setTaskStatusFilter);
-  const setProjectFilter = useAppStore((state) => state.setTaskProjectFilter);
-  const setTagFilter = useAppStore((state) => state.setTaskTagFilter);
-  const setPriorityFilter = useAppStore((state) => state.setTaskPriorityFilter);
-  const setDueFilter = useAppStore((state) => state.setTaskDueFilter);
-  const clearFilters = useAppStore((state) => state.clearTaskFilters);
-  const selectTask = useAppStore((state) => state.selectTask);
-  const markTaskDone = useAppStore((state) => state.markTaskDone);
-  const removeTask = useAppStore((state) => state.removeTask);
+  const {
+    loading,
+    error,
+    selectedTaskId,
+    filters,
+    setSearchFilter,
+    setStatusFilter,
+    setProjectFilter,
+    setTagFilter,
+    setPriorityFilter,
+    setDueFilter,
+    clearFilters,
+    selectTask,
+    markTaskDone,
+    removeTask
+  } = useTaskWorkspaceSlice();
 
   const { visibleTasks, projectFacets, tagFacets } = useTaskViewData();
   const selectedTask = useSelectedTask();
