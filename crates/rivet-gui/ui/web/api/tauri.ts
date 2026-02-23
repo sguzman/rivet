@@ -46,11 +46,32 @@ type CommandFailureSink = (record: CommandFailureRecord) => void;
 
 let commandFailureSink: CommandFailureSink | null = null;
 
+type RuntimeTransportMode = "auto" | "tauri" | "mock";
+
+function resolveRuntimeTransportMode(): RuntimeTransportMode {
+  const raw = String(import.meta.env.VITE_RIVET_UI_RUNTIME_MODE ?? "auto").trim().toLowerCase();
+  if (raw === "tauri") {
+    return "tauri";
+  }
+  if (raw === "mock") {
+    return "mock";
+  }
+  return "auto";
+}
+
+const runtimeTransportMode = resolveRuntimeTransportMode();
+
 export function setCommandFailureSink(sink: CommandFailureSink | null): void {
   commandFailureSink = sink;
 }
 
 const isTauriRuntime = (): boolean => {
+  if (runtimeTransportMode === "mock") {
+    return false;
+  }
+  if (runtimeTransportMode === "tauri") {
+    return true;
+  }
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 };
 

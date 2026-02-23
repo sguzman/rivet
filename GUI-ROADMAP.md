@@ -2,9 +2,9 @@
 
 ## 0. Scope and Success Criteria
 
-- [ ] Define migration target architecture: Rust core + Rust Tauri command
+- [x] Define migration target architecture: Rust core + Rust Tauri command
   bridge + React/TS frontend shell.
-- [ ] Confirm non-goals for first cut (for example: no redesign of backend
+- [x] Confirm non-goals for first cut (for example: no redesign of backend
   domain, no command semantic changes unless needed).
 - [ ] Define measurable success gates:
 - [ ] `cargo tauri dev` runs with React UI.
@@ -16,18 +16,18 @@
 
 ## 1. Baseline Audit and Freeze
 
-- [ ] Freeze current Yew behavior as reference.
-- [ ] Capture golden interaction list by view:
-- [ ] Tasks: list/filter/search/select/add/edit/delete/done/bulk actions.
-- [ ] Kanban: boards CRUD, lane drag/drop, card density toggle, filters.
-- [ ] Calendar: year/quarter/month/week/day nav, markers, external calendars,
+- [x] Freeze current Yew behavior as reference.
+- [x] Capture golden interaction list by view:
+- [x] Tasks: list/filter/search/select/add/edit/delete/done/bulk actions.
+- [x] Kanban: boards CRUD, lane drag/drop, card density toggle, filters.
+- [x] Calendar: year/quarter/month/week/day nav, markers, external calendars,
   period tasks.
-- [ ] Modals: add task, board create/rename, external calendar add/edit/delete.
-- [ ] Settings: due notifications permissions/pre-notify.
-- [ ] Capture command inventory from Tauri (`tasks_*`, `external_calendar_*`,
+- [x] Modals: add task, board create/rename, external calendar add/edit/delete.
+- [x] Settings: due notifications permissions/pre-notify.
+- [x] Capture command inventory from Tauri (`tasks_*`, `external_calendar_*`,
   `window_*`, logging).
-- [ ] Capture current config dependencies (`rivet.toml`, `tags.toml`).
-- [ ] Record current frontend performance baseline (initial load, tab switch
+- [x] Capture current config dependencies (`rivet.toml`, `tags.toml`).
+- [x] Record current frontend performance baseline (initial load, tab switch
   latency, large list rendering).
 
 ## 2. Target Architecture Definition (Voltlane-Inspired)
@@ -36,11 +36,11 @@
 - [x] `src-tauri` remains Rust host + command bridge.
 - [x] New `ui` frontend becomes Vite + React + TypeScript.
 - [x] Shared DTOs continue through `rivet_gui_shared` and command contracts.
-- [ ] Define runtime strategy:
+- [x] Define runtime strategy:
 - [x] Real Tauri runtime uses `@tauri-apps/api/core invoke`.
 - [x] Optional browser/mock mode for UI-only dev (like Voltlane mock invoke
   fallback).
-- [ ] Define typed frontend API layer:
+- [x] Define typed frontend API layer:
 - [x] One `ui/src/api/tauri.ts` command client.
 - [x] Centralized request/response types mapping.
 - [x] Standardized error normalization and tracing for invoke failures.
@@ -48,7 +48,7 @@
 - [x] Central store (Zustand or Redux Toolkit; choose one).
 - [ ] Separate slices: tasks, filters, kanban, calendar, modals, settings,
   external calendars, notifications, ui/session.
-- [ ] Define folder structure:
+- [x] Define folder structure:
 - [x] `ui/src/app` shell and route/view composition.
 - [x] `ui/src/features/*` domain feature modules.
 - [x] `ui/src/components/*` reusable UI primitives.
@@ -79,11 +79,11 @@
 - [x] Define style ownership model to prevent conflicts:
 - [x] Tailwind for layout/spacing/utility classes.
 - [x] MUI for component primitives (buttons, dialogs, menus, forms, tables).
-- [ ] Create unified design token map from current CSS vars:
-- [ ] Colors, semantic states, border radii, spacing scale, shadows, typography.
+- [x] Create unified design token map from current CSS vars:
+- [x] Colors, semantic states, border radii, spacing scale, shadows, typography.
 - [x] Implement MUI theme from tokens (light/day and dark/night modes).
 - [x] Implement Tailwind config tokens that mirror same palette and spacing.
-- [ ] Define theme switching policy:
+- [x] Define theme switching policy:
 - [x] One source of truth for day/night in store.
 - [x] Sync MUI theme mode + Tailwind class strategy.
 - [ ] Audit all current UI pieces for required MUI equivalents.
@@ -105,14 +105,14 @@
 ## 6. Incremental Migration Strategy (No Big Bang)
 
 - [x] Introduce React UI shell while keeping Rust backend unchanged.
-- [ ] Phase migration by feature modules:
+- [x] Phase migration by feature modules:
 - [x] Phase A: Global shell (window chrome, tabs, basic layout).
 - [x] Phase B: Tasks workspace.
 - [x] Phase C: Kanban workspace.
 - [x] Phase D: Calendar workspace.
 - [x] Phase E: Settings + notifications + modal ecosystem polish.
 - [ ] Keep Yew UI branchable fallback until each phase passes parity checklist.
-- [ ] Define feature-flag style cutover (build-time or runtime) during
+- [x] Define feature-flag style cutover (build-time or runtime) during
   transition.
 
 ## 7. React App Shell Implementation Plan
@@ -183,7 +183,7 @@
 - [x] `rivet.toml` effective config
 - [x] tag schema (`tags.toml`) data
 - [x] Build config adapter in TS to normalize defaults.
-- [ ] Ensure one canonical source of truth for:
+- [x] Ensure one canonical source of truth for:
 - [x] timezone
 - [x] calendar policies
 - [x] mode/logging indicators for diagnostics UI.
@@ -203,8 +203,8 @@
 - [x] Frontend event logging:
 - [x] command start/success/error with durations
 - [x] user interaction breadcrumbs for buttons/modal actions
-- [ ] Keep backend tracing as-is with dev log file mode.
-- [ ] Define shared correlation id propagation:
+- [x] Keep backend tracing as-is with dev log file mode.
+- [x] Define shared correlation id propagation:
 - [x] frontend invoke includes request id
 - [x] tauri logs request id
 - [x] Display diagnostics panel for last N command failures in dev mode.
@@ -213,25 +213,25 @@
 
 - [x] Add React profiler pass on heavy views (Tasks/Calendar).
 - [x] Memoize derived selectors for filters and facets.
-- [ ] Batch updates to avoid re-render storms.
+- [x] Batch updates to avoid re-render storms.
 - [x] Use virtualized list for large task sets.
 - [x] Debounce expensive query/filter operations.
-- [ ] Benchmark before/after against frozen baseline.
+- [x] Benchmark before/after against frozen baseline.
 
 ## 15. QA and Parity Validation Plan
 
-- [ ] Build parity checklist document per workflow.
-- [ ] Add end-to-end smoke suite (Playwright recommended):
-- [ ] add/edit/delete task
-- [ ] kanban board CRUD + DnD
-- [ ] calendar navigation + marker rendering
-- [ ] external calendar import/sync modal behaviors
-- [ ] theme toggle and persistence
+- [x] Build parity checklist document per workflow.
+- [x] Add end-to-end smoke suite (Playwright recommended):
+- [x] add/edit/delete task
+- [x] kanban board CRUD + DnD
+- [x] calendar navigation + marker rendering
+- [x] external calendar import/sync modal behaviors
+- [x] theme toggle and persistence
 - [ ] Add regression scenarios for previously broken interactions:
-- [ ] dead clicks
+- [x] dead clicks
 - [ ] modal lockups
-- [ ] save hangs
-- [ ] drag instability
+- [x] save hangs
+- [x] drag instability
 - [ ] Run matrix:
 - [ ] Linux/Wayland primary
 - [ ] dark/light themes
@@ -257,20 +257,20 @@
 - [x] `cargo fmt --check`
 - [x] `cargo clippy ...`
 - [x] `cargo test`
-- [ ] Add integrated app build check (`cargo tauri build` smoke in CI when
+- [x] Add integrated app build check (`cargo tauri build` smoke in CI when
   feasible).
-- [ ] Add artifact retention for frontend build + tauri logs in dev pipelines.
+- [x] Add artifact retention for frontend build + tauri logs in dev pipelines.
 
 ## 18. Documentation Deliverables
 
-- [ ] New architecture doc: Rust core + Tauri bridge + React shell.
-- [ ] Frontend contribution guide:
-- [ ] component patterns
-- [ ] state management
-- [ ] Tailwind + MUI usage rules
-- [ ] command API usage
-- [ ] Migration notes for removed Yew modules.
-- [ ] Troubleshooting guide for Wayland/Tauri interaction issues.
+- [x] New architecture doc: Rust core + Tauri bridge + React shell.
+- [x] Frontend contribution guide:
+- [x] component patterns
+- [x] state management
+- [x] Tailwind + MUI usage rules
+- [x] command API usage
+- [x] Migration notes for removed Yew modules.
+- [x] Troubleshooting guide for Wayland/Tauri interaction issues.
 
 ## 19. Recommended Execution Order (Practical)
 

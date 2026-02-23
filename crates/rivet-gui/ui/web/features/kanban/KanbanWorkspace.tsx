@@ -49,6 +49,7 @@ function KanbanCard(props: {
       draggable
       onDragStart={props.onDragStart}
       onDragEnd={props.onDragEnd}
+      data-testid={`kanban-card-${props.task.uuid}`}
       className="cursor-grab active:cursor-grabbing"
       sx={{
         p: 1.25
@@ -262,6 +263,7 @@ export function KanbanWorkspace() {
             {tasksByLane.map((entry) => (
               <Box
                 key={entry.column}
+                data-testid={`kanban-lane-${entry.column}`}
                 onDragOver={(event) => {
                   event.preventDefault();
                   setDragOver(entry.column);

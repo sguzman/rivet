@@ -1,42 +1,48 @@
 import { createTheme } from "@mui/material/styles";
 
+import { RIVET_TOKENS } from "./tokens";
+
 export type ThemeMode = "day" | "night";
 
 export function createRivetTheme(mode: ThemeMode) {
   const isNight = mode === "night";
+  const palette = isNight ? RIVET_TOKENS.night : RIVET_TOKENS.day;
 
   return createTheme({
     palette: {
       mode: isNight ? "dark" : "light",
       primary: {
-        main: isNight ? "#f28d47" : "#c95f2f"
+        main: palette.accent
       },
       success: {
-        main: isNight ? "#4bbc84" : "#2d8f5c"
+        main: palette.ok
       },
       error: {
-        main: isNight ? "#d86d61" : "#b63f2d"
+        main: palette.danger
       },
       background: {
-        default: isNight ? "#131922" : "#f4efe7",
-        paper: isNight ? "#1b2533" : "#fffdf7"
+        default: palette.bg,
+        paper: palette.panel
       },
       text: {
-        primary: isNight ? "#e8eef7" : "#241d17",
-        secondary: isNight ? "#9fb1c7" : "#6c5d4f"
+        primary: palette.text,
+        secondary: palette.muted
       },
-      divider: isNight ? "#314257" : "#e2d5c4"
+      divider: palette.border
     },
     shape: {
-      borderRadius: 14
+      borderRadius: RIVET_TOKENS.radius.panel
+    },
+    typography: {
+      fontFamily: RIVET_TOKENS.typography.bodyFontFamily
     },
     components: {
       MuiPaper: {
         styleOverrides: {
           root: {
             border: "1px solid",
-            borderColor: isNight ? "#314257" : "#e2d5c4",
-            boxShadow: isNight ? "0 10px 28px rgba(0, 0, 0, 0.35)" : "0 8px 22px rgba(29, 17, 8, 0.05)"
+            borderColor: palette.border,
+            boxShadow: isNight ? RIVET_TOKENS.shadows.nightPanel : RIVET_TOKENS.shadows.dayPanel
           }
         }
       },

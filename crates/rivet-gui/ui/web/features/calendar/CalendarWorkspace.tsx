@@ -109,10 +109,10 @@ function ExternalCalendarCard(props: {
           >
             Sync
           </Button>
-          <IconButton size="small" onClick={props.onEdit}>
+          <IconButton size="small" aria-label={`Edit ${props.source.name}`} onClick={props.onEdit}>
             <EditIcon fontSize="small" />
           </IconButton>
-          <IconButton size="small" color="error" onClick={props.onDelete}>
+          <IconButton size="small" color="error" aria-label={`Delete ${props.source.name}`} onClick={props.onDelete}>
             <DeleteIcon fontSize="small" />
           </IconButton>
         </Stack>

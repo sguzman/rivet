@@ -9,6 +9,7 @@
     "ui:check": "pnpm --dir crates/rivet-gui/ui run check",
     "ui:lint": "pnpm --dir crates/rivet-gui/ui run lint",
     "ui:test": "pnpm --dir crates/rivet-gui/ui run test",
+    "ui:e2e": "pnpm --dir crates/rivet-gui/ui run e2e",
     "tauri:dev": "cargo tauri dev --manifest-path crates/rivet-gui/src-tauri/Cargo.toml",
     "tauri:build": "cargo tauri build --manifest-path crates/rivet-gui/src-tauri/Cargo.toml"
   },

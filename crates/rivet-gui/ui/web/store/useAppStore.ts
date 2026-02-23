@@ -719,13 +719,22 @@ export const useAppStore = create<AppState>((set, get) => {
       return editable && taskHasTagValue(task.tags, BOARD_TAG_KEY, activeId);
     });
 
+    const updatedById = new Map<string, TaskDto>();
     for (const task of affectedTasks) {
       const nextTags = [...task.tags];
       removeTagsForKey(nextTags, BOARD_TAG_KEY);
-      const updated = await get().updateTaskByUuid(task.uuid, { tags: nextTags });
-      if (!updated) {
-        logger.warn("kanban.board.delete.cleanup", `failed to clear board tag for ${task.uuid}`);
+      try {
+        const updated = await updateTask({ uuid: task.uuid, patch: { tags: nextTags } });
+        updatedById.set(task.uuid, updated);
+      } catch (error) {
+        logger.warn("kanban.board.delete.cleanup", `${task.uuid}: ${String(error)}`);
       }
+    }
+
+    if (updatedById.size > 0) {
+      set((state) => ({
+        tasks: state.tasks.map((task) => updatedById.get(task.uuid) ?? task)
+      }));
     }
   },
 

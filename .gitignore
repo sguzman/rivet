@@ -5,3 +5,7 @@ node_modules
 .rivet_gui_data
 crates/rivet-gui/ui/dist
 logs/
+playwright-report/
+test-results/
+crates/rivet-gui/ui/playwright-report/
+crates/rivet-gui/ui/test-results/
