@@ -7,12 +7,12 @@
 - [x] Confirm non-goals for first cut (for example: no redesign of backend
   domain, no command semantic changes unless needed).
 - [x] Define measurable success gates:
-- [ ] `cargo tauri dev` runs with React UI.
+- [x] `cargo tauri dev` runs with React UI.
 - [ ] Feature parity with current Yew app (Tasks, Kanban, Calendar, External
   Calendars, Modals, Notifications, Settings).
-- [ ] No command regressions in Tauri bridge.
+- [x] No command regressions in Tauri bridge.
 - [ ] Performance equal or better than current UI responsiveness.
-- [ ] Logging remains comprehensive (frontend + tauri + core).
+- [x] Logging remains comprehensive (frontend + tauri + core).
 
 ## 1. Baseline Audit and Freeze
 
@@ -71,7 +71,7 @@
 - [x] `beforeDevCommand` -> Vite dev server.
 - [x] `beforeBuildCommand` -> Vite build.
 - [x] `devUrl` + `frontendDist` paths aligned to new UI output.
-- [ ] Keep Trunk/Yew build path available behind temporary fallback until parity
+- [x] Keep Trunk/Yew build path available behind temporary fallback until parity
   complete.
 
 ## 4. Styling System Plan (Tailwind + MUI)
@@ -111,7 +111,7 @@
 - [x] Phase C: Kanban workspace.
 - [x] Phase D: Calendar workspace.
 - [x] Phase E: Settings + notifications + modal ecosystem polish.
-- [ ] Keep Yew UI branchable fallback until each phase passes parity checklist.
+- [x] Keep Yew UI branchable fallback until each phase passes parity checklist.
 - [x] Define feature-flag style cutover (build-time or runtime) during
   transition.
 
@@ -227,9 +227,9 @@
 - [x] calendar navigation + marker rendering
 - [x] external calendar import/sync modal behaviors
 - [x] theme toggle and persistence
-- [ ] Add regression scenarios for previously broken interactions:
+- [x] Add regression scenarios for previously broken interactions:
 - [x] dead clicks
-- [ ] modal lockups
+- [x] modal lockups
 - [x] save hangs
 - [x] drag instability
 - [ ] Run matrix:

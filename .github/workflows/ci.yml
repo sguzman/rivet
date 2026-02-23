@@ -94,6 +94,16 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+  legacy-yew:
+    name: Legacy Yew Fallback Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Compile legacy yew frontend crate
+        run: cargo check -p rivet_gui_ui --locked
+
   tauri-smoke:
     name: Tauri Build Smoke
     runs-on: ubuntu-latest

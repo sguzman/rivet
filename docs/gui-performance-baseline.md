@@ -33,6 +33,8 @@ For runtime profile logs, run app in dev mode and inspect `render.profile` event
 - Debounced task search input.
 - Memoized derived selectors/facets for tasks and kanban.
 - Batched state replacement for board-delete task cleanup.
+- Selector performance guard test for large dataset:
+  - `web/store/selectors.test.ts` (12k task filter budget assertion).
 
 ## Remaining Perf Work
 

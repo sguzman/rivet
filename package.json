@@ -5,13 +5,17 @@
   "packageManager": "pnpm@10.16.1",
   "scripts": {
     "ui:dev": "pnpm --dir crates/rivet-gui/ui run dev",
+    "ui:yew:dev": "trunk serve --config crates/rivet-gui/ui/Trunk.yew.toml --port 1420",
     "ui:build": "pnpm --dir crates/rivet-gui/ui run build",
+    "ui:yew:build": "trunk build --config crates/rivet-gui/ui/Trunk.yew.toml --release",
     "ui:check": "pnpm --dir crates/rivet-gui/ui run check",
     "ui:lint": "pnpm --dir crates/rivet-gui/ui run lint",
     "ui:test": "pnpm --dir crates/rivet-gui/ui run test",
     "ui:e2e": "pnpm --dir crates/rivet-gui/ui run e2e",
     "tauri:dev": "cargo tauri dev --manifest-path crates/rivet-gui/src-tauri/Cargo.toml",
-    "tauri:build": "cargo tauri build --manifest-path crates/rivet-gui/src-tauri/Cargo.toml"
+    "tauri:build": "cargo tauri build --manifest-path crates/rivet-gui/src-tauri/Cargo.toml",
+    "tauri:dev:yew": "cd crates/rivet-gui/src-tauri && cargo tauri dev --config tauri.yew.dev.json",
+    "tauri:build:yew": "cd crates/rivet-gui/src-tauri && cargo tauri build --config tauri.yew.dev.json"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.10.0"

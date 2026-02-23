@@ -2,6 +2,13 @@
 
 Use this checklist for migration parity signoff between legacy Yew behavior and React shell behavior.
 
+Automated coverage references:
+
+- Command/schema contracts: `web/api/schemas.test.ts`
+- Tag movement semantics: `web/lib/tags.test.ts`
+- Selector + large dataset checks: `web/store/selectors.test.ts`
+- Modal/save regression behaviors: `web/store/useAppStore.test.ts`
+
 ## Tasks Workspace
 
 - [ ] Load tasks without dead clicks.

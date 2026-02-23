@@ -7,6 +7,7 @@ Status date: 2026-02-23
 - [x] `cargo tauri dev` wiring points to Vite frontend (`tauri.conf.json`).
 - [x] React shell covers Tasks, Kanban, Calendar, External Calendars, Settings, modals.
 - [x] Command bridge has typed API adapter and runtime schema validation.
+- [x] Legacy fallback path preserved (Yew index/trunk config + yew tauri override + CI compile check).
 - [x] Frontend and backend emit correlated logs with `request_id`.
 - [x] Frontend quality gates pass locally:
   - `pnpm ui:lint`
@@ -16,6 +17,8 @@ Status date: 2026-02-23
 - [x] Rust workspace checks/tests pass:
   - `cargo check --workspace`
   - `cargo test --workspace`
+- [x] Runtime dev startup probe:
+  - `cargo tauri dev --no-watch --no-dev-server-wait` starts Vite and Tauri process with React shell wiring.
 
 ## Known Gap
 

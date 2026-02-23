@@ -1,0 +1,9 @@
+[build]
+target = "index.yew.html"
+dist = "dist-yew"
+
+[watch]
+ignore = ["dist-yew", "dist"]
+
+[serve]
+port = 1420
