@@ -1,12 +1,15 @@
 mod commands;
 mod state;
 
+use std::path::PathBuf;
 use std::{
   env,
   fs
 };
 
 use anyhow::Context;
+use chrono::Local;
+use serde::Deserialize;
 use tauri::Manager;
 use tracing::{
   error,
@@ -19,7 +22,138 @@ use tracing_subscriber::{
   fmt
 };
 
-fn init_tracing() {
+const APP_CONFIG_FILE: &str =
+  "rivet-app.toml";
+const APP_CONFIG_ENV_VAR: &str =
+  "RIVET_APP_CONFIG";
+const LOG_DIR_NAME: &str = "logs";
+
+#[derive(
+  Debug, Clone, Copy, PartialEq, Eq,
+)]
+enum RuntimeMode {
+  Dev,
+  Prod
+}
+
+impl RuntimeMode {
+  fn as_str(self) -> &'static str {
+    match self {
+      | Self::Dev => "dev",
+      | Self::Prod => "prod"
+    }
+  }
+}
+
+#[derive(Debug, Deserialize)]
+struct RuntimeConfig {
+  mode: Option<String>
+}
+
+fn load_runtime_mode() -> RuntimeMode {
+  let config_path =
+    env::var(APP_CONFIG_ENV_VAR)
+      .ok()
+      .map(PathBuf::from)
+      .or_else(|| {
+        env::current_dir().ok().map(
+          |dir| {
+            dir.join(APP_CONFIG_FILE)
+          }
+        )
+      });
+
+  let Some(path) = config_path else {
+    warn!(
+      "runtime config path not \
+       available; defaulting mode to \
+       prod"
+    );
+    return RuntimeMode::Prod;
+  };
+
+  if !path.exists() {
+    warn!(
+      path = %path.display(),
+      "runtime config missing; \
+       defaulting mode to prod"
+    );
+    return RuntimeMode::Prod;
+  }
+
+  let raw =
+    match fs::read_to_string(&path) {
+      | Ok(raw) => raw,
+      | Err(error) => {
+        error!(
+          path = %path.display(),
+          %error,
+          "failed to read runtime \
+           config; defaulting mode to \
+           prod"
+        );
+        return RuntimeMode::Prod;
+      }
+    };
+
+  let parsed = match toml::from_str::<
+    RuntimeConfig
+  >(&raw)
+  {
+    | Ok(parsed) => parsed,
+    | Err(error) => {
+      error!(
+        path = %path.display(),
+        %error,
+        "failed to parse runtime \
+         config; defaulting mode to \
+         prod"
+      );
+      return RuntimeMode::Prod;
+    }
+  };
+
+  match parsed
+    .mode
+    .as_deref()
+    .map(str::trim)
+  {
+    | Some(mode)
+      if mode.eq_ignore_ascii_case(
+        "dev"
+      ) =>
+    {
+      RuntimeMode::Dev
+    }
+    | Some(mode)
+      if mode.eq_ignore_ascii_case(
+        "prod"
+      ) =>
+    {
+      RuntimeMode::Prod
+    }
+    | Some(mode) => {
+      warn!(
+        path = %path.display(),
+        mode,
+        "unsupported runtime mode; \
+         expected dev|prod, \
+         defaulting to prod"
+      );
+      RuntimeMode::Prod
+    }
+    | None => {
+      warn!(
+        path = %path.display(),
+        "runtime config missing mode; \
+         defaulting to prod"
+      );
+      RuntimeMode::Prod
+    }
+  }
+}
+
+fn init_tracing(mode: RuntimeMode) {
   let filter =
     EnvFilter::try_from_default_env()
       .or_else(|_| {
@@ -31,6 +165,86 @@ fn init_tracing() {
       .unwrap_or_else(|_| {
         EnvFilter::new("info")
       });
+
+  if mode == RuntimeMode::Dev {
+    let log_dir = env::current_dir()
+      .unwrap_or_else(|_| {
+        PathBuf::from(".")
+      })
+      .join(LOG_DIR_NAME);
+
+    if let Err(error) =
+      fs::create_dir_all(&log_dir)
+    {
+      let _ =
+        tracing_subscriber::registry()
+          .with(filter)
+          .with(
+            fmt::layer()
+              .with_target(true)
+              .with_line_number(true)
+          )
+          .try_init();
+      error!(
+        path = %log_dir.display(),
+        %error,
+        "failed creating log \
+         directory; falling back to \
+         stderr logging"
+      );
+      return;
+    }
+
+    let file_name = format!(
+      "rivet-gui-{}.log",
+      Local::now()
+        .format("%Y%m%d-%H%M%S")
+    );
+    let log_path =
+      log_dir.join(file_name);
+    let file =
+      match fs::File::create(&log_path)
+      {
+        | Ok(file) => file,
+        | Err(error) => {
+          let _ =
+          tracing_subscriber::registry()
+            .with(filter)
+            .with(
+              fmt::layer()
+                .with_target(true)
+                .with_line_number(true)
+            )
+            .try_init();
+          error!(
+            path = %log_path.display(),
+            %error,
+            "failed opening log file; \
+             falling back to stderr \
+             logging"
+          );
+          return;
+        }
+      };
+
+    let (non_blocking, guard) =
+      tracing_appender::non_blocking(
+        file
+      );
+    let _ =
+      tracing_subscriber::registry()
+        .with(filter)
+        .with(
+          fmt::layer()
+            .with_target(true)
+            .with_line_number(true)
+            .with_ansi(false)
+            .with_writer(non_blocking)
+        )
+        .try_init();
+    std::mem::forget(guard);
+    return;
+  }
 
   let _ =
     tracing_subscriber::registry()
@@ -94,8 +308,13 @@ fn configure_wayland_defaults() {
 fn configure_wayland_defaults() {}
 
 fn main() {
-  init_tracing();
+  let mode = load_runtime_mode();
+  init_tracing(mode);
   configure_wayland_defaults();
+  info!(
+    mode = mode.as_str(),
+    "loaded runtime mode"
+  );
 
   info!("starting Rivet GUI backend");
 

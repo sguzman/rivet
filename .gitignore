@@ -4,3 +4,4 @@ dist
 node_modules
 .rivet_gui_data
 crates/rivet-gui/ui/dist
+logs/
