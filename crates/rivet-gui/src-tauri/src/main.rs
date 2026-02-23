@@ -427,6 +427,8 @@ fn main() {
     .manage(state)
     .invoke_handler(
       tauri::generate_handler![
+        commands::config_snapshot,
+        commands::tag_schema_snapshot,
         commands::tasks_list,
         commands::task_add,
         commands::task_update,

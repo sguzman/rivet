@@ -32,82 +32,82 @@
 
 ## 2. Target Architecture Definition (Voltlane-Inspired)
 
-- [ ] Adopt Voltlane-style split:
-- [ ] `src-tauri` remains Rust host + command bridge.
-- [ ] New `ui` frontend becomes Vite + React + TypeScript.
-- [ ] Shared DTOs continue through `rivet_gui_shared` and command contracts.
+- [x] Adopt Voltlane-style split:
+- [x] `src-tauri` remains Rust host + command bridge.
+- [x] New `ui` frontend becomes Vite + React + TypeScript.
+- [x] Shared DTOs continue through `rivet_gui_shared` and command contracts.
 - [ ] Define runtime strategy:
-- [ ] Real Tauri runtime uses `@tauri-apps/api/core invoke`.
-- [ ] Optional browser/mock mode for UI-only dev (like Voltlane mock invoke
+- [x] Real Tauri runtime uses `@tauri-apps/api/core invoke`.
+- [x] Optional browser/mock mode for UI-only dev (like Voltlane mock invoke
   fallback).
 - [ ] Define typed frontend API layer:
-- [ ] One `ui/src/api/tauri.ts` command client.
-- [ ] Centralized request/response types mapping.
-- [ ] Standardized error normalization and tracing for invoke failures.
+- [x] One `ui/src/api/tauri.ts` command client.
+- [x] Centralized request/response types mapping.
+- [x] Standardized error normalization and tracing for invoke failures.
 - [ ] Define frontend state architecture:
-- [ ] Central store (Zustand or Redux Toolkit; choose one).
+- [x] Central store (Zustand or Redux Toolkit; choose one).
 - [ ] Separate slices: tasks, filters, kanban, calendar, modals, settings,
   external calendars, notifications, ui/session.
 - [ ] Define folder structure:
-- [ ] `ui/src/app` shell and route/view composition.
-- [ ] `ui/src/features/*` domain feature modules.
-- [ ] `ui/src/components/*` reusable UI primitives.
-- [ ] `ui/src/theme/*` MUI theme and design tokens.
-- [ ] `ui/src/lib/*` logger, date/time utils, tag color utils, config adapters.
+- [x] `ui/src/app` shell and route/view composition.
+- [x] `ui/src/features/*` domain feature modules.
+- [x] `ui/src/components/*` reusable UI primitives.
+- [x] `ui/src/theme/*` MUI theme and design tokens.
+- [x] `ui/src/lib/*` logger, date/time utils, tag color utils, config adapters.
 
 ## 3. Toolchain Bootstrapping
 
-- [ ] Add Node workspace tooling at repo root (pnpm workspace style like
+- [x] Add Node workspace tooling at repo root (pnpm workspace style like
   Voltlane).
-- [ ] Add `ui/package.json` with:
-- [ ] `react`, `react-dom`, `typescript`, `vite`, `@vitejs/plugin-react`,
+- [x] Add `ui/package.json` with:
+- [x] `react`, `react-dom`, `typescript`, `vite`, `@vitejs/plugin-react`,
   `@tauri-apps/api`.
-- [ ] Tailwind stack: `tailwindcss`, `postcss`, `autoprefixer`.
-- [ ] MUI stack: `@mui/material`, `@mui/icons-material`, `@emotion/react`,
+- [x] Tailwind stack: `tailwindcss`, `postcss`, `autoprefixer`.
+- [x] MUI stack: `@mui/material`, `@mui/icons-material`, `@emotion/react`,
   `@emotion/styled`.
-- [ ] Add TS config (`tsconfig.json`, `tsconfig.node.json`), Vite config, strict
+- [x] Add TS config (`tsconfig.json`, `tsconfig.node.json`), Vite config, strict
   type settings.
-- [ ] Update `src-tauri/tauri.conf.json`:
-- [ ] `beforeDevCommand` -> Vite dev server.
-- [ ] `beforeBuildCommand` -> Vite build.
-- [ ] `devUrl` + `frontendDist` paths aligned to new UI output.
+- [x] Update `src-tauri/tauri.conf.json`:
+- [x] `beforeDevCommand` -> Vite dev server.
+- [x] `beforeBuildCommand` -> Vite build.
+- [x] `devUrl` + `frontendDist` paths aligned to new UI output.
 - [ ] Keep Trunk/Yew build path available behind temporary fallback until parity
   complete.
 
 ## 4. Styling System Plan (Tailwind + MUI)
 
-- [ ] Define style ownership model to prevent conflicts:
-- [ ] Tailwind for layout/spacing/utility classes.
-- [ ] MUI for component primitives (buttons, dialogs, menus, forms, tables).
+- [x] Define style ownership model to prevent conflicts:
+- [x] Tailwind for layout/spacing/utility classes.
+- [x] MUI for component primitives (buttons, dialogs, menus, forms, tables).
 - [ ] Create unified design token map from current CSS vars:
 - [ ] Colors, semantic states, border radii, spacing scale, shadows, typography.
-- [ ] Implement MUI theme from tokens (light/day and dark/night modes).
-- [ ] Implement Tailwind config tokens that mirror same palette and spacing.
+- [x] Implement MUI theme from tokens (light/day and dark/night modes).
+- [x] Implement Tailwind config tokens that mirror same palette and spacing.
 - [ ] Define theme switching policy:
-- [ ] One source of truth for day/night in store.
-- [ ] Sync MUI theme mode + Tailwind class strategy.
+- [x] One source of truth for day/night in store.
+- [x] Sync MUI theme mode + Tailwind class strategy.
 - [ ] Audit all current UI pieces for required MUI equivalents.
 
 ## 5. Command Bridge Hardening Before UI Rewrite
 
 - [ ] Document all Tauri command contracts in one place (input/output/error
   format).
-- [ ] Validate command argument naming consistency for TS invoke payloads.
+- [x] Validate command argument naming consistency for TS invoke payloads.
 - [ ] Add backend command trace IDs to correlate frontend invokes with Rust
   logs.
 - [ ] Ensure long-running commands have timeout/cancellation strategy in
   frontend API layer.
-- [ ] Add explicit command health checks (simple invoke smoke set on app
+- [x] Add explicit command health checks (simple invoke smoke set on app
   startup).
 
 ## 6. Incremental Migration Strategy (No Big Bang)
 
-- [ ] Introduce React UI shell while keeping Rust backend unchanged.
+- [x] Introduce React UI shell while keeping Rust backend unchanged.
 - [ ] Phase migration by feature modules:
-- [ ] Phase A: Global shell (window chrome, tabs, basic layout).
-- [ ] Phase B: Tasks workspace.
-- [ ] Phase C: Kanban workspace.
-- [ ] Phase D: Calendar workspace.
+- [x] Phase A: Global shell (window chrome, tabs, basic layout).
+- [x] Phase B: Tasks workspace.
+- [x] Phase C: Kanban workspace.
+- [x] Phase D: Calendar workspace.
 - [ ] Phase E: Settings + notifications + modal ecosystem polish.
 - [ ] Keep Yew UI branchable fallback until each phase passes parity checklist.
 - [ ] Define feature-flag style cutover (build-time or runtime) during
@@ -115,30 +115,30 @@
 
 ## 7. React App Shell Implementation Plan
 
-- [ ] Build top-level app frame matching current IA:
-- [ ] header/window chrome region
-- [ ] workspace tabs (`Tasks`, `Kanban`, `Calendar`)
-- [ ] main 3-column adaptable layout
+- [x] Build top-level app frame matching current IA:
+- [x] header/window chrome region
+- [x] workspace tabs (`Tasks`, `Kanban`, `Calendar`)
+- [x] main 3-column adaptable layout
 - [ ] Port global actions and global keyboard handlers.
-- [ ] Port global modal host and z-index layering model.
-- [ ] Implement structured frontend logger (`ui/src/lib/logger.ts`) with
+- [x] Port global modal host and z-index layering model.
+- [x] Implement structured frontend logger (`ui/src/lib/logger.ts`) with
   tracing-style event names.
 
 ## 8. Tasks Feature Migration Plan
 
 - [ ] Port task list rendering with performant virtualization strategy for large
   datasets.
-- [ ] Port filters and facets:
-- [ ] project/tag/completion/priority/due/search
-- [ ] clear filters behavior parity
-- [ ] Port details pane actions:
-- [ ] edit/done/delete/bulk actions
-- [ ] Port add/edit task modal:
-- [ ] title required, description optional
-- [ ] tags freeform + picker model
+- [x] Port filters and facets:
+- [x] project/tag/completion/priority/due/search
+- [x] clear filters behavior parity
+- [x] Port details pane actions:
+- [x] edit/done/delete/bulk actions
+- [x] Port add/edit task modal:
+- [x] title required, description optional
+- [x] tags freeform + picker model
 - [ ] kanban board lock behavior when launched from kanban
 - [ ] recurrence section and validation
-- [ ] Ensure “Saving...” behavior has proper command completion and error
+- [x] Ensure “Saving...” behavior has proper command completion and error
   unwind.
 - [ ] Preserve tag chip color rendering by key/value rules.
 
@@ -175,12 +175,12 @@
 
 ## 11. Config Consumption Strategy in React
 
-- [ ] Replace compile-time `include_str!` frontend config assumptions with
+- [x] Replace compile-time `include_str!` frontend config assumptions with
   runtime-loaded config payload from Tauri command.
-- [ ] Add explicit tauri command(s) for frontend config snapshot:
-- [ ] `rivet.toml` effective config
-- [ ] tag schema (`tags.toml`) data
-- [ ] Build config adapter in TS to normalize defaults.
+- [x] Add explicit tauri command(s) for frontend config snapshot:
+- [x] `rivet.toml` effective config
+- [x] tag schema (`tags.toml`) data
+- [x] Build config adapter in TS to normalize defaults.
 - [ ] Ensure one canonical source of truth for:
 - [ ] timezone
 - [ ] calendar policies
@@ -188,19 +188,19 @@
 
 ## 12. Data and Type Safety Strategy
 
-- [ ] Generate/maintain TS types for all command DTOs from Rust shared contracts
+- [x] Generate/maintain TS types for all command DTOs from Rust shared contracts
   where practical.
 - [ ] Add runtime validation for external data boundaries (zod/io-ts) at API
   edge.
-- [ ] Enforce strict TS (`noImplicitAny`, `strictNullChecks`, etc.).
+- [x] Enforce strict TS (`noImplicitAny`, `strictNullChecks`, etc.).
 - [ ] Add lint + format gates for TS/React/Tailwind.
 - [ ] Add API contract tests to detect Rust/TS drift.
 
 ## 13. Logging and Observability Plan
 
-- [ ] Frontend event logging:
-- [ ] command start/success/error with durations
-- [ ] user interaction breadcrumbs for buttons/modal actions
+- [x] Frontend event logging:
+- [x] command start/success/error with durations
+- [x] user interaction breadcrumbs for buttons/modal actions
 - [ ] Keep backend tracing as-is with dev log file mode.
 - [ ] Define shared correlation id propagation:
 - [ ] frontend invoke includes request id
@@ -237,8 +237,8 @@
 
 ## 16. Cutover Plan
 
-- [ ] Enable React UI as default frontend in tauri config.
-- [ ] Keep Yew code present but inactive for one stabilization release.
+- [x] Enable React UI as default frontend in tauri config.
+- [x] Keep Yew code present but inactive for one stabilization release.
 - [ ] Run bugfix hardening sprint (no feature work).
 - [ ] Remove Trunk/Yew pipeline only after parity signoff:
 - [ ] remove Yew deps and wasm plumbing
