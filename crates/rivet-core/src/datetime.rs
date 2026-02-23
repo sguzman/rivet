@@ -22,11 +22,13 @@ use regex::Regex;
 use serde::Deserialize;
 
 const TIMEZONE_CONFIG_FILE: &str =
-  "rivet-time.toml";
+  "rivet.toml";
 const TIMEZONE_ENV_VAR: &str =
   "RIVET_TIMEZONE";
 const TIMEZONE_CONFIG_ENV_VAR: &str =
-  "RIVET_TIME_CONFIG";
+  "RIVET_CONFIG";
+const LEGACY_TIMEZONE_CONFIG_ENV_VAR:
+  &str = "RIVET_TIME_CONFIG";
 const DEFAULT_PROJECT_TIMEZONE: &str =
   "America/Mexico_City";
 
@@ -104,6 +106,16 @@ fn timezone_config_path()
 -> Option<PathBuf> {
   if let Ok(raw) = std::env::var(
     TIMEZONE_CONFIG_ENV_VAR
+  ) {
+    let trimmed = raw.trim();
+    if !trimmed.is_empty() {
+      return Some(PathBuf::from(
+        trimmed
+      ));
+    }
+  }
+  if let Ok(raw) = std::env::var(
+    LEGACY_TIMEZONE_CONFIG_ENV_VAR
   ) {
     let trimmed = raw.trim();
     if !trimmed.is_empty() {

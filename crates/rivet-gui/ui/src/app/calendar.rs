@@ -29,10 +29,32 @@ fn calendar_default_day_view_hour_end()
 
 fn load_calendar_config()
 -> CalendarConfig {
-  match toml::from_str::<CalendarConfig>(
-    CALENDAR_CONFIG_TOML
+  match toml::from_str::<RivetConfigToml>(
+    RIVET_CONFIG_TOML
   ) {
-    | Ok(mut config) => {
+    | Ok(root) => {
+      let mut config =
+        root.calendar.unwrap_or_default();
+      let calendar_timezone_missing =
+        match config.timezone.as_deref() {
+          | Some(value) => {
+            value.trim().is_empty()
+          }
+          | None => true
+        };
+      if calendar_timezone_missing {
+        let timezone = root
+          .time
+          .and_then(|section| {
+            section.timezone
+          })
+          .or(root.timezone);
+        if let Some(raw) = timezone {
+          if !raw.trim().is_empty() {
+            config.timezone = Some(raw);
+          }
+        }
+      }
       sanitize_calendar_config(
         &mut config
       );
@@ -45,7 +67,7 @@ fn load_calendar_config()
       config
     }
     | Err(error) => {
-      tracing::error!(%error, "failed parsing calendar config; using defaults");
+      tracing::error!(%error, "failed parsing rivet.toml calendar config; using defaults");
       CalendarConfig::default()
     }
   }
@@ -158,39 +180,10 @@ fn resolve_calendar_timezone(
     && let Some(tz) =
       parse_calendar_timezone(
         raw,
-        "calendar.toml"
+        "rivet.toml"
       )
   {
     return tz;
-  }
-
-  if let Ok(time_config) =
-    toml::from_str::<ProjectTimeConfig>(
-      PROJECT_TIME_CONFIG_TOML
-    )
-  {
-    let timezone = time_config
-      .timezone
-      .or_else(|| {
-        time_config.time.and_then(
-          |section| section.timezone
-        )
-      });
-    if let Some(raw) = timezone
-      && let Some(tz) =
-        parse_calendar_timezone(
-          &raw,
-          "rivet-time.toml"
-        )
-    {
-      return tz;
-    }
-  } else {
-    tracing::warn!(
-      "failed to parse embedded \
-       rivet-time.toml; falling back \
-       to default timezone"
-    );
   }
 
   parse_calendar_timezone(

@@ -529,9 +529,10 @@ struct CalendarDayView {
 }
 
 #[derive(Deserialize)]
-struct ProjectTimeConfig {
+struct RivetConfigToml {
   timezone: Option<String>,
-  time:     Option<ProjectTimeSection>
+  time:     Option<ProjectTimeSection>,
+  calendar: Option<CalendarConfig>
 }
 
 #[derive(Deserialize)]
@@ -692,11 +693,8 @@ const TAG_SCHEMA_TOML: &str =
   include_str!(
     "../../assets/tags.toml"
   );
-const CALENDAR_CONFIG_TOML: &str = include_str!(
-  "../../assets/calendar.toml"
-);
-const PROJECT_TIME_CONFIG_TOML: &str = include_str!(
-  "../../../../../rivet-time.toml"
+const RIVET_CONFIG_TOML: &str = include_str!(
+  "../../../../../rivet.toml"
 );
 const DEFAULT_CALENDAR_TIMEZONE: &str =
   "America/Mexico_City";

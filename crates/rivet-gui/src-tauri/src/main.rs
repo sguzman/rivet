@@ -23,10 +23,14 @@ use tracing_subscriber::{
 };
 
 const APP_CONFIG_FILE: &str =
-  "rivet-app.toml";
+  "rivet.toml";
 const APP_CONFIG_ENV_VAR: &str =
+  "RIVET_CONFIG";
+const LEGACY_APP_CONFIG_ENV_VAR: &str =
   "RIVET_APP_CONFIG";
 const LOG_DIR_NAME: &str = "logs";
+const LOG_FILE_PREFIX: &str =
+  "rivet-gui";
 
 #[derive(
   Debug, Clone, Copy, PartialEq, Eq,
@@ -47,14 +51,50 @@ impl RuntimeMode {
 
 #[derive(Debug, Deserialize)]
 struct RuntimeConfig {
+  mode:    Option<String>,
+  app:     Option<RuntimeAppConfig>,
+  logging: Option<RuntimeLoggingConfig>
+}
+
+#[derive(Debug, Deserialize)]
+struct RuntimeAppConfig {
   mode: Option<String>
 }
 
-fn load_runtime_mode() -> RuntimeMode {
+#[derive(Debug, Deserialize)]
+struct RuntimeLoggingConfig {
+  directory:   Option<String>,
+  file_prefix: Option<String>
+}
+
+#[derive(Debug, Clone)]
+struct RuntimeSettings {
+  mode:            RuntimeMode,
+  log_directory:   String,
+  log_file_prefix: String
+}
+
+fn load_runtime_settings()
+-> RuntimeSettings {
+  let defaults = RuntimeSettings {
+    mode:            RuntimeMode::Prod,
+    log_directory:   LOG_DIR_NAME
+      .to_string(),
+    log_file_prefix: LOG_FILE_PREFIX
+      .to_string()
+  };
+
   let config_path =
     env::var(APP_CONFIG_ENV_VAR)
       .ok()
       .map(PathBuf::from)
+      .or_else(|| {
+        env::var(
+          LEGACY_APP_CONFIG_ENV_VAR
+        )
+        .ok()
+        .map(PathBuf::from)
+      })
       .or_else(|| {
         env::current_dir().ok().map(
           |dir| {
@@ -69,7 +109,7 @@ fn load_runtime_mode() -> RuntimeMode {
        available; defaulting mode to \
        prod"
     );
-    return RuntimeMode::Prod;
+    return defaults;
   };
 
   if !path.exists() {
@@ -78,7 +118,7 @@ fn load_runtime_mode() -> RuntimeMode {
       "runtime config missing; \
        defaulting mode to prod"
     );
-    return RuntimeMode::Prod;
+    return defaults;
   }
 
   let raw =
@@ -92,7 +132,7 @@ fn load_runtime_mode() -> RuntimeMode {
            config; defaulting mode to \
            prod"
         );
-        return RuntimeMode::Prod;
+        return defaults;
       }
     };
 
@@ -109,15 +149,17 @@ fn load_runtime_mode() -> RuntimeMode {
          config; defaulting mode to \
          prod"
       );
-      return RuntimeMode::Prod;
+      return defaults;
     }
   };
 
-  match parsed
-    .mode
-    .as_deref()
-    .map(str::trim)
-  {
+  let mode_raw = parsed
+    .app
+    .as_ref()
+    .and_then(|app| app.mode.as_deref())
+    .or(parsed.mode.as_deref())
+    .map(str::trim);
+  let mode = match mode_raw {
     | Some(mode)
       if mode.eq_ignore_ascii_case(
         "dev"
@@ -150,10 +192,39 @@ fn load_runtime_mode() -> RuntimeMode {
       );
       RuntimeMode::Prod
     }
+  };
+
+  let log_directory = parsed
+    .logging
+    .as_ref()
+    .and_then(|logging| {
+      logging.directory.as_deref()
+    })
+    .map(str::trim)
+    .filter(|value| !value.is_empty())
+    .unwrap_or(LOG_DIR_NAME)
+    .to_string();
+  let log_file_prefix = parsed
+    .logging
+    .as_ref()
+    .and_then(|logging| {
+      logging.file_prefix.as_deref()
+    })
+    .map(str::trim)
+    .filter(|value| !value.is_empty())
+    .unwrap_or(LOG_FILE_PREFIX)
+    .to_string();
+
+  RuntimeSettings {
+    mode,
+    log_directory,
+    log_file_prefix
   }
 }
 
-fn init_tracing(mode: RuntimeMode) {
+fn init_tracing(
+  settings: &RuntimeSettings
+) {
   let filter =
     EnvFilter::try_from_default_env()
       .or_else(|_| {
@@ -166,12 +237,14 @@ fn init_tracing(mode: RuntimeMode) {
         EnvFilter::new("info")
       });
 
-  if mode == RuntimeMode::Dev {
+  if settings.mode == RuntimeMode::Dev {
     let log_dir = env::current_dir()
       .unwrap_or_else(|_| {
         PathBuf::from(".")
       })
-      .join(LOG_DIR_NAME);
+      .join(
+        settings.log_directory.trim()
+      );
 
     if let Err(error) =
       fs::create_dir_all(&log_dir)
@@ -196,7 +269,8 @@ fn init_tracing(mode: RuntimeMode) {
     }
 
     let file_name = format!(
-      "rivet-gui-{}.log",
+      "{}-{}.log",
+      settings.log_file_prefix.trim(),
       Local::now()
         .format("%Y%m%d-%H%M%S")
     );
@@ -308,12 +382,20 @@ fn configure_wayland_defaults() {
 fn configure_wayland_defaults() {}
 
 fn main() {
-  let mode = load_runtime_mode();
-  init_tracing(mode);
+  let runtime_settings =
+    load_runtime_settings();
+  init_tracing(&runtime_settings);
   configure_wayland_defaults();
   info!(
-    mode = mode.as_str(),
-    "loaded runtime mode"
+    mode =
+      runtime_settings.mode.as_str(),
+    log_directory = runtime_settings
+      .log_directory
+      .as_str(),
+    log_file_prefix = runtime_settings
+      .log_file_prefix
+      .as_str(),
+    "loaded runtime settings"
   );
 
   info!("starting Rivet GUI backend");
