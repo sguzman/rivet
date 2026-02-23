@@ -50,7 +50,7 @@ timezone = "America/Mexico_City"
 
 [calendar.policies] # ACTIVE
 # monday | sunday
-week_start = "monday"
+week_start = "sunday"
 # Upper rendering cap for marker/dot drawing in aggregated views.
 red_dot_limit = 5000
 # Number of tasks shown in "Tasks in Current Period" panel.
