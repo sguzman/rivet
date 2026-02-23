@@ -24,11 +24,15 @@ export function AppShell() {
   const themeMode = useAppStore((state) => state.themeMode);
   const toggleTheme = useAppStore((state) => state.toggleTheme);
   const addTaskDialogOpen = useAppStore((state) => state.addTaskDialogOpen);
+  const addTaskDialogContext = useAppStore((state) => state.addTaskDialogContext);
   const openAddTaskDialog = useAppStore((state) => state.openAddTaskDialog);
   const closeAddTaskDialog = useAppStore((state) => state.closeAddTaskDialog);
   const createTask = useAppStore((state) => state.createTask);
   const loading = useAppStore((state) => state.loading);
   const runtimeConfig = useAppStore((state) => state.runtimeConfig);
+  const tagSchema = useAppStore((state) => state.tagSchema);
+  const tagColorMap = useAppStore((state) => state.tagColorMap);
+  const kanbanBoards = useAppStore((state) => state.kanbanBoards);
 
   useEffect(() => {
     void bootstrap();
@@ -63,7 +67,7 @@ export function AppShell() {
               variant="outlined"
               size="small"
               startIcon={<AddIcon fontSize="small" />}
-              onClick={openAddTaskDialog}
+              onClick={() => openAddTaskDialog()}
             >
               Add Task
             </Button>
@@ -88,6 +92,10 @@ export function AppShell() {
       <AddTaskDialog
         open={addTaskDialogOpen}
         busy={loading}
+        context={addTaskDialogContext}
+        tagSchema={tagSchema}
+        tagColorMap={tagColorMap}
+        kanbanBoards={kanbanBoards}
         onClose={closeAddTaskDialog}
         onSubmit={createTask}
       />

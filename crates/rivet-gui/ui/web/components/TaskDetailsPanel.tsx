@@ -1,11 +1,11 @@
 import Button from "@mui/material/Button";
-import Chip from "@mui/material/Chip";
 import Divider from "@mui/material/Divider";
 import Paper from "@mui/material/Paper";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 
 import { StatusChip } from "./StatusChip";
+import { TagChip } from "./TagChip";
 import type { TaskDto } from "../types/core";
 
 interface TaskDetailsPanelProps {
@@ -52,7 +52,7 @@ export function TaskDetailsPanel(props: TaskDetailsPanelProps) {
             </Typography>
             <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
               {props.task.tags.length > 0
-                ? props.task.tags.map((tag) => <Chip key={tag} size="small" label={tag} />)
+                ? props.task.tags.map((tag) => <TagChip key={tag} tag={tag} size="small" />)
                 : <Typography variant="body2">No tags</Typography>}
             </Stack>
           </Stack>

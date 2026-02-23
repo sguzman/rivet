@@ -1,19 +1,227 @@
 import { create } from "zustand";
 
-import { addTask, deleteTask, doneTask, healthCheck, listTasks, loadConfigSnapshot, loadTagSchemaSnapshot } from "../api/tauri";
+import {
+  addTask,
+  deleteTask,
+  doneTask,
+  healthCheck,
+  importExternalCalendarIcs,
+  listTasks,
+  loadConfigSnapshot,
+  loadTagSchemaSnapshot,
+  syncExternalCalendar,
+  updateTask
+} from "../api/tauri";
+import {
+  calendarDateFromIso,
+  calendarDateToIso,
+  collectCalendarDueTasks,
+  resolveCalendarConfig,
+  shiftCalendarFocus as shiftFocusDate,
+  todayInTimezone
+} from "../lib/calendar";
 import { logger } from "../lib/logger";
+import {
+  CALENDAR_VIEW_STORAGE_KEY,
+  EXTERNAL_CALENDARS_STORAGE_KEY,
+  KANBAN_ACTIVE_BOARD_STORAGE_KEY,
+  KANBAN_BOARDS_STORAGE_KEY,
+  THEME_STORAGE_KEY,
+  WORKSPACE_TAB_STORAGE_KEY,
+  assignUniqueExternalCalendarColors,
+  loadActiveKanbanBoardId,
+  loadExternalCalendars,
+  loadKanbanBoards,
+  loadKanbanCompactCards,
+  makeUniqueBoardName,
+  newExternalCalendarSource,
+  nextBoardColor,
+  saveActiveKanbanBoardId,
+  saveExternalCalendars,
+  saveKanbanBoards,
+  saveKanbanCompactCards
+} from "../lib/storage";
+import {
+  BOARD_TAG_KEY,
+  KANBAN_TAG_KEY,
+  boardIdFromTaskTags,
+  buildTagColorMap,
+  collectTagsForSubmit,
+  defaultKanbanLane,
+  kanbanColumnsFromSchema,
+  pushTagUnique,
+  removeTagsForKey,
+  splitTags,
+  taskHasTagValue
+} from "../lib/tags";
 import type { RivetRuntimeConfig, TagSchema } from "../types/config";
-import type { TaskCreate, TaskDto, TaskStatus } from "../types/core";
+import type { ExternalCalendarSource, TaskCreate, TaskDto, TaskPatch, TaskStatus } from "../types/core";
+import type { AddTaskDialogContext, DueFilter, PriorityFilter, RecurrenceDraft, StatusFilter, TaskFilters, ThemeMode, WorkspaceTab } from "../types/ui";
 
-export type WorkspaceTab = "tasks" | "kanban" | "calendar";
-export type ThemeMode = "day" | "night";
-export type StatusFilter = "all" | TaskStatus;
+function readStorageString(key: string): string | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
 
-interface TaskFilters {
-  search: string;
-  status: StatusFilter;
-  project: string;
-  tag: string;
+function writeStorageString(key: string, value: string): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  try {
+    window.localStorage.setItem(key, value);
+  } catch (error) {
+    logger.warn("storage.write", `${key}: ${String(error)}`);
+  }
+}
+
+function loadThemeMode(): ThemeMode {
+  const raw = readStorageString(THEME_STORAGE_KEY);
+  return raw === "night" ? "night" : "day";
+}
+
+function saveThemeMode(mode: ThemeMode): void {
+  writeStorageString(THEME_STORAGE_KEY, mode);
+}
+
+function loadWorkspaceTab(): WorkspaceTab {
+  const raw = readStorageString(WORKSPACE_TAB_STORAGE_KEY);
+  if (raw === "kanban" || raw === "calendar") {
+    return raw;
+  }
+  return "tasks";
+}
+
+function saveWorkspaceTab(tab: WorkspaceTab): void {
+  writeStorageString(WORKSPACE_TAB_STORAGE_KEY, tab);
+}
+
+function loadCalendarViewMode(): "year" | "quarter" | "month" | "week" | "day" {
+  const raw = readStorageString(CALENDAR_VIEW_STORAGE_KEY);
+  if (raw === "year" || raw === "quarter" || raw === "month" || raw === "week" || raw === "day") {
+    return raw;
+  }
+  return "month";
+}
+
+function saveCalendarViewMode(view: "year" | "quarter" | "month" | "week" | "day"): void {
+  writeStorageString(CALENDAR_VIEW_STORAGE_KEY, view);
+}
+
+function loadExternalCalendarsSafe(): ExternalCalendarSource[] {
+  const sources = loadExternalCalendars();
+  logger.info("external_calendars.load", `loaded ${sources.length} local sources from ${EXTERNAL_CALENDARS_STORAGE_KEY}`);
+  return sources;
+}
+
+function loadKanbanBoardsSafe() {
+  const boards = loadKanbanBoards();
+  logger.info("kanban_boards.load", `loaded ${boards.length} local boards from ${KANBAN_BOARDS_STORAGE_KEY}`);
+  return boards;
+}
+
+function loadActiveBoardSafe(boards: Array<{ id: string; name: string; color: string }>): string | null {
+  const active = loadActiveKanbanBoardId(boards);
+  if (active) {
+    logger.debug("kanban_boards.active", `${KANBAN_ACTIVE_BOARD_STORAGE_KEY}=${active}`);
+  }
+  return active;
+}
+
+function emptyTaskFilters(): TaskFilters {
+  return {
+    search: "",
+    status: "all",
+    project: "",
+    tag: "",
+    priority: "all",
+    due: "all"
+  };
+}
+
+function compareText(haystack: string, needle: string): boolean {
+  return haystack.toLowerCase().includes(needle.toLowerCase());
+}
+
+function statusMatches(taskStatus: TaskStatus, statusFilter: StatusFilter): boolean {
+  if (statusFilter === "all") {
+    return true;
+  }
+  return taskStatus === statusFilter;
+}
+
+function priorityMatches(task: TaskDto, priorityFilter: PriorityFilter): boolean {
+  if (priorityFilter === "all") {
+    return true;
+  }
+  if (priorityFilter === "none") {
+    return task.priority === null;
+  }
+  return task.priority?.toLowerCase() === priorityFilter;
+}
+
+function dueMatches(task: TaskDto, dueFilter: DueFilter): boolean {
+  if (dueFilter === "all") {
+    return true;
+  }
+  if (dueFilter === "has_due") {
+    return Boolean(task.due);
+  }
+  return !task.due;
+}
+
+function matchesFilters(task: TaskDto, filters: TaskFilters): boolean {
+  if (!statusMatches(task.status, filters.status)) {
+    return false;
+  }
+  if (!priorityMatches(task, filters.priority)) {
+    return false;
+  }
+  if (!dueMatches(task, filters.due)) {
+    return false;
+  }
+
+  const search = filters.search.trim();
+  if (search.length > 0) {
+    const haystack = [task.title, task.description, task.project ?? "", task.tags.join(" ")].join(" ");
+    if (!compareText(haystack, search)) {
+      return false;
+    }
+  }
+
+  const project = filters.project.trim();
+  if (project.length > 0) {
+    if (!compareText(task.project ?? "", project)) {
+      return false;
+    }
+  }
+
+  const tag = filters.tag.trim();
+  if (tag.length > 0) {
+    if (!task.tags.some((entry) => compareText(entry, tag))) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function facetCounts(items: string[]): Array<{ value: string; count: number }> {
+  const map = new Map<string, number>();
+  for (const item of items) {
+    if (!item.trim()) {
+      continue;
+    }
+    map.set(item, (map.get(item) ?? 0) + 1);
+  }
+  return [...map.entries()]
+    .map(([value, count]) => ({ value, count }))
+    .sort((a, b) => a.value.localeCompare(b.value));
 }
 
 interface AppState {
@@ -25,90 +233,79 @@ interface AppState {
   tasks: TaskDto[];
   selectedTaskId: string | null;
   addTaskDialogOpen: boolean;
-  filters: TaskFilters;
+  addTaskDialogContext: AddTaskDialogContext;
+  taskFilters: TaskFilters;
+  kanbanFilters: TaskFilters;
   runtimeConfig: RivetRuntimeConfig | null;
   tagSchema: TagSchema | null;
+  tagColorMap: Record<string, string>;
+  kanbanBoards: Array<{ id: string; name: string; color: string }>;
+  activeKanbanBoardId: string | null;
+  kanbanCompactCards: boolean;
+  draggingKanbanTaskId: string | null;
+  dragOverKanbanLane: string | null;
+  calendarView: "year" | "quarter" | "month" | "week" | "day";
+  calendarFocusDateIso: string;
+  calendarTaskFilter: string;
+  externalCalendars: ExternalCalendarSource[];
+  externalCalendarBusy: boolean;
+  externalCalendarLastSync: string | null;
+
   bootstrap: () => Promise<void>;
   loadTasks: () => Promise<void>;
+
   setActiveTab: (tab: WorkspaceTab) => void;
   toggleTheme: () => void;
   selectTask: (taskId: string | null) => void;
-  setSearchFilter: (value: string) => void;
-  setStatusFilter: (value: StatusFilter) => void;
-  setProjectFilter: (value: string) => void;
-  setTagFilter: (value: string) => void;
-  clearFilters: () => void;
-  openAddTaskDialog: () => void;
+
+  setTaskSearchFilter: (value: string) => void;
+  setTaskStatusFilter: (value: StatusFilter) => void;
+  setTaskProjectFilter: (value: string) => void;
+  setTaskTagFilter: (value: string) => void;
+  setTaskPriorityFilter: (value: PriorityFilter) => void;
+  setTaskDueFilter: (value: DueFilter) => void;
+  clearTaskFilters: () => void;
+
+  setKanbanStatusFilter: (value: StatusFilter) => void;
+  setKanbanProjectFilter: (value: string) => void;
+  setKanbanTagFilter: (value: string) => void;
+  setKanbanPriorityFilter: (value: PriorityFilter) => void;
+  setKanbanDueFilter: (value: DueFilter) => void;
+  clearKanbanFilters: () => void;
+
+  openAddTaskDialog: (context?: Partial<AddTaskDialogContext>) => void;
   closeAddTaskDialog: () => void;
   createTask: (input: TaskCreate) => Promise<void>;
+  updateTaskByUuid: (uuid: string, patch: TaskPatch) => Promise<TaskDto | null>;
   markTaskDone: (uuid: string) => Promise<void>;
   removeTask: (uuid: string) => Promise<void>;
+
+  setActiveKanbanBoard: (boardId: string | null) => void;
+  createKanbanBoard: (requestedName: string) => void;
+  renameActiveKanbanBoard: (requestedName: string) => void;
+  deleteActiveKanbanBoard: () => Promise<void>;
+  toggleKanbanCompactCards: () => void;
+  setDraggingKanbanTask: (taskId: string | null) => void;
+  setDragOverKanbanLane: (lane: string | null) => void;
+  moveKanbanTask: (taskId: string, lane: string) => Promise<void>;
+
+  setCalendarView: (view: "year" | "quarter" | "month" | "week" | "day") => void;
+  setCalendarFocusDateIso: (iso: string) => void;
+  shiftCalendarFocus: (step: number) => void;
+  navigateCalendar: (iso: string, view?: "year" | "quarter" | "month" | "week" | "day") => void;
+  setCalendarTaskFilter: (value: string) => void;
+
+  openNewExternalCalendar: () => ExternalCalendarSource;
+  saveExternalCalendarSource: (source: ExternalCalendarSource) => void;
+  deleteExternalCalendarSource: (calendarId: string) => void;
+  syncExternalCalendarSource: (calendarId: string) => Promise<void>;
+  syncAllExternalCalendars: () => Promise<void>;
+  importExternalCalendarFile: (file: File) => Promise<void>;
 }
 
-const THEME_STORAGE_KEY = "rivet.theme";
-const TAB_STORAGE_KEY = "rivet.workspace_tab";
-
-function loadThemeMode(): ThemeMode {
-  if (typeof window === "undefined") {
-    return "day";
-  }
-  const raw = window.localStorage.getItem(THEME_STORAGE_KEY);
-  return raw === "night" ? "night" : "day";
-}
-
-function saveThemeMode(mode: ThemeMode): void {
-  if (typeof window === "undefined") {
-    return;
-  }
-  window.localStorage.setItem(THEME_STORAGE_KEY, mode);
-}
-
-function loadWorkspaceTab(): WorkspaceTab {
-  if (typeof window === "undefined") {
-    return "tasks";
-  }
-  const raw = window.localStorage.getItem(TAB_STORAGE_KEY);
-  if (raw === "kanban" || raw === "calendar") {
-    return raw;
-  }
-  return "tasks";
-}
-
-function saveWorkspaceTab(tab: WorkspaceTab): void {
-  if (typeof window === "undefined") {
-    return;
-  }
-  window.localStorage.setItem(TAB_STORAGE_KEY, tab);
-}
-
-function filterTasks(tasks: TaskDto[], filters: TaskFilters): TaskDto[] {
-  const query = filters.search.trim().toLowerCase();
-  const project = filters.project.trim().toLowerCase();
-  const tag = filters.tag.trim().toLowerCase();
-
-  return tasks.filter((task) => {
-    if (filters.status !== "all" && task.status !== filters.status) {
-      return false;
-    }
-
-    if (query.length > 0) {
-      const haystack = [task.title, task.description, task.project ?? "", task.tags.join(" ")].join(" ").toLowerCase();
-      if (!haystack.includes(query)) {
-        return false;
-      }
-    }
-
-    if (project.length > 0 && (task.project ?? "").toLowerCase() !== project) {
-      return false;
-    }
-
-    if (tag.length > 0 && !task.tags.some((value) => value.toLowerCase().includes(tag))) {
-      return false;
-    }
-
-    return true;
-  });
-}
+const initialBoards = loadKanbanBoardsSafe();
+const initialActiveBoardId = loadActiveBoardSafe(initialBoards);
+const initialExternalCalendars = loadExternalCalendarsSafe();
 
 export const useAppStore = create<AppState>((set, get) => ({
   bootstrapped: false,
@@ -119,41 +316,74 @@ export const useAppStore = create<AppState>((set, get) => ({
   tasks: [],
   selectedTaskId: null,
   addTaskDialogOpen: false,
-  filters: {
-    search: "",
-    status: "all",
-    project: "",
-    tag: ""
+  addTaskDialogContext: {
+    boardId: null,
+    lockBoardSelection: false,
+    allowRecurrence: true
+  },
+  taskFilters: emptyTaskFilters(),
+  kanbanFilters: {
+    ...emptyTaskFilters(),
+    status: "Pending"
   },
   runtimeConfig: null,
   tagSchema: null,
+  tagColorMap: {},
+  kanbanBoards: initialBoards,
+  activeKanbanBoardId: initialActiveBoardId,
+  kanbanCompactCards: loadKanbanCompactCards(),
+  draggingKanbanTaskId: null,
+  dragOverKanbanLane: null,
+  calendarView: loadCalendarViewMode(),
+  calendarFocusDateIso: calendarDateToIso(todayInTimezone("America/Mexico_City")),
+  calendarTaskFilter: "__all__",
+  externalCalendars: initialExternalCalendars,
+  externalCalendarBusy: false,
+  externalCalendarLastSync: null,
+
   async bootstrap() {
     if (get().bootstrapped) {
       return;
     }
-
     set({ loading: true, error: null });
-    logger.info("app.bootstrap", "starting React workspace bootstrap");
+    logger.info("app.bootstrap.start", "bootstrapping React shell state");
 
     try {
       await healthCheck();
-      const [tasks, runtimeConfig, tagSchema] = await Promise.all([listTasks(), loadConfigSnapshot(), loadTagSchemaSnapshot()]);
+      const [tasks, runtimeConfig, tagSchema] = await Promise.all([
+        listTasks(),
+        loadConfigSnapshot(),
+        loadTagSchemaSnapshot()
+      ]);
+      const effective = resolveCalendarConfig(runtimeConfig);
+      const today = todayInTimezone(effective.timezone);
+      const tagColorMap = buildTagColorMap(tagSchema);
+
+      saveKanbanBoards(get().kanbanBoards);
+      saveActiveKanbanBoardId(get().activeKanbanBoardId);
+      saveExternalCalendars(get().externalCalendars);
+      saveCalendarViewMode(get().calendarView);
+
       set({
         bootstrapped: true,
         loading: false,
         tasks,
         selectedTaskId: tasks[0]?.uuid ?? null,
         runtimeConfig,
-        tagSchema
+        tagSchema,
+        tagColorMap,
+        calendarFocusDateIso: calendarDateToIso(today)
       });
-      logger.info("app.bootstrap", `bootstrap finished with ${tasks.length} tasks`);
+      logger.info("app.bootstrap.done", `tasks=${tasks.length} timezone=${effective.timezone}`);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      logger.error("app.bootstrap", message);
+      logger.error("app.bootstrap.error", message);
       set({ loading: false, error: message });
     }
   },
+
   async loadTasks() {
+    logger.debug("tasks.load.start", "loading latest task snapshot");
     set({ loading: true, error: null });
     try {
       const tasks = await listTasks();
@@ -161,106 +391,181 @@ export const useAppStore = create<AppState>((set, get) => ({
         const selectedTaskId = state.selectedTaskId && tasks.some((task) => task.uuid === state.selectedTaskId)
           ? state.selectedTaskId
           : tasks[0]?.uuid ?? null;
-        return { loading: false, tasks, selectedTaskId };
+        return {
+          loading: false,
+          tasks,
+          selectedTaskId
+        };
       });
+      logger.debug("tasks.load.done", `tasks=${tasks.length}`);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       set({ loading: false, error: message });
+      logger.error("tasks.load.error", message);
     }
   },
+
   setActiveTab(tab) {
     saveWorkspaceTab(tab);
     set({ activeTab: tab });
+    logger.info("tab.change", tab);
   },
+
   toggleTheme() {
-    const next = get().themeMode === "day" ? "night" : "day";
-    saveThemeMode(next);
-    set({ themeMode: next });
+    const nextMode = get().themeMode === "day" ? "night" : "day";
+    saveThemeMode(nextMode);
+    set({ themeMode: nextMode });
+    logger.info("theme.toggle", nextMode);
   },
+
   selectTask(taskId) {
     set({ selectedTaskId: taskId });
   },
-  setSearchFilter(value) {
-    set((state) => ({
-      filters: {
-        ...state.filters,
-        search: value
+
+  setTaskSearchFilter(value) {
+    set((state) => ({ taskFilters: { ...state.taskFilters, search: value } }));
+  },
+  setTaskStatusFilter(value) {
+    set((state) => ({ taskFilters: { ...state.taskFilters, status: value } }));
+  },
+  setTaskProjectFilter(value) {
+    set((state) => ({ taskFilters: { ...state.taskFilters, project: value } }));
+  },
+  setTaskTagFilter(value) {
+    set((state) => ({ taskFilters: { ...state.taskFilters, tag: value } }));
+  },
+  setTaskPriorityFilter(value) {
+    set((state) => ({ taskFilters: { ...state.taskFilters, priority: value } }));
+  },
+  setTaskDueFilter(value) {
+    set((state) => ({ taskFilters: { ...state.taskFilters, due: value } }));
+  },
+  clearTaskFilters() {
+    set({ taskFilters: emptyTaskFilters() });
+  },
+
+  setKanbanStatusFilter(value) {
+    set((state) => ({ kanbanFilters: { ...state.kanbanFilters, status: value } }));
+  },
+  setKanbanProjectFilter(value) {
+    set((state) => ({ kanbanFilters: { ...state.kanbanFilters, project: value } }));
+  },
+  setKanbanTagFilter(value) {
+    set((state) => ({ kanbanFilters: { ...state.kanbanFilters, tag: value } }));
+  },
+  setKanbanPriorityFilter(value) {
+    set((state) => ({ kanbanFilters: { ...state.kanbanFilters, priority: value } }));
+  },
+  setKanbanDueFilter(value) {
+    set((state) => ({ kanbanFilters: { ...state.kanbanFilters, due: value } }));
+  },
+  clearKanbanFilters() {
+    set({
+      kanbanFilters: {
+        ...emptyTaskFilters(),
+        status: "Pending"
       }
-    }));
+    });
   },
-  setStatusFilter(value) {
-    set((state) => ({
-      filters: {
-        ...state.filters,
-        status: value
-      }
-    }));
+
+  openAddTaskDialog(context) {
+    const fallback = get().activeTab === "kanban" && get().activeKanbanBoardId
+      ? {
+          boardId: get().activeKanbanBoardId,
+          lockBoardSelection: true,
+          allowRecurrence: true
+        }
+      : {
+          boardId: null,
+          lockBoardSelection: false,
+          allowRecurrence: true
+        };
+
+    const merged: AddTaskDialogContext = {
+      boardId: context?.boardId ?? fallback.boardId,
+      lockBoardSelection: context?.lockBoardSelection ?? fallback.lockBoardSelection,
+      allowRecurrence: context?.allowRecurrence ?? fallback.allowRecurrence
+    };
+
+    set({
+      addTaskDialogOpen: true,
+      addTaskDialogContext: merged
+    });
+    logger.info("modal.add_task.open", JSON.stringify(merged));
   },
-  setProjectFilter(value) {
-    set((state) => ({
-      filters: {
-        ...state.filters,
-        project: value
-      }
-    }));
-  },
-  setTagFilter(value) {
-    set((state) => ({
-      filters: {
-        ...state.filters,
-        tag: value
-      }
-    }));
-  },
-  clearFilters() {
-    set((state) => ({
-      filters: {
-        ...state.filters,
-        search: "",
-        status: "all",
-        project: "",
-        tag: ""
-      }
-    }));
-  },
-  openAddTaskDialog() {
-    set({ addTaskDialogOpen: true });
-  },
+
   closeAddTaskDialog() {
-    set({ addTaskDialogOpen: false });
+    set({
+      addTaskDialogOpen: false,
+      addTaskDialogContext: {
+        boardId: null,
+        lockBoardSelection: false,
+        allowRecurrence: true
+      }
+    });
   },
+
   async createTask(input) {
     set({ loading: true, error: null });
+    logger.info("task.create.start", `title=${input.title}`);
     try {
       const created = await addTask(input);
       set((state) => ({
         loading: false,
         addTaskDialogOpen: false,
         tasks: [created, ...state.tasks],
-        selectedTaskId: created.uuid
+        selectedTaskId: created.uuid,
+        addTaskDialogContext: {
+          boardId: null,
+          lockBoardSelection: false,
+          allowRecurrence: true
+        }
       }));
+      logger.info("task.create.done", created.uuid);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       set({ loading: false, error: message });
-      logger.error("task.create", message);
+      logger.error("task.create.error", message);
     }
   },
+
+  async updateTaskByUuid(uuid, patch) {
+    logger.debug("task.update.start", uuid);
+    try {
+      const updated = await updateTask({ uuid, patch });
+      set((state) => ({
+        tasks: state.tasks.map((task) => (task.uuid === uuid ? updated : task))
+      }));
+      logger.debug("task.update.done", uuid);
+      return updated;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      set({ error: message });
+      logger.error("task.update.error", `${uuid}: ${message}`);
+      return null;
+    }
+  },
+
   async markTaskDone(uuid) {
     set({ loading: true, error: null });
+    logger.info("task.done.start", uuid);
     try {
       const updated = await doneTask(uuid);
       set((state) => ({
         loading: false,
         tasks: state.tasks.map((task) => (task.uuid === uuid ? updated : task))
       }));
+      logger.info("task.done.done", uuid);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       set({ loading: false, error: message });
-      logger.error("task.done", message);
+      logger.error("task.done.error", `${uuid}: ${message}`);
     }
   },
+
   async removeTask(uuid) {
     set({ loading: true, error: null });
+    logger.info("task.delete.start", uuid);
     try {
       await deleteTask(uuid);
       set((state) => {
@@ -271,18 +576,297 @@ export const useAppStore = create<AppState>((set, get) => ({
           selectedTaskId: state.selectedTaskId === uuid ? nextTasks[0]?.uuid ?? null : state.selectedTaskId
         };
       });
+      logger.info("task.delete.done", uuid);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       set({ loading: false, error: message });
-      logger.error("task.delete", message);
+      logger.error("task.delete.error", `${uuid}: ${message}`);
+    }
+  },
+
+  setActiveKanbanBoard(boardId) {
+    saveActiveKanbanBoardId(boardId);
+    set({ activeKanbanBoardId: boardId });
+    logger.info("kanban.board.select", boardId ?? "(none)");
+  },
+
+  createKanbanBoard(requestedName) {
+    const boards = get().kanbanBoards;
+    const name = makeUniqueBoardName(boards, requestedName);
+    if (!name.trim()) {
+      return;
+    }
+    const board = {
+      id: crypto.randomUUID(),
+      name,
+      color: nextBoardColor(boards)
+    };
+    const nextBoards = [...boards, board];
+    saveKanbanBoards(nextBoards);
+    saveActiveKanbanBoardId(board.id);
+    set({
+      kanbanBoards: nextBoards,
+      activeKanbanBoardId: board.id
+    });
+    logger.info("kanban.board.create", `${board.id}:${board.name}`);
+  },
+
+  renameActiveKanbanBoard(requestedName) {
+    const activeId = get().activeKanbanBoardId;
+    if (!activeId) {
+      return;
+    }
+    const boards = get().kanbanBoards;
+    const uniqueName = makeUniqueBoardName(boards, requestedName, activeId);
+    const nextBoards = boards.map((board) => (board.id === activeId ? { ...board, name: uniqueName } : board));
+    saveKanbanBoards(nextBoards);
+    set({ kanbanBoards: nextBoards });
+    logger.info("kanban.board.rename", `${activeId}:${uniqueName}`);
+  },
+
+  async deleteActiveKanbanBoard() {
+    const activeId = get().activeKanbanBoardId;
+    if (!activeId) {
+      return;
+    }
+    const boards = get().kanbanBoards;
+    const nextBoards = boards.filter((board) => board.id !== activeId);
+    const nextActive = nextBoards[0]?.id ?? null;
+
+    saveKanbanBoards(nextBoards);
+    saveActiveKanbanBoardId(nextActive);
+    set({
+      kanbanBoards: nextBoards,
+      activeKanbanBoardId: nextActive
+    });
+    logger.warn("kanban.board.delete", activeId);
+
+    const affectedTasks = get().tasks.filter((task) => {
+      const editable = task.status === "Pending" || task.status === "Waiting";
+      return editable && taskHasTagValue(task.tags, BOARD_TAG_KEY, activeId);
+    });
+
+    for (const task of affectedTasks) {
+      const nextTags = [...task.tags];
+      removeTagsForKey(nextTags, BOARD_TAG_KEY);
+      const updated = await get().updateTaskByUuid(task.uuid, { tags: nextTags });
+      if (!updated) {
+        logger.warn("kanban.board.delete.cleanup", `failed to clear board tag for ${task.uuid}`);
+      }
+    }
+  },
+
+  toggleKanbanCompactCards() {
+    const next = !get().kanbanCompactCards;
+    saveKanbanCompactCards(next);
+    set({ kanbanCompactCards: next });
+  },
+
+  setDraggingKanbanTask(taskId) {
+    set({ draggingKanbanTaskId: taskId });
+  },
+
+  setDragOverKanbanLane(lane) {
+    set({ dragOverKanbanLane: lane });
+  },
+
+  async moveKanbanTask(taskId, lane) {
+    set({ draggingKanbanTaskId: null, dragOverKanbanLane: null });
+    const task = get().tasks.find((entry) => entry.uuid === taskId);
+    if (!task) {
+      return;
+    }
+    if (!(task.status === "Pending" || task.status === "Waiting")) {
+      return;
+    }
+
+    const columns = kanbanColumnsFromSchema(get().tagSchema);
+    const fallbackLane = defaultKanbanLane(get().tagSchema);
+    const targetLane = columns.includes(lane) ? lane : fallbackLane;
+    const nextTags = [...task.tags];
+    removeTagsForKey(nextTags, KANBAN_TAG_KEY);
+    pushTagUnique(nextTags, `${KANBAN_TAG_KEY}:${targetLane}`);
+
+    logger.info("kanban.task.move", `${taskId} -> ${targetLane}`);
+    await get().updateTaskByUuid(taskId, { tags: nextTags });
+  },
+
+  setCalendarView(view) {
+    saveCalendarViewMode(view);
+    set({ calendarView: view });
+  },
+
+  setCalendarFocusDateIso(iso) {
+    set({ calendarFocusDateIso: iso });
+  },
+
+  shiftCalendarFocus(step) {
+    const state = get();
+    const focus = calendarDateFromIso(state.calendarFocusDateIso);
+    const effective = resolveCalendarConfig(state.runtimeConfig);
+    const shifted = shiftFocusDate(focus, state.calendarView, step, effective.policies.week_start);
+    set({ calendarFocusDateIso: calendarDateToIso(shifted) });
+  },
+
+  navigateCalendar(iso, view) {
+    const next = view ?? get().calendarView;
+    saveCalendarViewMode(next);
+    set({ calendarFocusDateIso: iso, calendarView: next });
+  },
+
+  setCalendarTaskFilter(value) {
+    set({ calendarTaskFilter: value });
+  },
+
+  openNewExternalCalendar() {
+    return newExternalCalendarSource(get().externalCalendars);
+  },
+
+  saveExternalCalendarSource(source) {
+    const current = get().externalCalendars;
+    const existingIndex = current.findIndex((entry) => entry.id === source.id);
+    const normalizedSource: ExternalCalendarSource = {
+      ...source,
+      imported_ics_file: source.imported_ics_file || source.location.trim().toLowerCase().startsWith("file://"),
+      refresh_minutes: source.imported_ics_file ? 0 : source.refresh_minutes
+    };
+
+    const next = existingIndex >= 0
+      ? current.map((entry) => (entry.id === source.id ? normalizedSource : entry))
+      : [...current, normalizedSource];
+    const deduped = assignUniqueExternalCalendarColors(next);
+    saveExternalCalendars(deduped);
+    set({ externalCalendars: deduped });
+    logger.info("external_calendar.save", `${source.id}:${source.name}`);
+  },
+
+  deleteExternalCalendarSource(calendarId) {
+    const next = get().externalCalendars.filter((source) => source.id !== calendarId);
+    saveExternalCalendars(next);
+    set({ externalCalendars: next });
+    logger.warn("external_calendar.delete", calendarId);
+  },
+
+  async syncExternalCalendarSource(calendarId) {
+    const source = get().externalCalendars.find((entry) => entry.id === calendarId);
+    if (!source) {
+      return;
+    }
+    if (source.imported_ics_file) {
+      set({ externalCalendarLastSync: `Sync skipped for ${source.name}: imported ICS snapshots are refreshed via import.` });
+      return;
+    }
+
+    set({ externalCalendarBusy: true, error: null });
+    logger.info("external_calendar.sync.start", `${source.id}:${source.name}`);
+    try {
+      const result = await syncExternalCalendar(source);
+      await get().loadTasks();
+      set({
+        externalCalendarBusy: false,
+        externalCalendarLastSync: `Synced ${source.name}: +${result.created} / ~${result.updated} / -${result.deleted}`
+      });
+      logger.info("external_calendar.sync.done", `${source.id} created=${result.created} updated=${result.updated} deleted=${result.deleted}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      set({
+        externalCalendarBusy: false,
+        error: message,
+        externalCalendarLastSync: `Sync failed for ${source.name}: ${message}`
+      });
+      logger.error("external_calendar.sync.error", `${source.id}: ${message}`);
+    }
+  },
+
+  async syncAllExternalCalendars() {
+    const sources = get().externalCalendars.filter((source) => source.enabled && !source.imported_ics_file && source.refresh_minutes > 0);
+    if (sources.length === 0) {
+      set({ externalCalendarLastSync: "No enabled remote calendars configured for auto sync." });
+      return;
+    }
+
+    set({ externalCalendarBusy: true, error: null });
+    logger.info("external_calendar.sync_all.start", `sources=${sources.length}`);
+
+    let created = 0;
+    let updated = 0;
+    let deleted = 0;
+    let failed = 0;
+    for (const source of sources) {
+      try {
+        const result = await syncExternalCalendar(source);
+        created += result.created;
+        updated += result.updated;
+        deleted += result.deleted;
+      } catch (error) {
+        failed += 1;
+        logger.error("external_calendar.sync_all.error", `${source.id}: ${String(error)}`);
+      }
+    }
+
+    await get().loadTasks();
+    set({
+      externalCalendarBusy: false,
+      externalCalendarLastSync: `Sync all complete: +${created} / ~${updated} / -${deleted}${failed > 0 ? ` (failures=${failed})` : ""}`
+    });
+    logger.info("external_calendar.sync_all.done", `created=${created} updated=${updated} deleted=${deleted} failed=${failed}`);
+  },
+
+  async importExternalCalendarFile(file) {
+    set({ externalCalendarBusy: true, error: null });
+    logger.info("external_calendar.import.start", file.name);
+
+    try {
+      const icsText = await file.text();
+      if (!icsText.trim()) {
+        throw new Error("ICS file is empty");
+      }
+
+      const baseName = file.name.replace(/\.ics$/i, "").trim() || "Imported Calendar";
+      const source = newExternalCalendarSource(get().externalCalendars);
+      source.name = baseName;
+      source.location = `file://${file.name}`;
+      source.imported_ics_file = true;
+      source.refresh_minutes = 0;
+      source.enabled = true;
+
+      const result = await importExternalCalendarIcs(source, icsText);
+      const nextSources = assignUniqueExternalCalendarColors([...get().externalCalendars, source]);
+      saveExternalCalendars(nextSources);
+      await get().loadTasks();
+
+      set({
+        externalCalendars: nextSources,
+        externalCalendarBusy: false,
+        externalCalendarLastSync: `Imported ${source.name}: +${result.created} / ~${result.updated} / -${result.deleted}`
+      });
+      logger.info("external_calendar.import.done", `${source.id} events=${result.remote_events}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      set({
+        externalCalendarBusy: false,
+        error: message,
+        externalCalendarLastSync: `Import failed for ${file.name}: ${message}`
+      });
+      logger.error("external_calendar.import.error", `${file.name}: ${message}`);
     }
   }
 }));
 
 export function useFilteredTasks(): TaskDto[] {
   const tasks = useAppStore((state) => state.tasks);
-  const filters = useAppStore((state) => state.filters);
-  return filterTasks(tasks, filters);
+  const filters = useAppStore((state) => state.taskFilters);
+  return tasks.filter((task) => matchesFilters(task, filters));
+}
+
+export function useTaskProjectFacets(): Array<{ value: string; count: number }> {
+  const tasks = useFilteredTasks();
+  return facetCounts(tasks.map((task) => task.project ?? ""));
+}
+
+export function useTaskTagFacets(): Array<{ value: string; count: number }> {
+  const tasks = useFilteredTasks();
+  return facetCounts(tasks.flatMap((task) => task.tags));
 }
 
 export function useSelectedTask(): TaskDto | null {
@@ -292,4 +876,132 @@ export function useSelectedTask(): TaskDto | null {
     return null;
   }
   return tasks.find((task) => task.uuid === selectedTaskId) ?? null;
+}
+
+export function useKanbanColumns(): string[] {
+  const schema = useAppStore((state) => state.tagSchema);
+  return kanbanColumnsFromSchema(schema);
+}
+
+export function useKanbanBoardTasks(): TaskDto[] {
+  const tasks = useAppStore((state) => state.tasks);
+  const activeBoardId = useAppStore((state) => state.activeKanbanBoardId);
+
+  return tasks.filter((task) => {
+    if (!activeBoardId) {
+      return false;
+    }
+    const boardId = boardIdFromTaskTags(task.tags);
+    return boardId === activeBoardId;
+  });
+}
+
+export function useKanbanVisibleTasks(): TaskDto[] {
+  const boardTasks = useKanbanBoardTasks();
+  const filters = useAppStore((state) => state.kanbanFilters);
+  return boardTasks.filter((task) => matchesFilters(task, filters));
+}
+
+export function useKanbanProjectFacets(): Array<{ value: string; count: number }> {
+  const tasks = useKanbanBoardTasks();
+  return facetCounts(tasks.map((task) => task.project ?? ""));
+}
+
+export function useKanbanTagFacets(): Array<{ value: string; count: number }> {
+  const tasks = useKanbanBoardTasks();
+  return facetCounts(tasks.flatMap((task) => task.tags));
+}
+
+export function useBoardColorMap(): Record<string, string> {
+  const boards = useAppStore((state) => state.kanbanBoards);
+  const map: Record<string, string> = {};
+  for (const board of boards) {
+    map[board.id] = board.color;
+  }
+  return map;
+}
+
+export function useExternalCalendarColorMap(): Record<string, string> {
+  const sources = useAppStore((state) => state.externalCalendars);
+  const map: Record<string, string> = {};
+  for (const source of sources) {
+    map[source.id] = source.color;
+  }
+  return map;
+}
+
+export function useCalendarDueEntries() {
+  const tasks = useAppStore((state) => state.tasks);
+  const runtimeConfig = useAppStore((state) => state.runtimeConfig);
+  const boardColors = useBoardColorMap();
+  const calendarColors = useExternalCalendarColorMap();
+  const config = resolveCalendarConfig(runtimeConfig);
+  const entries = collectCalendarDueTasks(tasks, config, boardColors, calendarColors);
+  return {
+    config,
+    entries
+  };
+}
+
+export function buildTaskCreateWithTagSchema(
+  input: Omit<TaskCreate, "tags"> & {
+    selectedTags: string[];
+    customTagInput: string;
+    boardId: string | null;
+    allowRecurrence: boolean;
+    recurrence: RecurrenceDraft;
+  },
+  tagSchema: TagSchema | null
+): TaskCreate {
+  const lane = defaultKanbanLane(tagSchema);
+  const boardTag = input.boardId ? `${BOARD_TAG_KEY}:${input.boardId}` : null;
+  const tags = collectTagsForSubmit({
+    selectedTags: input.selectedTags,
+    customTagInput: input.customTagInput,
+    boardTag,
+    allowRecurrence: input.allowRecurrence,
+    recurrence: input.recurrence,
+    ensureKanbanLane: true,
+    defaultKanbanLaneValue: lane
+  });
+  return {
+    ...input,
+    tags
+  };
+}
+
+export function buildTaskUpdatePatchWithTagSchema(
+  uuid: string,
+  existingTask: TaskDto,
+  customTagInput: string,
+  boardId: string | null,
+  recurrence: RecurrenceDraft,
+  allowRecurrence: boolean,
+  tagSchema: TagSchema | null
+): { uuid: string; patch: TaskPatch } {
+  const lane = defaultKanbanLane(tagSchema);
+  const boardTag = boardId ? `${BOARD_TAG_KEY}:${boardId}` : null;
+  const tags = collectTagsForSubmit({
+    selectedTags: [...existingTask.tags],
+    customTagInput,
+    boardTag,
+    allowRecurrence,
+    recurrence,
+    ensureKanbanLane: false,
+    defaultKanbanLaneValue: lane
+  });
+  return {
+    uuid,
+    patch: {
+      tags
+    }
+  };
+}
+
+export function addCustomTagsToList(tags: string[], customInput: string): string[] {
+  const next = [...tags];
+  for (const tag of splitTags(customInput)) {
+    pushTagUnique(next, tag);
+  }
+  return next;
 }

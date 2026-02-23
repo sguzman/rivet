@@ -95,7 +95,7 @@
 - [x] Validate command argument naming consistency for TS invoke payloads.
 - [ ] Add backend command trace IDs to correlate frontend invokes with Rust
   logs.
-- [ ] Ensure long-running commands have timeout/cancellation strategy in
+- [x] Ensure long-running commands have timeout/cancellation strategy in
   frontend API layer.
 - [x] Add explicit command health checks (simple invoke smoke set on app
   startup).
@@ -136,42 +136,42 @@
 - [x] Port add/edit task modal:
 - [x] title required, description optional
 - [x] tags freeform + picker model
-- [ ] kanban board lock behavior when launched from kanban
-- [ ] recurrence section and validation
+- [x] kanban board lock behavior when launched from kanban
+- [x] recurrence section and validation
 - [x] Ensure “Saving...” behavior has proper command completion and error
   unwind.
-- [ ] Preserve tag chip color rendering by key/value rules.
+- [x] Preserve tag chip color rendering by key/value rules.
 
 ## 9. Kanban Feature Migration Plan
 
-- [ ] Port board list sidebar:
-- [ ] create/rename/delete/select board
-- [ ] board color display
-- [ ] Port lane rendering from tag schema (`kanban` key values).
-- [ ] Port drag-and-drop with robust DnD library and hitbox ergonomics.
-- [ ] Port card density toggle.
-- [ ] Port kanban-specific filters.
-- [ ] Ensure move operation updates both backend and local optimistic state
+- [x] Port board list sidebar:
+- [x] create/rename/delete/select board
+- [x] board color display
+- [x] Port lane rendering from tag schema (`kanban` key values).
+- [x] Port drag-and-drop with robust DnD library and hitbox ergonomics.
+- [x] Port card density toggle.
+- [x] Port kanban-specific filters.
+- [x] Ensure move operation updates both backend and local optimistic state
   safely.
 - [ ] Validate tag updates when moving cards across lanes and between boards.
 
 ## 10. Calendar Feature Migration Plan
 
-- [ ] Port calendar views:
-- [ ] year/quarter/month/week/day
-- [ ] Port navigation semantics:
-- [ ] year/quarter month click -> month view
-- [ ] month week shortcuts -> week view
-- [ ] Port markers and shapes:
-- [ ] triangle/kanban-board color
-- [ ] circle/external calendar color
-- [ ] square/unaffiliated gray
-- [ ] Port right pane stats + current-period tasks and calendar filtering.
-- [ ] Port external calendar source management:
-- [ ] add/edit/delete
-- [ ] import ICS
-- [ ] sync enabled/manual/refresh controls
-- [ ] imported ICS constraints (no recurrence/sync where disabled by policy).
+- [x] Port calendar views:
+- [x] year/quarter/month/week/day
+- [x] Port navigation semantics:
+- [x] year/quarter month click -> month view
+- [x] month week shortcuts -> week view
+- [x] Port markers and shapes:
+- [x] triangle/kanban-board color
+- [x] circle/external calendar color
+- [x] square/unaffiliated gray
+- [x] Port right pane stats + current-period tasks and calendar filtering.
+- [x] Port external calendar source management:
+- [x] add/edit/delete
+- [x] import ICS
+- [x] sync enabled/manual/refresh controls
+- [x] imported ICS constraints (no recurrence/sync where disabled by policy).
 
 ## 11. Config Consumption Strategy in React
 
@@ -182,8 +182,8 @@
 - [x] tag schema (`tags.toml`) data
 - [x] Build config adapter in TS to normalize defaults.
 - [ ] Ensure one canonical source of truth for:
-- [ ] timezone
-- [ ] calendar policies
+- [x] timezone
+- [x] calendar policies
 - [ ] mode/logging indicators for diagnostics UI.
 
 ## 12. Data and Type Safety Strategy
@@ -203,7 +203,7 @@
 - [x] user interaction breadcrumbs for buttons/modal actions
 - [ ] Keep backend tracing as-is with dev log file mode.
 - [ ] Define shared correlation id propagation:
-- [ ] frontend invoke includes request id
+- [x] frontend invoke includes request id
 - [ ] tauri logs request id
 - [ ] Display diagnostics panel for last N command failures in dev mode.
 

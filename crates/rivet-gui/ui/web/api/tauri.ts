@@ -13,6 +13,8 @@ import type {
 import type { RivetRuntimeConfig, TagSchema } from "../types/config";
 
 const MOCK_TASKS_KEY = "rivet.mock.tasks";
+const DEFAULT_TIMEOUT_MS = 30_000;
+const EXTERNAL_CALENDAR_TIMEOUT_MS = 90_000;
 const DEFAULT_TASK_QUERY: TasksListArgs = {
   query: null,
   status: null,
@@ -72,88 +74,119 @@ function makeMockTask(input: TaskCreate): TaskDto {
 }
 
 async function invokeCommand<R>(command: string, args?: unknown): Promise<R> {
-  if (isTauriRuntime()) {
-    if (typeof args === "undefined") {
-      return invoke<R>(command);
-    }
-    return invoke<R>(command, { args });
-  }
+  const requestId = crypto.randomUUID();
+  const startedAt = performance.now();
+  const timeoutMs = command.startsWith("external_calendar_") ? EXTERNAL_CALENDAR_TIMEOUT_MS : DEFAULT_TIMEOUT_MS;
+  logger.debug("invoke.start", `${command} request_id=${requestId}`);
 
-  switch (command) {
-    case "tasks_list": {
-      return parseStoredTasks() as R;
-    }
-    case "task_add": {
-      const payload = args as TaskCreate;
-      const tasks = parseStoredTasks();
-      const task = makeMockTask(payload);
-      tasks.unshift(task);
-      writeStoredTasks(tasks);
-      return task as R;
-    }
-    case "task_done": {
-      const payload = args as TaskIdArg;
-      const tasks = parseStoredTasks().map((entry) => {
-        if (entry.uuid !== payload.uuid) {
-          return entry;
-        }
-        return {
-          ...entry,
-          status: "Completed" as const,
-          modified: new Date().toISOString()
-        };
-      });
-      writeStoredTasks(tasks);
-      const target = tasks.find((entry) => entry.uuid === payload.uuid);
-      if (!target) {
-        throw new Error(`task not found: ${payload.uuid}`);
+  const run = async (): Promise<R> => {
+    if (isTauriRuntime()) {
+      const payload = typeof args === "undefined" ? undefined : { ...(args as object), _request_id: requestId };
+      if (typeof payload === "undefined") {
+        return invoke<R>(command);
       }
-      return target as R;
+      return invoke<R>(command, { args: payload });
     }
-    case "task_delete": {
-      const payload = args as TaskIdArg;
-      const tasks = parseStoredTasks().filter((entry) => entry.uuid !== payload.uuid);
-      writeStoredTasks(tasks);
-      return undefined as R;
-    }
-    case "task_update": {
-      const payload = args as TaskUpdateArgs;
-      const tasks = parseStoredTasks().map((entry) => {
-        if (entry.uuid !== payload.uuid) {
-          return entry;
-        }
 
-        return {
-          ...entry,
-          title: payload.patch.title ?? entry.title,
-          description: payload.patch.description ?? entry.description,
-          project: typeof payload.patch.project === "undefined" ? entry.project : payload.patch.project,
-          tags: payload.patch.tags ?? entry.tags,
-          priority: typeof payload.patch.priority === "undefined" ? entry.priority : payload.patch.priority,
-          due: typeof payload.patch.due === "undefined" ? entry.due : payload.patch.due,
-          wait: typeof payload.patch.wait === "undefined" ? entry.wait : payload.patch.wait,
-          scheduled: typeof payload.patch.scheduled === "undefined" ? entry.scheduled : payload.patch.scheduled,
-          modified: new Date().toISOString()
-        };
-      });
-      writeStoredTasks(tasks);
-      const target = tasks.find((entry) => entry.uuid === payload.uuid);
-      if (!target) {
-        throw new Error(`task not found: ${payload.uuid}`);
+    switch (command) {
+      case "tasks_list": {
+        return parseStoredTasks() as R;
       }
-      return target as R;
+      case "task_add": {
+        const payload = args as TaskCreate;
+        const tasks = parseStoredTasks();
+        const task = makeMockTask(payload);
+        tasks.unshift(task);
+        writeStoredTasks(tasks);
+        return task as R;
+      }
+      case "task_done": {
+        const payload = args as TaskIdArg;
+        const tasks = parseStoredTasks().map((entry) => {
+          if (entry.uuid !== payload.uuid) {
+            return entry;
+          }
+          return {
+            ...entry,
+            status: "Completed" as const,
+            modified: new Date().toISOString()
+          };
+        });
+        writeStoredTasks(tasks);
+        const target = tasks.find((entry) => entry.uuid === payload.uuid);
+        if (!target) {
+          throw new Error(`task not found: ${payload.uuid}`);
+        }
+        return target as R;
+      }
+      case "task_delete": {
+        const payload = args as TaskIdArg;
+        const tasks = parseStoredTasks().filter((entry) => entry.uuid !== payload.uuid);
+        writeStoredTasks(tasks);
+        return undefined as R;
+      }
+      case "task_update": {
+        const payload = args as TaskUpdateArgs;
+        const tasks = parseStoredTasks().map((entry) => {
+          if (entry.uuid !== payload.uuid) {
+            return entry;
+          }
+
+          return {
+            ...entry,
+            title: payload.patch.title ?? entry.title,
+            description: payload.patch.description ?? entry.description,
+            project: typeof payload.patch.project === "undefined" ? entry.project : payload.patch.project,
+            tags: payload.patch.tags ?? entry.tags,
+            priority: typeof payload.patch.priority === "undefined" ? entry.priority : payload.patch.priority,
+            due: typeof payload.patch.due === "undefined" ? entry.due : payload.patch.due,
+            wait: typeof payload.patch.wait === "undefined" ? entry.wait : payload.patch.wait,
+            scheduled: typeof payload.patch.scheduled === "undefined" ? entry.scheduled : payload.patch.scheduled,
+            modified: new Date().toISOString()
+          };
+        });
+        writeStoredTasks(tasks);
+        const target = tasks.find((entry) => entry.uuid === payload.uuid);
+        if (!target) {
+          throw new Error(`task not found: ${payload.uuid}`);
+        }
+        return target as R;
+      }
+      case "config_snapshot": {
+        return {} as R;
+      }
+      case "tag_schema_snapshot": {
+        return { version: 1, keys: [] } as R;
+      }
+      case "ui_log": {
+        return undefined as R;
+      }
+      default:
+        throw new Error(`unsupported mock command: ${command}`);
     }
-    case "config_snapshot": {
-      return {} as R;
+  };
+
+  let timeoutId: number | null = null;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = window.setTimeout(() => {
+      reject(new Error(`invoke timeout (${command}) after ${timeoutMs}ms request_id=${requestId}`));
+    }, timeoutMs);
+  });
+
+  try {
+    const result = await Promise.race([run(), timeout]);
+    const elapsed = Math.round((performance.now() - startedAt) * 100) / 100;
+    logger.info("invoke.success", `${command} request_id=${requestId} duration_ms=${elapsed}`);
+    return result;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const elapsed = Math.round((performance.now() - startedAt) * 100) / 100;
+    logger.error("invoke.error", `${command} request_id=${requestId} duration_ms=${elapsed} error=${message}`);
+    throw error;
+  } finally {
+    if (timeoutId !== null) {
+      window.clearTimeout(timeoutId);
     }
-    case "tag_schema_snapshot": {
-      return { version: 1, keys: [] } as R;
-    }
-    case "ui_log": {
-      return undefined as R;
-    }
-    default:
-      throw new Error(`unsupported mock command: ${command}`);
   }
 }
 
