@@ -108,3 +108,40 @@ test("theme smoke: toggle persists across reload", async ({ page }) => {
   await page.reload();
   await expect(page.getByRole("button", { name: expectLabel })).toBeVisible();
 });
+
+test("tasks parity: edit flow and bulk filtered actions", async ({ page }) => {
+  for (const title of ["Bulk A", "Bulk B"]) {
+    await page.getByRole("button", { name: "Add Task" }).click();
+    await page.getByLabel("Title").fill(title);
+    await page.getByRole("button", { name: "Save" }).click();
+    await expect(page.getByRole("button", { name: new RegExp(title, "i") })).toBeVisible();
+  }
+
+  const taskRow = page.getByRole("button", { name: /Bulk A/i });
+  await taskRow.click();
+  await page.getByRole("button", { name: "Edit" }).click();
+  await page.getByLabel("Title").fill("Bulk A Edited");
+  await page.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByRole("button", { name: /Bulk A Edited/i })).toBeVisible();
+
+  await page.getByRole("button", { name: /Complete Filtered/i }).click();
+  await expect(page.getByText("Completed").first()).toBeVisible();
+
+  await page.getByLabel("Search").fill("Bulk");
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: /Delete Filtered/i }).click();
+  await expect(page.getByText("Bulk A Edited")).toHaveCount(0);
+  await expect(page.getByText("Bulk B")).toHaveCount(0);
+});
+
+test("keyboard shortcuts: add task and settings", async ({ page }) => {
+  await page.keyboard.press("Control+N");
+  await expect(page.getByRole("heading", { name: "Add Task" })).toBeVisible();
+  await page.getByRole("button", { name: "Cancel" }).click();
+
+  await page.keyboard.press("Control+,");
+  await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
+  await page.getByLabel("Enable OS due notifications").click();
+  await page.getByRole("button", { name: "Close" }).click();
+  await expect(page.getByRole("heading", { name: "Settings" })).toHaveCount(0);
+});

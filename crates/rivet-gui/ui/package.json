@@ -5,9 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "dev:yew": "trunk serve --config Trunk.yew.toml --port 1420",
     "build": "tsc --noEmit && vite build",
-    "build:yew": "trunk build --config Trunk.yew.toml --release",
     "preview": "vite preview",
     "check": "tsc --noEmit",
     "lint": "eslint web --ext .ts,.tsx",

@@ -55,14 +55,6 @@ Run before commit:
 3. `pnpm ui:test`
 4. `pnpm ui:build`
 
-## Legacy Yew Fallback
-
-Temporary fallback commands remain available while parity hardening continues:
-
-1. `pnpm ui:yew:dev`
-2. `pnpm ui:yew:build`
-3. `pnpm tauri:dev:yew`
-
 ## E2E Smoke
 
 Run browser-mode smoke suite:

@@ -14,7 +14,6 @@ The React shell is intentionally thin and delegates task semantics to Rust comma
 
 - Redesigning Rust task/calendar domain behavior.
 - Changing command semantics without explicit contract revision.
-- Removing legacy Yew path before parity and stabilization checks pass.
 
 ## Runtime Model
 
@@ -24,18 +23,6 @@ The React shell is intentionally thin and delegates task semantics to Rust comma
   - `VITE_RIVET_UI_RUNTIME_MODE=tauri` forces tauri invoke transport.
   - `VITE_RIVET_UI_RUNTIME_MODE=mock` forces local mock transport.
   - unset or `auto` uses tauri transport only when Tauri internals exist.
-
-## Legacy Fallback Path
-
-- Legacy Yew entrypoint:
-  - `crates/rivet-gui/ui/index.yew.html`
-  - `crates/rivet-gui/ui/Trunk.yew.toml`
-- Legacy tauri override:
-  - `crates/rivet-gui/src-tauri/tauri.yew.dev.json`
-- Root scripts:
-  - `pnpm ui:yew:dev`
-  - `pnpm ui:yew:build`
-  - `pnpm tauri:dev:yew`
 
 ## State Ownership
 

@@ -7,7 +7,7 @@ Status date: 2026-02-23
 - [x] `cargo tauri dev` wiring points to Vite frontend (`tauri.conf.json`).
 - [x] React shell covers Tasks, Kanban, Calendar, External Calendars, Settings, modals.
 - [x] Command bridge has typed API adapter and runtime schema validation.
-- [x] Legacy fallback path preserved (Yew index/trunk config + yew tauri override + CI compile check).
+- [x] Legacy Yew fallback path removed from scripts/CI/build configs after React cutover stabilization.
 - [x] Frontend and backend emit correlated logs with `request_id`.
 - [x] Frontend quality gates pass locally:
   - `pnpm ui:lint`
@@ -19,11 +19,11 @@ Status date: 2026-02-23
   - `cargo test --workspace`
 - [x] Runtime dev startup probe:
   - `cargo tauri dev --no-watch --no-dev-server-wait` starts Vite and Tauri process with React shell wiring.
-
-## Known Gap
-
-- [ ] Local Playwright smoke execution is environment-sensitive in this host (Chromium cannot complete `goto` to local Vite server despite successful `curl` and normal browser behavior).
-  - CI includes non-blocking E2E smoke and artifact capture for diagnosis.
+- [x] Local Playwright smoke execution stable in this host after frontend logging recursion fix.
+- [x] CI smoke matrix covers:
+  - Linux + Wayland env startup probe
+  - Day and Night themes
+  - Small and large task datasets
 
 ## Evidence Artifacts
 

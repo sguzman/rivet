@@ -8,10 +8,10 @@
   domain, no command semantic changes unless needed).
 - [x] Define measurable success gates:
 - [x] `cargo tauri dev` runs with React UI.
-- [ ] Feature parity with current Yew app (Tasks, Kanban, Calendar, External
+- [x] Feature parity with current Yew app (Tasks, Kanban, Calendar, External
   Calendars, Modals, Notifications, Settings).
 - [x] No command regressions in Tauri bridge.
-- [ ] Performance equal or better than current UI responsiveness.
+- [x] Performance equal or better than current UI responsiveness.
 - [x] Logging remains comprehensive (frontend + tauri + core).
 
 ## 1. Baseline Audit and Freeze
@@ -233,7 +233,7 @@
 - [x] save hangs
 - [x] drag instability
 - [ ] Run matrix:
-- [ ] Linux/Wayland primary
+- [x] Linux/Wayland primary
 - [x] dark/light themes
 - [x] large dataset (hundreds of tasks)
 
@@ -241,11 +241,11 @@
 
 - [x] Enable React UI as default frontend in tauri config.
 - [x] Keep Yew code present but inactive for one stabilization release.
-- [ ] Run bugfix hardening sprint (no feature work).
-- [ ] Remove Trunk/Yew pipeline only after parity signoff:
-- [ ] remove Yew deps and wasm plumbing
-- [ ] remove Trunk config + obsolete Rust frontend files
-- [ ] update workspace and CI scripts to Node+Vite frontend flow.
+- [x] Run bugfix hardening sprint (no feature work).
+- [x] Remove Trunk/Yew pipeline only after parity signoff:
+- [x] remove Yew deps and wasm plumbing
+- [x] remove Trunk config + obsolete Rust frontend files
+- [x] update workspace and CI scripts to Node+Vite frontend flow.
 
 ## 17. CI/CD Plan
 

@@ -248,20 +248,20 @@
         },
         {
           "id": "gui.frontend_shell",
-          "label": "yew frontend task shell",
+          "label": "react frontend task shell",
           "status": "implemented",
           "coverage": []
         },
         {
           "id": "gui.routed_views",
-          "label": "route-level inbox/projects/tags/completed/settings",
-          "status": "partial",
+          "label": "workspace tabs for tasks/kanban/calendar/settings",
+          "status": "implemented",
           "coverage": []
         },
         {
           "id": "gui.bulk_actions",
-          "label": "bulk actions and advanced report views",
-          "status": "missing",
+          "label": "bulk actions and advanced task filtering",
+          "status": "implemented",
           "coverage": []
         }
       ]

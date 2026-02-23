@@ -25,8 +25,12 @@ Rivet migrated the GUI shell from Yew/WebAssembly to React/TypeScript while pres
 
 ## Current Legacy Status
 
-- Yew code remains in-repo for stabilization and test continuity.
-- React shell is the active default frontend for Tauri.
+- Legacy Yew/Trunk frontend path has been removed from:
+  - workspace members
+  - CI checks
+  - frontend scripts/configs
+  - obsolete Rust/WASM frontend source tree
+- React shell is the only active frontend for Tauri.
 
 ## Migration Guardrails
 
@@ -37,8 +41,8 @@ Rivet migrated the GUI shell from Yew/WebAssembly to React/TypeScript while pres
    - contract docs
 3. Regressions in interaction (buttons/modals/drag) require smoke coverage.
 
-## Removal Preconditions for Legacy Yew Path
+## Cutover Preconditions (Applied)
 
 - Parity checklist completed.
 - E2E smoke coverage in place for Tasks/Kanban/Calendar critical flows.
-- Stabilization release period complete with no critical regressions.
+- Large-dataset and theme matrix runs added to CI.

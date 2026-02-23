@@ -3,7 +3,7 @@
 Rivet is a Rust-first Taskwarrior port with two layers:
 
 - A CLI-compatible core (`task`) focused on Taskwarrior-style workflows.
-- A desktop GUI layer built with Rust + Yew + CSS + Tauri on top of the same core data model.
+- A desktop GUI layer built with Rust + TypeScript/React + Tailwind + Material UI + Tauri on top of the same core data model.
 
 ## Mascot
 
@@ -24,7 +24,7 @@ Machine-readable parity data is tracked in `tests/parity_map.json` for CI/report
 - `crates/rivet-parity`: parity harness that compares Rivet results to Taskwarrior.
 - `crates/rivet-gui-shared`: shared DTOs for GUI frontend/backend.
 - `crates/rivet-gui/src-tauri`: Tauri backend wired to `rivet-core`.
-- `crates/rivet-gui/ui`: Yew frontend + CSS.
+- `crates/rivet-gui/ui`: React frontend shell (Vite + TypeScript + Tailwind + MUI).
 
 ## Implemented CLI Commands
 
@@ -101,8 +101,11 @@ cargo test
 
 ```bash
 cargo check -p rivet_gui_shared
-cargo check -p rivet_gui_ui --target wasm32-unknown-unknown
 cargo check -p rivet_gui_tauri
+pnpm ui:check
+pnpm ui:lint
+pnpm ui:test
+pnpm ui:build
 ```
 
 ## Parity Harness
@@ -167,8 +170,8 @@ The harness reports per-scenario bucket parity (`pending`, `completed`, `deleted
 Prerequisites:
 
 ```bash
-rustup target add wasm32-unknown-unknown
-cargo install trunk tauri-cli
+cargo install tauri-cli
+pnpm install
 ```
 
 Run desktop app:
@@ -184,10 +187,11 @@ Frontend styling lives at:
 
 Current GUI capabilities:
 
-- Inbox/completed/project/tag/settings views via sidebar navigation.
-- Facet panels for project and tag drill-down.
-- Single-task edit/done/delete flows.
-- Bulk done/delete actions from multi-select in the task list.
+- Tasks workspace with search/facet filtering, add/edit/done/delete, and bulk filtered actions.
+- Kanban workspace with board CRUD, drag/drop lane movement, and density toggle.
+- Calendar workspace with year/quarter/month/week/day views, markers, and period task list.
+- External calendar sources with add/edit/delete, sync, and ICS import.
+- Settings + diagnostics panels for due notifications and command-failure visibility.
 
 ## Notes
 

@@ -1,8 +1,0 @@
-{
-  "build": {
-    "beforeDevCommand": "bash -lc 'ROOT=\"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\"; exec trunk serve --config \"$ROOT/crates/rivet-gui/ui/Trunk.yew.toml\" --port 1420'",
-    "beforeBuildCommand": "bash -lc 'ROOT=\"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\"; exec trunk build --config \"$ROOT/crates/rivet-gui/ui/Trunk.yew.toml\" --release'",
-    "devUrl": "http://localhost:1420",
-    "frontendDist": "../ui/dist-yew"
-  }
-}

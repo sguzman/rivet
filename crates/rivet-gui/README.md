@@ -5,8 +5,8 @@ Desktop GUI for Rivet core.
 ## Stack
 
 - Rust backend with Tauri (`src-tauri`)
-- Rust frontend with Yew (`ui`)
-- Plain CSS theme and layout
+- TypeScript/React frontend shell (`ui/web`)
+- Tailwind + MUI for layout and component primitives
 - Shared DTO contract in `rivet_gui_shared`
 
 ## Runtime Data Path
@@ -29,8 +29,8 @@ All commands map to `rivet_core` task persistence logic.
 ## Dev
 
 ```bash
-rustup target add wasm32-unknown-unknown
-cargo install trunk tauri-cli
+cargo install tauri-cli
+pnpm install
 cd crates/rivet-gui/src-tauri
 cargo tauri dev
 ```

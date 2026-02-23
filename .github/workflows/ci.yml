@@ -98,9 +98,9 @@ jobs:
       - name: Format check
         run: cargo fmt --all --check
       - name: Clippy
-        run: cargo clippy --workspace --all-targets --locked --exclude rivet_gui_tauri --exclude rivet_gui_ui
+        run: cargo clippy --workspace --all-targets --locked --exclude rivet_gui_tauri
       - name: Tests
-        run: cargo test --workspace --all-targets --locked --exclude rivet_gui_tauri --exclude rivet_gui_ui
+        run: cargo test --workspace --all-targets --locked --exclude rivet_gui_tauri
       - name: Upload runtime logs artifact
         if: always()
         uses: actions/upload-artifact@v4
@@ -109,16 +109,6 @@ jobs:
           path: logs
           if-no-files-found: warn
           retention-days: 14
-
-  legacy-yew:
-    name: Legacy Yew Fallback Check
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - name: Compile legacy yew frontend crate
-        run: cargo check -p rivet_gui_ui --locked
 
   tauri-smoke:
     name: Tauri Build Smoke
@@ -138,4 +128,31 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       - name: Tauri build smoke
-        run: pnpm exec tauri build --manifest-path crates/rivet-gui/src-tauri/Cargo.toml --bundles none
+        run: cd crates/rivet-gui/src-tauri && pnpm exec tauri build --no-bundle
+
+  wayland-smoke:
+    name: Tauri Dev Smoke (Wayland Env)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Wayland startup smoke (non-blocking)
+        run: |
+          timeout 90s bash -lc '
+            cd crates/rivet-gui/src-tauri
+            XDG_SESSION_TYPE=wayland \
+            GDK_BACKEND=wayland \
+            WEBKIT_DISABLE_DMABUF_RENDERER=1 \
+            pnpm exec tauri dev --no-watch --no-dev-server-wait
+          '
