@@ -95,8 +95,11 @@ body {
 }
 
 .calendar-current-period {
-  outline: 2px solid color-mix(in srgb, var(--mui-palette-primary-main) 88%, white 12%);
-  outline-offset: 1px;
+  border-color: color-mix(in srgb, var(--mui-palette-primary-main) 88%, transparent) !important;
+  box-shadow:
+    inset 0 0 0 2px color-mix(in srgb, var(--mui-palette-primary-main) 88%, white 12%),
+    0 0 0 1px color-mix(in srgb, var(--mui-palette-primary-main) 55%, transparent);
+  background: color-mix(in srgb, var(--mui-palette-primary-main) 10%, transparent);
 }
 
 .calendar-past-muted {
