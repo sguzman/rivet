@@ -80,11 +80,10 @@ export function AppShell() {
   const runtimeMode = runtimeConfig?.app?.mode ?? runtimeConfig?.mode ?? "prod";
   const loggingDirectory = runtimeConfig?.logging?.directory ?? "logs";
   const isDevMode = runtimeMode === "dev";
-  const renderProfilingEnabled = isDevMode && String(import.meta.env.VITE_RIVET_PROFILE_RENDERS ?? "").trim() === "1";
   const themeIconMode = themeFollowSystem ? systemThemeMode : themeMode;
   const onProfilerRender = useCallback<ProfilerOnRenderCallback>(
     (id, phase, actualDuration, baseDuration) => {
-      if (!renderProfilingEnabled) {
+      if (!isDevMode) {
         return;
       }
       logger.debug(
@@ -92,7 +91,7 @@ export function AppShell() {
         `${id} phase=${phase} actual_ms=${actualDuration.toFixed(2)} base_ms=${baseDuration.toFixed(2)}`
       );
     },
-    [renderProfilingEnabled]
+    [isDevMode]
   );
 
   useEffect(() => {
@@ -230,35 +229,23 @@ export function AppShell() {
       <main className="min-h-0 flex-1 overflow-hidden">
         {mountedTabs.tasks ? (
           <div className={activeTab === "tasks" ? "h-full" : "hidden h-full"} aria-hidden={activeTab !== "tasks"}>
-            {renderProfilingEnabled ? (
-              <Profiler id="tasks.workspace" onRender={onProfilerRender}>
-                <TasksWorkspaceMemo />
-              </Profiler>
-            ) : (
+            <Profiler id="tasks.workspace" onRender={onProfilerRender}>
               <TasksWorkspaceMemo />
-            )}
+            </Profiler>
           </div>
         ) : null}
         {mountedTabs.kanban ? (
           <div className={activeTab === "kanban" ? "h-full" : "hidden h-full"} aria-hidden={activeTab !== "kanban"}>
-            {renderProfilingEnabled ? (
-              <Profiler id="kanban.workspace" onRender={onProfilerRender}>
-                <KanbanWorkspaceMemo />
-              </Profiler>
-            ) : (
+            <Profiler id="kanban.workspace" onRender={onProfilerRender}>
               <KanbanWorkspaceMemo />
-            )}
+            </Profiler>
           </div>
         ) : null}
         {mountedTabs.calendar ? (
           <div className={activeTab === "calendar" ? "h-full" : "hidden h-full"} aria-hidden={activeTab !== "calendar"}>
-            {renderProfilingEnabled ? (
-              <Profiler id="calendar.workspace" onRender={onProfilerRender}>
-                <CalendarWorkspaceMemo />
-              </Profiler>
-            ) : (
+            <Profiler id="calendar.workspace" onRender={onProfilerRender}>
               <CalendarWorkspaceMemo />
-            )}
+            </Profiler>
           </div>
         ) : null}
       </main>
