@@ -59,6 +59,15 @@ export function AppShell() {
   const { commandFailures, clearCommandFailures } = useDiagnosticsSlice();
 
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  const [mountedTabs, setMountedTabs] = useState<{
+    tasks: boolean;
+    kanban: boolean;
+    calendar: boolean;
+  }>({
+    tasks: true,
+    kanban: false,
+    calendar: false
+  });
 
   useEffect(() => {
     void bootstrap();
@@ -67,10 +76,11 @@ export function AppShell() {
   const runtimeMode = runtimeConfig?.app?.mode ?? runtimeConfig?.mode ?? "prod";
   const loggingDirectory = runtimeConfig?.logging?.directory ?? "logs";
   const isDevMode = runtimeMode === "dev";
+  const renderProfilingEnabled = isDevMode && String(import.meta.env.VITE_RIVET_PROFILE_RENDERS ?? "").trim() === "1";
   const themeIconMode = themeFollowSystem ? systemThemeMode : themeMode;
   const onProfilerRender = useCallback<ProfilerOnRenderCallback>(
     (id, phase, actualDuration, baseDuration) => {
-      if (!isDevMode) {
+      if (!renderProfilingEnabled) {
         return;
       }
       logger.debug(
@@ -78,8 +88,15 @@ export function AppShell() {
         `${id} phase=${phase} actual_ms=${actualDuration.toFixed(2)} base_ms=${baseDuration.toFixed(2)}`
       );
     },
-    [isDevMode]
+    [renderProfilingEnabled]
   );
+
+  useEffect(() => {
+    setMountedTabs((previous) => ({
+      ...previous,
+      [activeTab]: true
+    }));
+  }, [activeTab]);
 
   useEffect(() => {
     scanDueNotifications();
@@ -207,20 +224,26 @@ export function AppShell() {
       </AppBar>
 
       <main className="min-h-0 flex-1 overflow-hidden">
-        {activeTab === "tasks" ? (
-          <Profiler id="tasks.workspace" onRender={onProfilerRender}>
-            <TasksWorkspace />
-          </Profiler>
+        {mountedTabs.tasks ? (
+          <div className={activeTab === "tasks" ? "h-full" : "hidden h-full"} aria-hidden={activeTab !== "tasks"}>
+            <Profiler id="tasks.workspace" onRender={onProfilerRender}>
+              <TasksWorkspace />
+            </Profiler>
+          </div>
         ) : null}
-        {activeTab === "kanban" ? (
-          <Profiler id="kanban.workspace" onRender={onProfilerRender}>
-            <KanbanWorkspace />
-          </Profiler>
+        {mountedTabs.kanban ? (
+          <div className={activeTab === "kanban" ? "h-full" : "hidden h-full"} aria-hidden={activeTab !== "kanban"}>
+            <Profiler id="kanban.workspace" onRender={onProfilerRender}>
+              <KanbanWorkspace />
+            </Profiler>
+          </div>
         ) : null}
-        {activeTab === "calendar" ? (
-          <Profiler id="calendar.workspace" onRender={onProfilerRender}>
-            <CalendarWorkspace />
-          </Profiler>
+        {mountedTabs.calendar ? (
+          <div className={activeTab === "calendar" ? "h-full" : "hidden h-full"} aria-hidden={activeTab !== "calendar"}>
+            <Profiler id="calendar.workspace" onRender={onProfilerRender}>
+              <CalendarWorkspace />
+            </Profiler>
+          </div>
         ) : null}
       </main>
 

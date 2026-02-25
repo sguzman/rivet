@@ -10,6 +10,14 @@ export function setLoggerBridge(next: LoggerBridge): void {
   bridge = next;
 }
 
+function shouldBridge(level: UiLogLevel): boolean {
+  // Keep backend command-bridge logging light.
+  // Debug/info logs are high-volume and can
+  // create UI latency when forwarded via
+  // Tauri invoke on every interaction.
+  return level === "warn" || level === "error";
+}
+
 function emit(level: UiLogLevel, event: string, detail: string): void {
   const timestamp = new Date().toISOString();
   const payload = `[${timestamp}] [${level}] ${event} :: ${detail}`;
@@ -21,7 +29,7 @@ function emit(level: UiLogLevel, event: string, detail: string): void {
     console.log(payload);
   }
 
-  if (bridge) {
+  if (bridge && shouldBridge(level)) {
     void bridge(event, `${level}: ${detail}`);
   }
 }
