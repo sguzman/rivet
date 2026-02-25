@@ -104,10 +104,55 @@ fn should_force_dev_mode() -> bool {
   cfg!(debug_assertions)
 }
 
+fn find_runtime_config_upwards()
+-> Option<PathBuf> {
+  let cwd =
+    env::current_dir().ok()?;
+  let mut cursor =
+    Some(cwd.as_path());
+  while let Some(path) = cursor {
+    let candidate =
+      path.join(APP_CONFIG_FILE);
+    if candidate.is_file() {
+      return Some(candidate);
+    }
+    cursor = path.parent();
+  }
+  None
+}
+
+fn resolve_log_directory(
+  config_path: Option<&PathBuf>,
+  directory: &str
+) -> String {
+  let raw = PathBuf::from(directory);
+  if raw.is_absolute() {
+    return directory.to_string();
+  }
+
+  if let Some(path) = config_path
+    && let Some(parent) =
+      path.parent()
+  {
+    return parent
+      .join(raw)
+      .to_string_lossy()
+      .to_string();
+  }
+
+  directory.to_string()
+}
+
 fn load_runtime_settings()
 -> RuntimeSettings {
+  let force_dev =
+    should_force_dev_mode();
   let defaults = RuntimeSettings {
-    mode:            RuntimeMode::Prod,
+    mode:            if force_dev {
+      RuntimeMode::Dev
+    } else {
+      RuntimeMode::Prod
+    },
     log_directory:   LOG_DIR_NAME
       .to_string(),
     log_file_prefix: LOG_FILE_PREFIX
@@ -126,11 +171,7 @@ fn load_runtime_settings()
         .map(PathBuf::from)
       })
       .or_else(|| {
-        env::current_dir().ok().map(
-          |dir| {
-            dir.join(APP_CONFIG_FILE)
-          }
-        )
+        find_runtime_config_upwards()
       });
 
   let Some(path) = config_path else {
@@ -224,7 +265,7 @@ fn load_runtime_settings()
     }
   };
 
-  let log_directory = parsed
+  let configured_log_directory = parsed
     .logging
     .as_ref()
     .and_then(|logging| {
@@ -234,6 +275,11 @@ fn load_runtime_settings()
     .filter(|value| !value.is_empty())
     .unwrap_or(LOG_DIR_NAME)
     .to_string();
+  let log_directory =
+    resolve_log_directory(
+      Some(&path),
+      &configured_log_directory,
+    );
   let log_file_prefix = parsed
     .logging
     .as_ref()
@@ -251,7 +297,7 @@ fn load_runtime_settings()
     log_file_prefix
   };
 
-  if should_force_dev_mode() {
+  if force_dev {
     settings.mode = RuntimeMode::Dev;
   }
 
