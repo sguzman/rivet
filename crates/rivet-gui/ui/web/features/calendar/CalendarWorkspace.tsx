@@ -150,9 +150,12 @@ export function CalendarWorkspace() {
 
   const boardColorMap = useBoardColorMap();
   const calendarColorMap = useExternalCalendarColorMap();
-  const config = resolveCalendarConfig(runtimeConfig);
-  const focus = calendarDateFromIso(calendarFocusDateIso);
-  const title = calendarTitleForView(calendarView, focus, config.policies.week_start);
+  const config = useMemo(() => resolveCalendarConfig(runtimeConfig), [runtimeConfig]);
+  const focus = useMemo(() => calendarDateFromIso(calendarFocusDateIso), [calendarFocusDateIso]);
+  const title = useMemo(
+    () => calendarTitleForView(calendarView, focus, config.policies.week_start),
+    [calendarView, focus, config.policies.week_start]
+  );
 
   const allDueEntries = useMemo(() => {
     return collectCalendarDueTasks(tasks, config, boardColorMap, calendarColorMap);
@@ -193,6 +196,10 @@ export function CalendarWorkspace() {
   const nowLocal = useMemo(() => nowDateTime(config.timezone, nowUtcMs), [config.timezone, nowUtcMs]);
   const todayLocal = useMemo(
     () => toCalendarDate(nowLocal.year, nowLocal.month, nowLocal.day),
+    [nowLocal.day, nowLocal.month, nowLocal.year]
+  );
+  const today = useMemo(
+    () => ({ year: nowLocal.year, month: nowLocal.month, day: nowLocal.day }),
     [nowLocal.day, nowLocal.month, nowLocal.year]
   );
   const todayMonthStart = useMemo(
@@ -537,9 +544,9 @@ export function CalendarWorkspace() {
               size="small"
               variant="outlined"
               onClick={() => navigateCalendar(calendarDateToIso(toCalendarDate(
-                todayDate(config.timezone).year,
-                todayDate(config.timezone).month,
-                todayDate(config.timezone).day
+                today.year,
+                today.month,
+                today.day
               )), calendarView)}
             >
               Today
@@ -929,29 +936,6 @@ export function CalendarWorkspace() {
       </Dialog>
     </div>
   );
-}
-
-function todayDate(timezone: string) {
-  const formatter = new Intl.DateTimeFormat("en-US", {
-    timeZone: timezone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit"
-  });
-  const parts = formatter.formatToParts(new Date());
-  let year = 1970;
-  let month = 1;
-  let day = 1;
-  for (const part of parts) {
-    if (part.type === "year") {
-      year = Number(part.value);
-    } else if (part.type === "month") {
-      month = Number(part.value);
-    } else if (part.type === "day") {
-      day = Number(part.value);
-    }
-  }
-  return { year, month, day };
 }
 
 function nowDateTime(timezone: string, nowUtcMs: number) {

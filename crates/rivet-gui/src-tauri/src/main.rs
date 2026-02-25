@@ -74,6 +74,36 @@ struct RuntimeSettings {
   log_file_prefix: String
 }
 
+fn env_is_truthy(
+  key: &str
+) -> bool {
+  let Some(value) =
+    env::var_os(key)
+  else {
+    return false;
+  };
+  let text = value
+    .to_string_lossy()
+    .trim()
+    .to_ascii_lowercase();
+  matches!(
+    text.as_str(),
+    "1" | "true" | "yes" | "on"
+  )
+}
+
+fn should_force_dev_mode() -> bool {
+  // `cargo tauri dev` sets this.
+  if env_is_truthy("TAURI_ENV_DEBUG")
+  {
+    return true;
+  }
+
+  // When running debug binaries
+  // directly, default to dev logging.
+  cfg!(debug_assertions)
+}
+
 fn load_runtime_settings()
 -> RuntimeSettings {
   let defaults = RuntimeSettings {
@@ -215,11 +245,17 @@ fn load_runtime_settings()
     .unwrap_or(LOG_FILE_PREFIX)
     .to_string();
 
-  RuntimeSettings {
+  let mut settings = RuntimeSettings {
     mode,
     log_directory,
     log_file_prefix
+  };
+
+  if should_force_dev_mode() {
+    settings.mode = RuntimeMode::Dev;
   }
+
+  settings
 }
 
 fn init_tracing(
@@ -382,10 +418,18 @@ fn configure_wayland_defaults() {
 fn configure_wayland_defaults() {}
 
 fn main() {
+  let dev_forced =
+    should_force_dev_mode();
   let runtime_settings =
     load_runtime_settings();
   init_tracing(&runtime_settings);
   configure_wayland_defaults();
+  if dev_forced {
+    info!(
+      "forcing runtime mode=dev \
+       (TAURI_ENV_DEBUG/debug build)"
+    );
+  }
   info!(
     mode =
       runtime_settings.mode.as_str(),

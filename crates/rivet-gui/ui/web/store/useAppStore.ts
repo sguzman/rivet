@@ -1482,20 +1482,24 @@ export function useKanbanViewData(): {
 
 export function useBoardColorMap(): Record<string, string> {
   const boards = useAppStore((state) => state.kanbanBoards);
-  const map: Record<string, string> = {};
-  for (const board of boards) {
-    map[board.id] = board.color;
-  }
-  return map;
+  return useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const board of boards) {
+      map[board.id] = board.color;
+    }
+    return map;
+  }, [boards]);
 }
 
 export function useExternalCalendarColorMap(): Record<string, string> {
   const sources = useAppStore((state) => state.externalCalendars);
-  const map: Record<string, string> = {};
-  for (const source of sources) {
-    map[source.id] = source.color;
-  }
-  return map;
+  return useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const source of sources) {
+      map[source.id] = source.color;
+    }
+    return map;
+  }, [sources]);
 }
 
 export function useCalendarDueEntries() {
