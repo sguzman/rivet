@@ -1,4 +1,4 @@
-import { Profiler, useCallback, useEffect, useState } from "react";
+import { Profiler, memo, useCallback, useEffect, useState } from "react";
 import type { ProfilerOnRenderCallback } from "react";
 
 import AddIcon from "@mui/icons-material/Add";
@@ -22,6 +22,10 @@ import { KanbanWorkspace } from "../features/kanban/KanbanWorkspace";
 import { TasksWorkspace } from "../features/tasks/TasksWorkspace";
 import { logger } from "../lib/logger";
 import { useDiagnosticsSlice, useSettingsSlice, useShellSlice } from "../store/slices";
+
+const TasksWorkspaceMemo = memo(TasksWorkspace);
+const KanbanWorkspaceMemo = memo(KanbanWorkspace);
+const CalendarWorkspaceMemo = memo(CalendarWorkspace);
 
 export function AppShell() {
   const {
@@ -226,23 +230,35 @@ export function AppShell() {
       <main className="min-h-0 flex-1 overflow-hidden">
         {mountedTabs.tasks ? (
           <div className={activeTab === "tasks" ? "h-full" : "hidden h-full"} aria-hidden={activeTab !== "tasks"}>
-            <Profiler id="tasks.workspace" onRender={onProfilerRender}>
-              <TasksWorkspace />
-            </Profiler>
+            {renderProfilingEnabled ? (
+              <Profiler id="tasks.workspace" onRender={onProfilerRender}>
+                <TasksWorkspaceMemo />
+              </Profiler>
+            ) : (
+              <TasksWorkspaceMemo />
+            )}
           </div>
         ) : null}
         {mountedTabs.kanban ? (
           <div className={activeTab === "kanban" ? "h-full" : "hidden h-full"} aria-hidden={activeTab !== "kanban"}>
-            <Profiler id="kanban.workspace" onRender={onProfilerRender}>
-              <KanbanWorkspace />
-            </Profiler>
+            {renderProfilingEnabled ? (
+              <Profiler id="kanban.workspace" onRender={onProfilerRender}>
+                <KanbanWorkspaceMemo />
+              </Profiler>
+            ) : (
+              <KanbanWorkspaceMemo />
+            )}
           </div>
         ) : null}
         {mountedTabs.calendar ? (
           <div className={activeTab === "calendar" ? "h-full" : "hidden h-full"} aria-hidden={activeTab !== "calendar"}>
-            <Profiler id="calendar.workspace" onRender={onProfilerRender}>
-              <CalendarWorkspace />
-            </Profiler>
+            {renderProfilingEnabled ? (
+              <Profiler id="calendar.workspace" onRender={onProfilerRender}>
+                <CalendarWorkspaceMemo />
+              </Profiler>
+            ) : (
+              <CalendarWorkspaceMemo />
+            )}
           </div>
         ) : null}
       </main>
