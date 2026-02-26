@@ -7,6 +7,7 @@ import PersonAddIcon from "@mui/icons-material/PersonAdd";
 import RedoIcon from "@mui/icons-material/Redo";
 import UploadFileIcon from "@mui/icons-material/UploadFile";
 import Alert from "@mui/material/Alert";
+import Avatar from "@mui/material/Avatar";
 import Button from "@mui/material/Button";
 import Checkbox from "@mui/material/Checkbox";
 import Divider from "@mui/material/Divider";
@@ -26,6 +27,29 @@ function fieldTemplate(kind: string): ContactFieldValue {
     kind,
     is_primary: false
   };
+}
+
+const COUNTRY_OPTIONS = [
+  "United States",
+  "Canada",
+  "United Kingdom",
+  "Germany",
+  "France",
+  "India",
+  "Japan",
+  "Australia",
+  "Other"
+];
+
+function contactInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) {
+    return "?";
+  }
+  if (parts.length === 1) {
+    return parts[0].slice(0, 2).toUpperCase();
+  }
+  return `${parts[0][0] ?? ""}${parts[1][0] ?? ""}`.toUpperCase();
 }
 
 export function ContactsWorkspace() {
@@ -68,6 +92,7 @@ export function ContactsWorkspace() {
   const [importSource, setImportSource] = useState("gmail_export");
   const [importMode, setImportMode] = useState<"safe" | "upsert" | "review">("safe");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const avatarInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     void bootstrap();
@@ -105,6 +130,24 @@ export function ContactsWorkspace() {
     });
   };
 
+  const updateDraftAddress = (field: "street" | "country", value: string) => {
+    const first = draft.addresses[0] ?? {
+      kind: "home",
+      street: "",
+      city: "",
+      region: "",
+      postal_code: "",
+      country: ""
+    };
+    setDraft({
+      ...draft,
+      addresses: [{
+        ...first,
+        [field]: value
+      }]
+    });
+  };
+
   const handleImportFile = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) {
@@ -112,6 +155,20 @@ export function ContactsWorkspace() {
     }
     const text = await file.text();
     await previewImport(importSource, file.name, text);
+    event.target.value = "";
+  };
+
+  const handleAvatarFile = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = typeof reader.result === "string" ? reader.result : null;
+      updateDraftField("avatar_data_url", dataUrl);
+    };
+    reader.readAsDataURL(file);
     event.target.value = "";
   };
 
@@ -288,6 +345,12 @@ export function ContactsWorkspace() {
                         onClick={(event) => event.stopPropagation()}
                       />
                     ) : null}
+                    <Avatar
+                      src={contact.avatar_data_url ?? undefined}
+                      sx={{ width: 32, height: 32, fontSize: 13 }}
+                    >
+                      {contactInitials(contact.display_name || "Unnamed Contact")}
+                    </Avatar>
                     <Stack className="min-w-0 flex-1">
                       <Typography variant="subtitle2" className="truncate">
                         {contact.display_name || "Unnamed Contact"}
@@ -308,6 +371,34 @@ export function ContactsWorkspace() {
         <Paper className="p-4">
           <Stack spacing={1.25}>
             <Typography variant="h6">Add / Edit Contact</Typography>
+            <Stack direction="row" spacing={1.5} alignItems="center">
+              <Avatar
+                src={draft.avatar_data_url ?? undefined}
+                sx={{ width: 56, height: 56 }}
+              >
+                {contactInitials(draft.display_name ?? "")}
+              </Avatar>
+              <Stack direction="row" spacing={1}>
+                <Button size="small" variant="outlined" onClick={() => avatarInputRef.current?.click()}>
+                  Set Avatar
+                </Button>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  onClick={() => updateDraftField("avatar_data_url", null)}
+                  disabled={!draft.avatar_data_url}
+                >
+                  Remove Avatar
+                </Button>
+              </Stack>
+              <input
+                ref={avatarInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleAvatarFile}
+              />
+            </Stack>
             <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
               <Button
                 size="small"
@@ -422,6 +513,30 @@ export function ContactsWorkspace() {
               multiline
               minRows={3}
             />
+
+            <Stack direction={{ xs: "column", md: "row" }} spacing={1}>
+              <TextField
+                label="Address"
+                value={draft.addresses[0]?.street ?? ""}
+                onChange={(event) => updateDraftAddress("street", event.target.value)}
+                size="small"
+                className="flex-1"
+              />
+              <TextField
+                select
+                label="Country"
+                value={draft.addresses[0]?.country ?? ""}
+                onChange={(event) => updateDraftAddress("country", event.target.value)}
+                size="small"
+                className="flex-1"
+              >
+                {COUNTRY_OPTIONS.map((country) => (
+                  <MenuItem key={country} value={country}>
+                    {country}
+                  </MenuItem>
+                ))}
+              </TextField>
+            </Stack>
 
             <Divider />
 

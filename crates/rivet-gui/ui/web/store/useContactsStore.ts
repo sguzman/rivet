@@ -23,6 +23,7 @@ import type {
   ContactsMergeUndoResult,
   ContactOpenActionArgs,
   ContactFieldValue,
+  ContactAddress,
   ContactsDedupePreviewResult
 } from "../types/core";
 
@@ -34,9 +35,21 @@ function emptyField(kind: string): ContactFieldValue {
   };
 }
 
+function emptyAddress(kind: string): ContactAddress {
+  return {
+    kind,
+    street: "",
+    city: "",
+    region: "",
+    postal_code: "",
+    country: ""
+  };
+}
+
 export function emptyContactDraft(): ContactCreate {
   return {
     display_name: "",
+    avatar_data_url: null,
     given_name: "",
     family_name: "",
     nickname: "",
@@ -47,7 +60,7 @@ export function emptyContactDraft(): ContactCreate {
     birthday: null,
     organization: "",
     title: "",
-    addresses: [],
+    addresses: [emptyAddress("home")],
     source_id: "local",
     source_kind: "local",
     remote_id: null,
@@ -66,9 +79,21 @@ function cleanFieldValues(fields: ContactFieldValue[]): ContactFieldValue[] {
 }
 
 function normalizeDraft(input: ContactCreate): ContactCreate {
+  const addresses = input.addresses
+    .map((address) => ({
+      kind: address.kind?.trim() || "home",
+      street: address.street?.trim() ?? "",
+      city: address.city?.trim() ?? "",
+      region: address.region?.trim() ?? "",
+      postal_code: address.postal_code?.trim() ?? "",
+      country: address.country?.trim() ?? ""
+    }))
+    .filter((address) => address.street.length > 0 || address.country.length > 0);
+
   return {
     ...input,
     display_name: input.display_name?.trim() ?? "",
+    avatar_data_url: input.avatar_data_url?.trim() || null,
     given_name: input.given_name?.trim() ?? "",
     family_name: input.family_name?.trim() ?? "",
     nickname: input.nickname?.trim() ?? "",
@@ -78,6 +103,7 @@ function normalizeDraft(input: ContactCreate): ContactCreate {
     websites: cleanFieldValues(input.websites),
     organization: input.organization?.trim() ?? "",
     title: input.title?.trim() ?? "",
+    addresses,
     source_id: input.source_id?.trim() || "local",
     source_kind: input.source_kind?.trim() || "local",
     remote_id: input.remote_id?.trim() || null,
@@ -244,6 +270,7 @@ export const useContactsStore = create<ContactsStore>((set, get) => ({
     set({
       draft: {
         display_name: selected.display_name,
+        avatar_data_url: selected.avatar_data_url,
         given_name: selected.given_name,
         family_name: selected.family_name,
         nickname: selected.nickname,
@@ -254,7 +281,7 @@ export const useContactsStore = create<ContactsStore>((set, get) => ({
         birthday: selected.birthday,
         organization: selected.organization,
         title: selected.title,
-        addresses: selected.addresses,
+        addresses: selected.addresses.length > 0 ? selected.addresses : [emptyAddress("home")],
         source_id: selected.source_id,
         source_kind: selected.source_kind,
         remote_id: selected.remote_id,
@@ -291,6 +318,7 @@ export const useContactsStore = create<ContactsStore>((set, get) => ({
       const draft = normalizeDraft(get().draft);
       const patch: ContactPatch = {
         display_name: draft.display_name,
+        avatar_data_url: draft.avatar_data_url,
         given_name: draft.given_name,
         family_name: draft.family_name,
         nickname: draft.nickname,

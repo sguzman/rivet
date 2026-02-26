@@ -73,6 +73,7 @@ export interface ContactAddress {
 export interface ContactDto {
   id: string;
   display_name: string;
+  avatar_data_url: string | null;
   given_name: string | null;
   family_name: string | null;
   nickname: string | null;
@@ -108,6 +109,7 @@ export interface ContactsListResult {
 
 export interface ContactCreate {
   display_name: string | null;
+  avatar_data_url: string | null;
   given_name: string | null;
   family_name: string | null;
   nickname: string | null;
@@ -127,6 +129,7 @@ export interface ContactCreate {
 
 export interface ContactPatch {
   display_name?: string | null;
+  avatar_data_url?: string | null;
   given_name?: string | null;
   family_name?: string | null;
   nickname?: string | null;

@@ -66,6 +66,7 @@ export const ContactAddressSchema = z.object({
 export const ContactDtoSchema = z.object({
   id: z.string().min(1),
   display_name: z.string(),
+  avatar_data_url: z.string().nullable(),
   given_name: z.string().nullable(),
   family_name: z.string().nullable(),
   nickname: z.string().nullable(),
@@ -95,6 +96,7 @@ export const ContactsListResultSchema = z.object({
 
 export const ContactCreateSchema = z.object({
   display_name: z.string().nullable(),
+  avatar_data_url: z.string().nullable(),
   given_name: z.string().nullable(),
   family_name: z.string().nullable(),
   nickname: z.string().nullable(),
@@ -114,6 +116,7 @@ export const ContactCreateSchema = z.object({
 
 export const ContactPatchSchema = z.object({
   display_name: z.string().nullable().optional(),
+  avatar_data_url: z.string().nullable().optional(),
   given_name: z.string().nullable().optional(),
   family_name: z.string().nullable().optional(),
   nickname: z.string().nullable().optional(),

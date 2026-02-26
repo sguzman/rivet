@@ -199,6 +199,7 @@ function makeMockContact(input: ContactCreate): ContactDto {
   return {
     id: crypto.randomUUID(),
     display_name: display,
+    avatar_data_url: input.avatar_data_url ?? null,
     given_name: input.given_name,
     family_name: input.family_name,
     nickname: input.nickname,
@@ -368,6 +369,7 @@ async function invokeCommand<R>(command: string, args?: unknown): Promise<R> {
           return {
             ...entry,
             display_name: typeof payload.patch.display_name === "undefined" ? entry.display_name : (payload.patch.display_name ?? ""),
+            avatar_data_url: typeof payload.patch.avatar_data_url === "undefined" ? entry.avatar_data_url : payload.patch.avatar_data_url,
             given_name: typeof payload.patch.given_name === "undefined" ? entry.given_name : payload.patch.given_name,
             family_name: typeof payload.patch.family_name === "undefined" ? entry.family_name : payload.patch.family_name,
             nickname: typeof payload.patch.nickname === "undefined" ? entry.nickname : payload.patch.nickname,

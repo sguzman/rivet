@@ -166,6 +166,7 @@ pub struct ContactDto {
   pub id:            Uuid,
   #[serde(default)]
   pub display_name:  String,
+  pub avatar_data_url: Option<String>,
   pub given_name:    Option<String>,
   pub family_name:   Option<String>,
   pub nickname:      Option<String>,
@@ -216,6 +217,7 @@ pub struct ContactsListResult {
 )]
 pub struct ContactCreate {
   pub display_name:  Option<String>,
+  pub avatar_data_url: Option<String>,
   pub given_name:    Option<String>,
   pub family_name:   Option<String>,
   pub nickname:      Option<String>,
@@ -246,6 +248,8 @@ pub struct ContactCreate {
 )]
 pub struct ContactPatch {
   pub display_name:
+    Option<Option<String>>,
+  pub avatar_data_url:
     Option<Option<String>>,
   pub given_name:
     Option<Option<String>>,

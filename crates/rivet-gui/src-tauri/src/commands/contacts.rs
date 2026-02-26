@@ -438,6 +438,8 @@ fn from_create_payload(
     display_name: create
       .display_name
       .unwrap_or_default(),
+    avatar_data_url: create
+      .avatar_data_url,
     given_name: create.given_name,
     family_name: create.family_name,
     nickname: create.nickname,
@@ -478,6 +480,12 @@ fn apply_contact_patch(
     contact.display_name =
       display_name
         .unwrap_or_default();
+  }
+  if let Some(avatar_data_url) =
+    patch.avatar_data_url
+  {
+    contact.avatar_data_url =
+      avatar_data_url;
   }
   if let Some(given_name) =
     patch.given_name
@@ -1144,6 +1152,10 @@ fn merge_contact_records(
     &source.notes,
   );
   merge_optional_text(
+    &mut target.avatar_data_url,
+    &source.avatar_data_url,
+  );
+  merge_optional_text(
     &mut target.birthday,
     &source.birthday,
   );
@@ -1296,6 +1308,7 @@ fn parse_vcard_contacts(
   {
     let mut create = ContactCreate {
       display_name:  None,
+      avatar_data_url: None,
       given_name:    None,
       family_name:   None,
       nickname:      None,
