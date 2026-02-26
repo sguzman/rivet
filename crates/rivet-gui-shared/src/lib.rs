@@ -163,33 +163,38 @@ pub struct ContactAddress {
   Eq,
 )]
 pub struct ContactDto {
-  pub id:            Uuid,
+  pub id:               Uuid,
   #[serde(default)]
-  pub display_name:  String,
-  pub avatar_data_url: Option<String>,
-  pub given_name:    Option<String>,
-  pub family_name:   Option<String>,
-  pub nickname:      Option<String>,
-  pub notes:         Option<String>,
+  pub display_name:     String,
+  #[serde(default)]
+  pub avatar_data_url:  Option<String>,
+  #[serde(default)]
+  pub import_batch_id:  Option<String>,
+  #[serde(default)]
+  pub source_file_name: Option<String>,
+  pub given_name:       Option<String>,
+  pub family_name:      Option<String>,
+  pub nickname:         Option<String>,
+  pub notes:            Option<String>,
   #[serde(default)]
   pub phones: Vec<ContactFieldValue>,
   #[serde(default)]
   pub emails: Vec<ContactFieldValue>,
   #[serde(default)]
   pub websites: Vec<ContactFieldValue>,
-  pub birthday:      Option<String>,
-  pub organization:  Option<String>,
-  pub title:         Option<String>,
+  pub birthday:         Option<String>,
+  pub organization:     Option<String>,
+  pub title:            Option<String>,
   #[serde(default)]
   pub addresses: Vec<ContactAddress>,
   #[serde(default)]
-  pub source_id:     String,
+  pub source_id:        String,
   #[serde(default)]
-  pub source_kind:   String,
-  pub remote_id:     Option<String>,
-  pub link_group_id: Option<String>,
-  pub created_at:    String,
-  pub updated_at:    String
+  pub source_kind:      String,
+  pub remote_id:        Option<String>,
+  pub link_group_id:    Option<String>,
+  pub created_at:       String,
+  pub updated_at:       String
 }
 
 #[derive(
@@ -216,27 +221,29 @@ pub struct ContactsListResult {
   Debug, Clone, Serialize, Deserialize,
 )]
 pub struct ContactCreate {
-  pub display_name:  Option<String>,
-  pub avatar_data_url: Option<String>,
-  pub given_name:    Option<String>,
-  pub family_name:   Option<String>,
-  pub nickname:      Option<String>,
-  pub notes:         Option<String>,
+  pub display_name:     Option<String>,
+  pub avatar_data_url:  Option<String>,
+  pub import_batch_id:  Option<String>,
+  pub source_file_name: Option<String>,
+  pub given_name:       Option<String>,
+  pub family_name:      Option<String>,
+  pub nickname:         Option<String>,
+  pub notes:            Option<String>,
   #[serde(default)]
   pub phones: Vec<ContactFieldValue>,
   #[serde(default)]
   pub emails: Vec<ContactFieldValue>,
   #[serde(default)]
   pub websites: Vec<ContactFieldValue>,
-  pub birthday:      Option<String>,
-  pub organization:  Option<String>,
-  pub title:         Option<String>,
+  pub birthday:         Option<String>,
+  pub organization:     Option<String>,
+  pub title:            Option<String>,
   #[serde(default)]
   pub addresses: Vec<ContactAddress>,
-  pub source_id:     Option<String>,
-  pub source_kind:   Option<String>,
-  pub remote_id:     Option<String>,
-  pub link_group_id: Option<String>
+  pub source_id:        Option<String>,
+  pub source_kind:      Option<String>,
+  pub remote_id:        Option<String>,
+  pub link_group_id:    Option<String>
 }
 
 #[derive(
@@ -250,6 +257,10 @@ pub struct ContactPatch {
   pub display_name:
     Option<Option<String>>,
   pub avatar_data_url:
+    Option<Option<String>>,
+  pub import_batch_id:
+    Option<Option<String>>,
+  pub source_file_name:
     Option<Option<String>>,
   pub given_name:
     Option<Option<String>>,
@@ -434,6 +445,25 @@ pub struct ContactsMergeUndoResult {
 #[derive(
   Debug, Clone, Serialize, Deserialize,
 )]
+pub struct ContactsDedupeDecideArgs {
+  pub candidate_group_id: String,
+  pub decision:           String,
+  pub actor: Option<String>
+}
+
+#[derive(
+  Debug, Clone, Serialize, Deserialize,
+)]
+pub struct ContactsDedupeDecideResult {
+  pub candidate_group_id: String,
+  pub decision:           String,
+  pub actor:              String,
+  pub decided_at:         String
+}
+
+#[derive(
+  Debug, Clone, Serialize, Deserialize,
+)]
 pub struct ContactImportBatch {
   pub id:           String,
   pub source_type:  String,
@@ -448,10 +478,10 @@ pub struct ContactImportBatch {
   Debug, Clone, Serialize, Deserialize,
 )]
 pub struct ContactIdentityFingerprint {
-  pub contact_id:    Uuid,
-  pub name_key:      String,
-  pub primary_email: Option<String>,
-  pub primary_phone: Option<String>
+  pub contact_id:   Uuid,
+  pub name_key:     String,
+  pub email_hashes: Vec<String>,
+  pub phone_hashes: Vec<String>
 }
 
 #[derive(
@@ -461,6 +491,8 @@ pub struct MergeAudit {
   pub undo_id:            String,
   pub target_contact_id:  Uuid,
   pub source_contact_ids: Vec<Uuid>,
+  pub merge_payload:      ContactDto,
+  pub operator:           String,
   pub created_at:         String
 }
 

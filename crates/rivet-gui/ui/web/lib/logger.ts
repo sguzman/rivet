@@ -5,9 +5,18 @@ export interface LoggerBridge {
 }
 
 let bridge: LoggerBridge | null = null;
+let bridgeMinLevel: UiLogLevel = "warn";
 
-export function setLoggerBridge(next: LoggerBridge): void {
+const LEVEL_ORDER: Record<UiLogLevel, number> = {
+  debug: 10,
+  info: 20,
+  warn: 30,
+  error: 40
+};
+
+export function setLoggerBridge(next: LoggerBridge, minLevel: UiLogLevel = "warn"): void {
   bridge = next;
+  bridgeMinLevel = minLevel;
 }
 
 function emit(level: UiLogLevel, event: string, detail: string): void {
@@ -21,7 +30,7 @@ function emit(level: UiLogLevel, event: string, detail: string): void {
     console.log(payload);
   }
 
-  if (bridge) {
+  if (bridge && LEVEL_ORDER[level] >= LEVEL_ORDER[bridgeMinLevel]) {
     void bridge(event, `${level}: ${detail}`);
   }
 }

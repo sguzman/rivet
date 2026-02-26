@@ -1,0 +1,10 @@
+BEGIN:VCARD
+VERSION:3.0
+FN:Taylor iPhone
+N:iPhone;Taylor;;;
+TEL;TYPE=IPHONE;TYPE=CELL;TYPE=pref:+1-555-2020
+EMAIL;TYPE=HOME:taylor.iphone@example.com
+item1.EMAIL;TYPE=INTERNET:taylor.alt@example.com
+item2.TEL;TYPE=HOME:+1-555-2021
+PHOTO;VALUE=URI:https://example.invalid/photo/taylor.jpg
+END:VCARD

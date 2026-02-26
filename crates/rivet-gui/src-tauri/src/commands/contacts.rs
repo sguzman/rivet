@@ -15,9 +15,12 @@ use rivet_gui_shared::{
   ContactCreate,
   ContactDto,
   ContactFieldValue,
+  ContactIdentityFingerprint,
   ContactIdArg,
   ContactImportBatch,
   ContactImportConflict,
+  ContactsDedupeDecideArgs,
+  ContactsDedupeDecideResult,
   ContactOpenActionArgs,
   ContactOpenActionResult,
   ContactPatch,
@@ -34,6 +37,8 @@ use rivet_gui_shared::{
   ContactsMergeResult,
   ContactsMergeUndoArgs,
   ContactsMergeUndoResult,
+  DedupDecision,
+  MergeAudit,
   ContactUpdateArgs,
   ContactDedupeCandidateGroup,
 };
@@ -47,6 +52,23 @@ const CONTACTS_IMPORT_BATCHES_FILE:
   &str = "contacts_import_batches.data";
 const CONTACTS_MERGE_UNDO_FILE:
   &str = "contacts_merge_undo.data";
+const CONTACTS_MERGE_AUDIT_FILE:
+  &str = "contacts_merge_audit.data";
+const CONTACTS_DEDUPE_DECISIONS_FILE:
+  &str = "contacts_dedupe_decisions.data";
+const CONTACTS_IMPORT_ERRORS_DIR:
+  &str = "contacts_import_errors";
+
+const CONTACTS_MAX_NAME_LEN: usize = 256;
+const CONTACTS_MAX_NOTES_LEN: usize = 8_000;
+const CONTACTS_MAX_ORG_LEN: usize = 256;
+const CONTACTS_MAX_TITLE_LEN: usize = 256;
+const CONTACTS_MAX_FIELD_KIND_LEN: usize = 64;
+const CONTACTS_MAX_FIELD_VALUE_LEN: usize = 512;
+const CONTACTS_MAX_MULTI_FIELDS: usize = 32;
+const CONTACTS_MAX_ADDRESSES: usize = 8;
+const CONTACTS_MAX_AVATAR_DATA_URL_LEN: usize =
+  2_000_000;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct ContactsMergeUndoEntry {
@@ -59,6 +81,112 @@ fn contacts_lock() -> &'static Mutex<()> {
   static LOCK: OnceLock<Mutex<()>> =
     OnceLock::new();
   LOCK.get_or_init(|| Mutex::new(()))
+}
+
+#[derive(Debug, Default)]
+struct ContactsIndexCache {
+  path:         Option<PathBuf>,
+  revision:     Option<u128>,
+  contacts:     Vec<ContactDto>,
+  search_blobs: Vec<String>,
+  query_hits:
+    HashMap<String, Vec<usize>>,
+  fingerprints:
+    Vec<ContactIdentityFingerprint>,
+}
+
+fn contacts_index_cache(
+) -> &'static Mutex<ContactsIndexCache> {
+  static CACHE: OnceLock<
+    Mutex<ContactsIndexCache>,
+  > = OnceLock::new();
+  CACHE.get_or_init(|| {
+    Mutex::new(
+      ContactsIndexCache::default(),
+    )
+  })
+}
+
+fn file_revision(
+  path: &Path
+) -> Option<u128> {
+  let metadata = std::fs::metadata(path).ok()?;
+  let modified = metadata.modified().ok()?;
+  let duration = modified
+    .duration_since(
+      std::time::UNIX_EPOCH
+    )
+    .ok()?;
+  Some(duration.as_millis())
+}
+
+fn set_contacts_cache(
+  contacts_path: &Path,
+  contacts: &[ContactDto],
+) -> anyhow::Result<()> {
+  let mut cache = contacts_index_cache()
+    .lock()
+    .map_err(|_| {
+      anyhow::anyhow!(
+        "contacts cache lock poisoned"
+      )
+    })?;
+
+  cache.path =
+    Some(contacts_path.to_path_buf());
+  cache.revision =
+    file_revision(contacts_path);
+  cache.contacts = contacts.to_vec();
+  cache.search_blobs = contacts
+    .iter()
+    .map(build_contact_search_blob)
+    .collect();
+  cache.query_hits.clear();
+  cache.fingerprints = contacts
+    .iter()
+    .map(build_contact_fingerprint)
+    .collect();
+  Ok(())
+}
+
+fn load_contacts_cached(
+  contacts_path: &Path
+) -> anyhow::Result<Vec<ContactDto>> {
+  {
+    let cache = contacts_index_cache()
+      .lock()
+      .map_err(|_| {
+        anyhow::anyhow!(
+          "contacts cache lock poisoned"
+        )
+      })?;
+    let same_path = cache
+      .path
+      .as_deref()
+      .is_some_and(|path| {
+        path == contacts_path
+      });
+    if same_path
+      && cache.revision
+        == file_revision(contacts_path)
+    {
+      return Ok(cache.contacts.clone());
+    }
+  }
+
+  let mut contacts =
+    load_jsonl::<ContactDto>(
+      contacts_path
+    )?;
+  for contact in &mut contacts {
+    ensure_contact_defaults(contact);
+  }
+  sort_contacts(&mut contacts);
+  set_contacts_cache(
+    contacts_path,
+    &contacts,
+  )?;
+  Ok(contacts)
 }
 
 fn resolve_contacts_data_dir() -> PathBuf {
@@ -96,12 +224,22 @@ fn ensure_contacts_store() -> anyhow::Result<
     dir.join(CONTACTS_IMPORT_BATCHES_FILE);
   let merge_undo =
     dir.join(CONTACTS_MERGE_UNDO_FILE);
+  let merge_audit =
+    dir.join(CONTACTS_MERGE_AUDIT_FILE);
+  let dedupe_decisions =
+    dir.join(
+      CONTACTS_DEDUPE_DECISIONS_FILE,
+    );
+  let import_errors_dir =
+    dir.join(CONTACTS_IMPORT_ERRORS_DIR);
 
   for path in [
     &contacts,
     &deleted,
     &batches,
     &merge_undo,
+    &merge_audit,
+    &dedupe_decisions,
   ] {
     if !path.exists() {
       std::fs::write(path, "")
@@ -113,10 +251,48 @@ fn ensure_contacts_store() -> anyhow::Result<
         })?;
     }
   }
+  std::fs::create_dir_all(
+    &import_errors_dir,
+  )
+  .with_context(|| {
+    format!(
+      "failed to create import error \
+       directory {}",
+      import_errors_dir.display()
+    )
+  })?;
 
   Ok((
     contacts, deleted, batches,
     merge_undo,
+  ))
+}
+
+fn contacts_merge_audit_path(
+  contacts_path: &Path
+) -> anyhow::Result<PathBuf> {
+  let Some(parent) = contacts_path.parent()
+  else {
+    anyhow::bail!(
+      "failed to resolve contacts data \
+       directory"
+    );
+  };
+  Ok(parent.join(CONTACTS_MERGE_AUDIT_FILE))
+}
+
+fn contacts_dedupe_decisions_path(
+  contacts_path: &Path
+) -> anyhow::Result<PathBuf> {
+  let Some(parent) = contacts_path.parent()
+  else {
+    anyhow::bail!(
+      "failed to resolve contacts data \
+       directory"
+    );
+  };
+  Ok(parent.join(
+    CONTACTS_DEDUPE_DECISIONS_FILE
   ))
 }
 
@@ -221,12 +397,127 @@ fn now_iso() -> String {
   Utc::now().to_rfc3339()
 }
 
+fn fold_diacritic(
+  ch: char
+) -> &'static str {
+  match ch {
+    | 'à'
+    | 'á'
+    | 'â'
+    | 'ã'
+    | 'ä'
+    | 'å'
+    | 'ā'
+    | 'ă'
+    | 'ą' => "a",
+    | 'ç'
+    | 'ć'
+    | 'č'
+    | 'ĉ'
+    | 'ċ' => "c",
+    | 'ď'
+    | 'đ' => "d",
+    | 'è'
+    | 'é'
+    | 'ê'
+    | 'ë'
+    | 'ē'
+    | 'ĕ'
+    | 'ė'
+    | 'ę'
+    | 'ě' => "e",
+    | 'ƒ' => "f",
+    | 'ĝ'
+    | 'ğ'
+    | 'ġ'
+    | 'ģ' => "g",
+    | 'ĥ'
+    | 'ħ' => "h",
+    | 'ì'
+    | 'í'
+    | 'î'
+    | 'ï'
+    | 'ĩ'
+    | 'ī'
+    | 'ĭ'
+    | 'į'
+    | 'ı' => "i",
+    | 'ĵ' => "j",
+    | 'ķ' => "k",
+    | 'ĺ'
+    | 'ļ'
+    | 'ľ'
+    | 'ŀ'
+    | 'ł' => "l",
+    | 'ñ'
+    | 'ń'
+    | 'ņ'
+    | 'ň' => "n",
+    | 'ò'
+    | 'ó'
+    | 'ô'
+    | 'õ'
+    | 'ö'
+    | 'ø'
+    | 'ō'
+    | 'ŏ'
+    | 'ő' => "o",
+    | 'ŕ'
+    | 'ŗ'
+    | 'ř' => "r",
+    | 'ś'
+    | 'ŝ'
+    | 'ş'
+    | 'š' => "s",
+    | 'ß' => "ss",
+    | 'ť'
+    | 'ţ'
+    | 'ŧ' => "t",
+    | 'ù'
+    | 'ú'
+    | 'û'
+    | 'ü'
+    | 'ũ'
+    | 'ū'
+    | 'ŭ'
+    | 'ů'
+    | 'ű'
+    | 'ų' => "u",
+    | 'ŵ' => "w",
+    | 'ý'
+    | 'ÿ'
+    | 'ŷ' => "y",
+    | 'ź'
+    | 'ż'
+    | 'ž' => "z",
+    | 'æ' => "ae",
+    | 'œ' => "oe",
+    | _ => "",
+  }
+}
+
 fn normalize_text(
   value: &str
 ) -> String {
-  value
+  let mut normalized =
+    String::with_capacity(
+      value.len(),
+    );
+  for ch in value.chars() {
+    for lower in ch.to_lowercase() {
+      let folded =
+        fold_diacritic(lower);
+      if !folded.is_empty() {
+        normalized
+          .push_str(folded);
+      } else {
+        normalized.push(lower);
+      }
+    }
+  }
+
+  normalized
     .trim()
-    .to_ascii_lowercase()
     .split_whitespace()
     .collect::<Vec<_>>()
     .join(" ")
@@ -252,6 +543,100 @@ fn normalize_email(
   value: &str
 ) -> String {
   normalize_text(value)
+}
+
+fn sort_contacts(
+  contacts: &mut [ContactDto]
+) {
+  contacts.sort_by(|a, b| {
+    normalize_text(&a.display_name)
+      .cmp(&normalize_text(
+        &b.display_name,
+      ))
+      .then_with(|| {
+        b.updated_at.cmp(
+          &a.updated_at,
+        )
+      })
+  });
+}
+
+fn build_contact_search_blob(
+  contact: &ContactDto
+) -> String {
+  let mut haystacks = vec![
+    normalize_text(&contact.display_name),
+    normalize_text(
+      contact
+        .given_name
+        .as_deref()
+        .unwrap_or_default(),
+    ),
+    normalize_text(
+      contact
+        .family_name
+        .as_deref()
+        .unwrap_or_default(),
+    ),
+    normalize_text(
+      contact
+        .nickname
+        .as_deref()
+        .unwrap_or_default(),
+    ),
+    normalize_text(
+      contact
+        .notes
+        .as_deref()
+        .unwrap_or_default(),
+    ),
+    normalize_text(
+      contact
+        .organization
+        .as_deref()
+        .unwrap_or_default(),
+    ),
+  ];
+  for field in &contact.emails {
+    haystacks.push(normalize_email(
+      &field.value,
+    ));
+  }
+  for field in &contact.phones {
+    haystacks.push(normalize_phone(
+      &field.value,
+    ));
+  }
+  haystacks.join(" ")
+}
+
+fn build_contact_fingerprint(
+  contact: &ContactDto
+) -> ContactIdentityFingerprint {
+  ContactIdentityFingerprint {
+    contact_id: contact.id,
+    name_key: contact_name_key(contact),
+    email_hashes: contact
+      .emails
+      .iter()
+      .map(|item| {
+        normalize_email(&item.value)
+      })
+      .filter(|item| {
+        !item.is_empty()
+      })
+      .collect(),
+    phone_hashes: contact
+      .phones
+      .iter()
+      .map(|item| {
+        normalize_phone(&item.value)
+      })
+      .filter(|item| {
+        !item.is_empty()
+      })
+      .collect(),
+  }
 }
 
 fn contact_name_key(
@@ -306,6 +691,91 @@ fn contact_domains(
   out
 }
 
+fn levenshtein_distance(
+  left: &str,
+  right: &str,
+) -> usize {
+  if left == right {
+    return 0;
+  }
+  if left.is_empty() {
+    return right.chars().count();
+  }
+  if right.is_empty() {
+    return left.chars().count();
+  }
+
+  let right_chars =
+    right.chars().collect::<Vec<_>>();
+  let mut previous =
+    (0..=right_chars.len())
+      .collect::<Vec<_>>();
+  let mut current =
+    vec![0_usize; right_chars.len() + 1];
+
+  for (left_index, left_char) in
+    left.chars().enumerate()
+  {
+    current[0] = left_index + 1;
+    for (
+      right_index,
+      right_char,
+    ) in right_chars
+      .iter()
+      .enumerate()
+    {
+      let substitution_cost =
+        if left_char == *right_char {
+          0
+        } else {
+          1
+        };
+      let deletion =
+        previous[right_index + 1] + 1;
+      let insertion =
+        current[right_index] + 1;
+      let substitution =
+        previous[right_index]
+          + substitution_cost;
+      current[right_index + 1] =
+        deletion
+          .min(insertion)
+          .min(substitution);
+    }
+    previous.copy_from_slice(
+      &current,
+    );
+  }
+
+  previous[right_chars.len()]
+}
+
+fn normalized_name_similarity(
+  left: &str,
+  right: &str,
+) -> f32 {
+  if left.trim().is_empty()
+    || right.trim().is_empty()
+  {
+    return 0.0;
+  }
+
+  let distance =
+    levenshtein_distance(left, right)
+      as f32;
+  let max_len = left
+    .chars()
+    .count()
+    .max(right.chars().count())
+    as f32;
+  if max_len <= 0.0 {
+    return 1.0;
+  }
+
+  (1.0 - (distance / max_len))
+    .clamp(0.0, 1.0)
+}
+
 fn ensure_contact_defaults(
   contact: &mut ContactDto
 ) {
@@ -317,8 +787,25 @@ fn ensure_contact_defaults(
     group.retain(|field| {
       !field.value.trim().is_empty()
     });
-    if group.len() == 1 {
-      group[0].is_primary = true;
+    if group.is_empty() {
+      continue;
+    }
+    let mut first_primary = None;
+    for (index, field) in
+      group.iter().enumerate()
+    {
+      if field.is_primary {
+        first_primary = Some(index);
+        break;
+      }
+    }
+    let primary_index =
+      first_primary.unwrap_or(0);
+    for (index, field) in
+      group.iter_mut().enumerate()
+    {
+      field.is_primary =
+        index == primary_index;
     }
   }
 
@@ -337,6 +824,24 @@ fn ensure_contact_defaults(
   {
     contact.source_kind =
       "local".to_string();
+  }
+  if contact
+    .import_batch_id
+    .as_deref()
+    .is_some_and(|value| {
+      value.trim().is_empty()
+    })
+  {
+    contact.import_batch_id = None;
+  }
+  if contact
+    .source_file_name
+    .as_deref()
+    .is_some_and(|value| {
+      value.trim().is_empty()
+    })
+  {
+    contact.source_file_name = None;
   }
 
   if contact
@@ -408,6 +913,140 @@ fn validate_contact(
     );
   }
 
+  if contact.display_name.len()
+    > CONTACTS_MAX_NAME_LEN
+  {
+    anyhow::bail!(
+      "display_name exceeds {} \
+       characters",
+      CONTACTS_MAX_NAME_LEN
+    );
+  }
+
+  if contact
+    .notes
+    .as_deref()
+    .is_some_and(|value| {
+      value.len()
+        > CONTACTS_MAX_NOTES_LEN
+    })
+  {
+    anyhow::bail!(
+      "notes exceed {} characters",
+      CONTACTS_MAX_NOTES_LEN
+    );
+  }
+  if contact
+    .organization
+    .as_deref()
+    .is_some_and(|value| {
+      value.len()
+        > CONTACTS_MAX_ORG_LEN
+    })
+  {
+    anyhow::bail!(
+      "organization exceeds {} \
+       characters",
+      CONTACTS_MAX_ORG_LEN
+    );
+  }
+  if contact
+    .title
+    .as_deref()
+    .is_some_and(|value| {
+      value.len()
+        > CONTACTS_MAX_TITLE_LEN
+    })
+  {
+    anyhow::bail!(
+      "title exceeds {} characters",
+      CONTACTS_MAX_TITLE_LEN
+    );
+  }
+  if contact
+    .avatar_data_url
+    .as_deref()
+    .is_some_and(|value| {
+      value.len()
+        > CONTACTS_MAX_AVATAR_DATA_URL_LEN
+    })
+  {
+    anyhow::bail!(
+      "avatar data exceeds {} \
+       characters",
+      CONTACTS_MAX_AVATAR_DATA_URL_LEN
+    );
+  }
+
+  for (label, fields) in [
+    ("phones", &contact.phones),
+    ("emails", &contact.emails),
+    ("websites", &contact.websites),
+  ] {
+    if fields.len()
+      > CONTACTS_MAX_MULTI_FIELDS
+    {
+      anyhow::bail!(
+        "{label} exceeds maximum \
+         count {}",
+        CONTACTS_MAX_MULTI_FIELDS
+      );
+    }
+    for field in fields {
+      if field.kind.len()
+        > CONTACTS_MAX_FIELD_KIND_LEN
+      {
+        anyhow::bail!(
+          "{label}.kind exceeds {} \
+           characters",
+          CONTACTS_MAX_FIELD_KIND_LEN
+        );
+      }
+      if field.value.len()
+        > CONTACTS_MAX_FIELD_VALUE_LEN
+      {
+        anyhow::bail!(
+          "{label}.value exceeds {} \
+           characters",
+          CONTACTS_MAX_FIELD_VALUE_LEN
+        );
+      }
+    }
+  }
+
+  if contact.addresses.len()
+    > CONTACTS_MAX_ADDRESSES
+  {
+    anyhow::bail!(
+      "addresses exceed maximum \
+       count {}",
+      CONTACTS_MAX_ADDRESSES
+    );
+  }
+  for address in &contact.addresses {
+    for (label, value) in [
+      ("kind", &address.kind),
+      ("street", &address.street),
+      ("city", &address.city),
+      ("region", &address.region),
+      (
+        "postal_code",
+        &address.postal_code,
+      ),
+      ("country", &address.country),
+    ] {
+      if value.len()
+        > CONTACTS_MAX_FIELD_VALUE_LEN
+      {
+        anyhow::bail!(
+          "addresses.{label} exceeds \
+           {} characters",
+          CONTACTS_MAX_FIELD_VALUE_LEN
+        );
+      }
+    }
+  }
+
   for email in &contact.emails {
     let token = email.value.trim();
     if token.is_empty() {
@@ -440,6 +1079,10 @@ fn from_create_payload(
       .unwrap_or_default(),
     avatar_data_url: create
       .avatar_data_url,
+    import_batch_id: create
+      .import_batch_id,
+    source_file_name: create
+      .source_file_name,
     given_name: create.given_name,
     family_name: create.family_name,
     nickname: create.nickname,
@@ -486,6 +1129,18 @@ fn apply_contact_patch(
   {
     contact.avatar_data_url =
       avatar_data_url;
+  }
+  if let Some(import_batch_id) =
+    patch.import_batch_id
+  {
+    contact.import_batch_id =
+      import_batch_id;
+  }
+  if let Some(source_file_name) =
+    patch.source_file_name
+  {
+    contact.source_file_name =
+      source_file_name;
   }
   if let Some(given_name) =
     patch.given_name
@@ -574,55 +1229,8 @@ fn contact_matches_query(
     return true;
   }
   let q = normalize_text(query);
-
-  let mut haystacks = vec![
-    normalize_text(&contact.display_name),
-    normalize_text(
-      contact
-        .given_name
-        .as_deref()
-        .unwrap_or_default(),
-    ),
-    normalize_text(
-      contact
-        .family_name
-        .as_deref()
-        .unwrap_or_default(),
-    ),
-    normalize_text(
-      contact
-        .nickname
-        .as_deref()
-        .unwrap_or_default(),
-    ),
-    normalize_text(
-      contact
-        .notes
-        .as_deref()
-        .unwrap_or_default(),
-    ),
-    normalize_text(
-      contact
-        .organization
-        .as_deref()
-        .unwrap_or_default(),
-    ),
-  ];
-
-  for field in &contact.emails {
-    haystacks.push(normalize_email(
-      &field.value,
-    ));
-  }
-  for field in &contact.phones {
-    haystacks.push(normalize_phone(
-      &field.value,
-    ));
-  }
-
-  haystacks
-    .into_iter()
-    .any(|token| token.contains(&q))
+  build_contact_search_blob(contact)
+    .contains(&q)
 }
 
 fn parse_updated_after(
@@ -666,19 +1274,76 @@ fn contacts_list_internal(
     _batch_path,
     _undo_path,
   ) = ensure_contacts_store()?;
-
-  let mut contacts =
-    load_jsonl::<ContactDto>(
-      &contacts_path
-    )?;
-  for contact in &mut contacts {
-    ensure_contact_defaults(contact);
-  }
+  let _ = load_contacts_cached(
+    &contacts_path
+  )?;
 
   let updated_after =
     parse_updated_after(
       args.updated_after.as_deref(),
     )?;
+
+  let query_key = args
+    .query
+    .as_deref()
+    .map(normalize_text)
+    .filter(|token| {
+      !token.is_empty()
+    });
+
+  let base_contacts = {
+    let mut cache =
+      contacts_index_cache()
+        .lock()
+        .map_err(|_| {
+          anyhow::anyhow!(
+            "contacts cache lock poisoned"
+          )
+        })?;
+    let indices =
+      if let Some(query) =
+        query_key.as_ref()
+      {
+        if let Some(cached) = cache
+          .query_hits
+          .get(query)
+        {
+          cached.clone()
+        } else {
+          let built = cache
+            .search_blobs
+            .iter()
+            .enumerate()
+            .filter_map(
+              |(index, blob)| {
+                if blob.contains(query) {
+                  Some(index)
+                } else {
+                  None
+                }
+              },
+            )
+            .collect::<Vec<_>>();
+          cache.query_hits.insert(
+            query.clone(),
+            built.clone(),
+          );
+          built
+        }
+      } else {
+        (0..cache.contacts.len())
+          .collect::<Vec<_>>()
+      };
+
+    indices
+      .into_iter()
+      .filter_map(|index| {
+        cache.contacts.get(index).cloned()
+      })
+      .collect::<Vec<_>>()
+  };
+
+  let mut contacts = base_contacts;
 
   contacts.retain(|contact| {
     if let Some(source) =
@@ -706,34 +1371,14 @@ fn contacts_list_internal(
       }
     }
 
-    if let Some(query) =
-      args.query.as_deref()
-    {
-      return contact_matches_query(
-        contact, query,
-      );
-    }
-
     true
-  });
-
-  contacts.sort_by(|a, b| {
-    normalize_text(&a.display_name)
-      .cmp(&normalize_text(
-        &b.display_name,
-      ))
-      .then_with(|| {
-        b.updated_at.cmp(
-          &a.updated_at,
-        )
-      })
   });
 
   let total = contacts.len();
   let limit = args
     .limit
     .unwrap_or(200)
-    .clamp(1, 500);
+    .clamp(1, 200);
   let offset = args
     .cursor
     .as_deref()
@@ -886,6 +1531,63 @@ fn score_pair(
     ));
   }
 
+  if !left_name.is_empty()
+    && !right_name.is_empty()
+  {
+    let similarity =
+      normalized_name_similarity(
+        &left_name,
+        &right_name,
+      );
+    if similarity >= 0.80 {
+      let left_org = normalize_text(
+        left
+          .organization
+          .as_deref()
+          .unwrap_or_default(),
+      );
+      let right_org = normalize_text(
+        right
+          .organization
+          .as_deref()
+          .unwrap_or_default(),
+      );
+
+      if !left_org.is_empty()
+        && left_org == right_org
+      {
+        return Some((
+          65,
+          "fuzzy name + org"
+            .to_string(),
+        ));
+      }
+
+      let left_domains =
+        contact_domains(left);
+      let right_domains =
+        contact_domains(right);
+      if left_domains
+        .intersection(&right_domains)
+        .next()
+        .is_some()
+      {
+        return Some((
+          62,
+          "fuzzy name + email \
+           domain"
+            .to_string(),
+        ));
+      }
+
+      return Some((
+        30,
+        "fuzzy name similarity"
+          .to_string(),
+      ));
+    }
+  }
+
   None
 }
 
@@ -941,9 +1643,28 @@ impl Dsu {
   }
 }
 
+fn load_dedupe_decisions_map(
+  path: &Path
+) -> anyhow::Result<
+  HashMap<String, DedupDecision>,
+> {
+  let decisions =
+    load_jsonl::<DedupDecision>(path)?;
+  let mut by_group =
+    HashMap::<String, DedupDecision>::new();
+  for decision in decisions {
+    by_group.insert(
+      decision.candidate_group_id.clone(),
+      decision,
+    );
+  }
+  Ok(by_group)
+}
+
 fn dedupe_groups(
   contacts: &[ContactDto],
   query: Option<&str>,
+  decisions: &HashMap<String, DedupDecision>,
 ) -> Vec<ContactDedupeCandidateGroup> {
   let items = contacts
     .iter()
@@ -1004,7 +1725,7 @@ fn dedupe_groups(
     ContactDedupeCandidateGroup,
   >::new();
 
-  for (root, members) in grouped {
+  for (_root, members) in grouped {
     if members.len() < 2 {
       continue;
     }
@@ -1032,11 +1753,38 @@ fn dedupe_groups(
       }
     }
 
+    let mut group_ids = members
+      .iter()
+      .map(|index| {
+        items[*index].id.to_string()
+      })
+      .collect::<Vec<_>>();
+    group_ids.sort();
+    let group_id = format!(
+      "group:{}",
+      group_ids.join(",")
+    );
+    if let Some(decision) =
+      decisions.get(&group_id)
+    {
+      let normalized_decision = decision
+        .decision
+        .trim()
+        .to_ascii_lowercase();
+      if normalized_decision
+        == "ignored"
+        || normalized_decision
+          == "separate"
+        || normalized_decision
+          == "merged"
+      {
+        continue;
+      }
+    }
+
     out.push(
       ContactDedupeCandidateGroup {
-        group_id: format!(
-          "group-{root}"
-        ),
+        group_id,
         reason: if best.1.is_empty() {
           "possible duplicate"
             .to_string()
@@ -1071,6 +1819,10 @@ fn merge_field_values(
   target: &mut Vec<ContactFieldValue>,
   source: &[ContactFieldValue],
 ) {
+  let mut has_primary =
+    target.iter().any(|item| {
+      item.is_primary
+    });
   let mut seen = target
     .iter()
     .map(|item| {
@@ -1096,7 +1848,21 @@ fn merge_field_values(
       ),
     );
     if seen.insert(key) {
-      target.push(field.clone());
+      let mut next = field.clone();
+      if next.is_primary
+        && !has_primary
+      {
+        for existing in
+          target.iter_mut()
+        {
+          existing.is_primary =
+            false;
+        }
+        has_primary = true;
+      } else if has_primary {
+        next.is_primary = false;
+      }
+      target.push(next);
     }
   }
 
@@ -1156,6 +1922,14 @@ fn merge_contact_records(
     &source.avatar_data_url,
   );
   merge_optional_text(
+    &mut target.import_batch_id,
+    &source.import_batch_id,
+  );
+  merge_optional_text(
+    &mut target.source_file_name,
+    &source.source_file_name,
+  );
+  merge_optional_text(
     &mut target.birthday,
     &source.birthday,
   );
@@ -1211,10 +1985,60 @@ fn merge_contact_records(
   target.updated_at = now_iso();
 }
 
+fn normalize_vcard_kind(
+  token: &str,
+  fallback: &str,
+) -> String {
+  let lowered = token
+    .trim()
+    .trim_matches('"')
+    .to_ascii_lowercase();
+  if lowered.is_empty() {
+    return fallback.to_string();
+  }
+  let lowered = lowered
+    .trim_start_matches("x-")
+    .trim_start_matches("ablabel=");
+  if lowered.contains("home") {
+    return "home".to_string();
+  }
+  if lowered.contains("work") {
+    return "work".to_string();
+  }
+  if lowered.contains("cell")
+    || lowered.contains("mobile")
+    || lowered.contains("iphone")
+  {
+    return "mobile".to_string();
+  }
+  if lowered.contains("main")
+    || lowered.contains("pref")
+    || lowered.contains("primary")
+    || lowered.contains("internet")
+  {
+    return fallback.to_string();
+  }
+  if lowered.contains("other") {
+    return "other".to_string();
+  }
+  lowered.to_string()
+}
+
+fn parse_vcard_primary(
+  header: &str
+) -> bool {
+  let lowered =
+    header.to_ascii_lowercase();
+  lowered.contains("pref")
+    || lowered.contains("primary")
+}
+
 fn parse_vcard_type(
   header: &str,
   fallback: &str,
 ) -> String {
+  let mut candidate =
+    fallback.to_string();
   for param in header.split(';').skip(1) {
     let trimmed = param.trim();
     if trimmed.is_empty() {
@@ -1228,24 +2052,38 @@ fn parse_vcard_type(
           .strip_prefix("type=")
       })
     {
-      let token = value
-        .split(',')
-        .next()
-        .unwrap_or_default()
-        .trim();
-      if !token.is_empty() {
-        return token
-          .to_ascii_lowercase();
+      for raw in value.split(',') {
+        let token =
+          raw.trim().to_ascii_lowercase();
+        if token.is_empty() {
+          continue;
+        }
+        let normalized =
+          normalize_vcard_kind(
+            &token, fallback,
+          );
+        if normalized != fallback {
+          return normalized;
+        }
+        candidate = normalized;
       }
+      continue;
     }
 
     if !trimmed.contains('=') {
-      return trimmed
-        .to_ascii_lowercase();
+      let normalized =
+        normalize_vcard_kind(
+        trimmed,
+        fallback,
+      );
+      if normalized != fallback {
+        return normalized;
+      }
+      candidate = normalized;
     }
   }
 
-  fallback.to_string()
+  candidate
 }
 
 fn parse_vcard_contacts(
@@ -1309,6 +2147,8 @@ fn parse_vcard_contacts(
     let mut create = ContactCreate {
       display_name:  None,
       avatar_data_url: None,
+      import_batch_id: None,
+      source_file_name: None,
       given_name:    None,
       family_name:   None,
       nickname:      None,
@@ -1407,7 +2247,10 @@ fn parse_vcard_contacts(
                   header,
                   "other",
                 ),
-                is_primary: false,
+                is_primary:
+                  parse_vcard_primary(
+                    header,
+                  ),
               },
             );
           }
@@ -1421,7 +2264,10 @@ fn parse_vcard_contacts(
                   header,
                   "other",
                 ),
-                is_primary: false,
+                is_primary:
+                  parse_vcard_primary(
+                    header,
+                  ),
               },
             );
           }
@@ -1437,9 +2283,36 @@ fn parse_vcard_contacts(
                     header,
                     "website",
                   ),
-                  is_primary: false,
+                  is_primary:
+                    parse_vcard_primary(
+                      header,
+                    ),
                 },
               );
+          }
+        }
+        | "PHOTO" => {
+          // keep photo references in notes for deferred source-level processing.
+          if !value.trim().is_empty()
+            && !value
+              .trim()
+              .starts_with("data:")
+          {
+            let photo_ref = format!(
+              "photo_ref:{}",
+              value.trim()
+            );
+            create.notes = Some(
+              create
+                .notes
+                .take()
+                .map(|old| {
+                  format!(
+                    "{old}\\n{photo_ref}"
+                  )
+                })
+                .unwrap_or(photo_ref),
+            );
           }
         }
         | "BDAY" => {
@@ -1586,7 +2459,7 @@ pub async fn contact_add(
     ) = ensure_contacts_store()?;
 
     let mut contacts =
-      load_jsonl::<ContactDto>(
+      load_contacts_cached(
         &contacts_path,
       )?;
 
@@ -1602,13 +2475,12 @@ pub async fn contact_add(
     validate_contact(&contact)?;
 
     contacts.push(contact.clone());
-    contacts.sort_by(|a, b| {
-      normalize_text(&a.display_name)
-        .cmp(&normalize_text(
-          &b.display_name,
-        ))
-    });
+    sort_contacts(&mut contacts);
     save_jsonl(
+      &contacts_path,
+      &contacts,
+    )?;
+    set_contacts_cache(
       &contacts_path,
       &contacts,
     )?;
@@ -1651,7 +2523,7 @@ pub async fn contact_update(
     ) = ensure_contacts_store()?;
 
     let mut contacts =
-      load_jsonl::<ContactDto>(
+      load_contacts_cached(
         &contacts_path,
       )?;
 
@@ -1678,7 +2550,12 @@ pub async fn contact_update(
       );
     };
 
+    sort_contacts(&mut contacts);
     save_jsonl(
+      &contacts_path,
+      &contacts,
+    )?;
+    set_contacts_cache(
       &contacts_path,
       &contacts,
     )?;
@@ -1721,7 +2598,7 @@ pub async fn contact_delete(
     ) = ensure_contacts_store()?;
 
     let mut contacts =
-      load_jsonl::<ContactDto>(
+      load_contacts_cached(
         &contacts_path,
       )?;
 
@@ -1742,6 +2619,10 @@ pub async fn contact_delete(
       &removed,
     )?;
     save_jsonl(
+      &contacts_path,
+      &contacts,
+    )?;
+    set_contacts_cache(
       &contacts_path,
       &contacts,
     )?;
@@ -1784,7 +2665,7 @@ pub async fn contacts_delete_bulk(
     ) = ensure_contacts_store()?;
 
     let contacts =
-      load_jsonl::<ContactDto>(
+      load_contacts_cached(
         &contacts_path,
       )?;
     let ids = args
@@ -1810,7 +2691,12 @@ pub async fn contacts_delete_bulk(
     }
 
     let deleted_count = removed.len();
+    sort_contacts(&mut kept);
     save_jsonl(
+      &contacts_path,
+      &kept,
+    )?;
+    set_contacts_cache(
       &contacts_path,
       &kept,
     )?;
@@ -1856,12 +2742,21 @@ pub async fn contacts_dedupe_preview(
     ) = ensure_contacts_store()?;
 
     let contacts =
-      load_jsonl::<ContactDto>(
+      load_contacts_cached(
         &contacts_path,
+      )?;
+    let decisions_path =
+      contacts_dedupe_decisions_path(
+        &contacts_path,
+      )?;
+    let decisions =
+      load_dedupe_decisions_map(
+        &decisions_path,
       )?;
     let groups = dedupe_groups(
       &contacts,
       args.query.as_deref(),
+      &decisions,
     );
 
     Ok(
@@ -1896,6 +2791,83 @@ pub async fn contacts_dedupe_candidates(
 }
 
 #[tauri::command]
+#[instrument(fields(request_id = ?request_id, group_id = %args.candidate_group_id, decision = %args.decision))]
+pub async fn contacts_dedupe_decide(
+  args: ContactsDedupeDecideArgs,
+  request_id: Option<String>,
+) -> Result<
+  ContactsDedupeDecideResult,
+  String,
+> {
+  info!(request_id = ?request_id, group_id = %args.candidate_group_id, decision = %args.decision, "contacts_dedupe_decide command invoked");
+
+  let result = (|| -> anyhow::Result<
+    ContactsDedupeDecideResult,
+  > {
+    let _guard = contacts_lock()
+      .lock()
+      .map_err(|_| {
+        anyhow::anyhow!(
+          "contacts store lock poisoned"
+        )
+      })?;
+    let (
+      contacts_path,
+      _deleted,
+      _batches,
+      _undo,
+    ) = ensure_contacts_store()?;
+
+    let actor = args
+      .actor
+      .as_deref()
+      .unwrap_or("user")
+      .trim()
+      .to_string();
+    let decision = DedupDecision {
+      candidate_group_id: args
+        .candidate_group_id
+        .trim()
+        .to_string(),
+      decision: args
+        .decision
+        .trim()
+        .to_ascii_lowercase(),
+      actor: if actor.is_empty() {
+        "user".to_string()
+      } else {
+        actor
+      },
+      decided_at: now_iso(),
+    };
+    let decisions_path =
+      contacts_dedupe_decisions_path(
+        &contacts_path,
+      )?;
+    append_jsonl(
+      &decisions_path,
+      &decision,
+    )?;
+
+    Ok(ContactsDedupeDecideResult {
+      candidate_group_id: decision
+        .candidate_group_id,
+      decision: decision.decision,
+      actor: decision.actor,
+      decided_at: decision.decided_at,
+    })
+  })();
+
+  if let Err(err) =
+    result.as_ref()
+  {
+    error!(request_id = ?request_id, error = %err, "contacts_dedupe_decide command failed");
+  }
+
+  result.map_err(err_to_string)
+}
+
+#[tauri::command]
 #[instrument(fields(request_id = ?request_id, action = %args.action, id = %args.id))]
 pub async fn contact_open_action(
   args: ContactOpenActionArgs,
@@ -1921,7 +2893,7 @@ pub async fn contact_open_action(
     ) = ensure_contacts_store()?;
 
     let contacts =
-      load_jsonl::<ContactDto>(
+      load_contacts_cached(
         &contacts_path,
       )?;
     let contact = contacts
@@ -2049,7 +3021,7 @@ pub async fn contacts_import_preview(
     ) = ensure_contacts_store()?;
 
     let existing =
-      load_jsonl::<ContactDto>(
+      load_contacts_cached(
         &contacts_path,
       )?;
 
@@ -2057,6 +3029,8 @@ pub async fn contacts_import_preview(
       import_source_kind(
         args.source.as_str(),
       );
+    let batch_id =
+      Uuid::new_v4().to_string();
     let (mut imported, errors) =
       parse_vcard_contacts(
         &args.content,
@@ -2072,6 +3046,10 @@ pub async fn contacts_import_preview(
         "import:{}",
         source_kind
       );
+      contact.import_batch_id =
+        Some(batch_id.clone());
+      contact.source_file_name =
+        args.file_name.clone();
 
       if let Some((index, score, reason)) =
         find_best_match(
@@ -2093,9 +3071,6 @@ pub async fn contacts_import_preview(
         }
       }
     }
-
-    let batch_id =
-      Uuid::new_v4().to_string();
 
     Ok(
       ContactsImportPreviewResult {
@@ -2153,7 +3128,7 @@ pub async fn contacts_import_commit(
     ) = ensure_contacts_store()?;
 
     let mut existing =
-      load_jsonl::<ContactDto>(
+      load_contacts_cached(
         &contacts_path,
       )?;
 
@@ -2161,6 +3136,8 @@ pub async fn contacts_import_commit(
       import_source_kind(
         args.source.as_str(),
       );
+    let batch_id =
+      Uuid::new_v4().to_string();
     let (imported, errors) =
       parse_vcard_contacts(
         &args.content,
@@ -2184,6 +3161,10 @@ pub async fn contacts_import_commit(
         "import:{}",
         source_kind
       );
+      incoming.import_batch_id =
+        Some(batch_id.clone());
+      incoming.source_file_name =
+        args.file_name.clone();
 
       if let Some((index, score, _reason)) =
         find_best_match(
@@ -2224,20 +3205,17 @@ pub async fn contacts_import_commit(
       created += 1;
     }
 
-    existing.sort_by(|a, b| {
-      normalize_text(&a.display_name)
-        .cmp(&normalize_text(
-          &b.display_name,
-        ))
-    });
+    sort_contacts(&mut existing);
 
     save_jsonl(
       &contacts_path,
       &existing,
     )?;
+    set_contacts_cache(
+      &contacts_path,
+      &existing,
+    )?;
 
-    let batch_id =
-      Uuid::new_v4().to_string();
     append_jsonl(
       &batches_path,
       &ContactImportBatch {
@@ -2303,13 +3281,13 @@ pub async fn contacts_merge(
 
     let (
       contacts_path,
-      _deleted,
+      deleted_path,
       _batches,
       undo_path,
     ) = ensure_contacts_store()?;
 
     let mut contacts =
-      load_jsonl::<ContactDto>(
+      load_contacts_cached(
         &contacts_path,
       )?;
 
@@ -2318,17 +3296,6 @@ pub async fn contacts_merge(
       .ids
       .into_iter()
       .collect::<BTreeSet<_>>();
-
-    let target_id = args
-      .target_id
-      .or_else(|| {
-        ids.iter().next().copied()
-      })
-      .ok_or_else(|| {
-        anyhow::anyhow!(
-          "invalid merge target"
-        )
-      })?;
 
     let selected = contacts
       .iter()
@@ -2344,6 +3311,26 @@ pub async fn contacts_merge(
          contacts"
       );
     }
+
+    let target_id = args
+      .target_id
+      .or_else(|| {
+        selected
+          .iter()
+          .max_by(|left, right| {
+            left.updated_at.cmp(
+              &right.updated_at,
+            )
+          })
+          .map(|contact| {
+            contact.id
+          })
+      })
+      .ok_or_else(|| {
+        anyhow::anyhow!(
+          "invalid merge target"
+        )
+      })?;
 
     let mut merged = selected
       .iter()
@@ -2361,6 +3348,13 @@ pub async fn contacts_merge(
       .filter(|id| {
         *id != merged.id
       })
+      .collect::<Vec<_>>();
+    let removed_contacts = selected
+      .iter()
+      .filter(|item| {
+        item.id != merged.id
+      })
+      .cloned()
       .collect::<Vec<_>>();
 
     for contact in selected {
@@ -2392,11 +3386,22 @@ pub async fn contacts_merge(
     } else {
       contacts.push(merged.clone());
     }
+    sort_contacts(&mut contacts);
 
     save_jsonl(
       &contacts_path,
       &contacts,
     )?;
+    set_contacts_cache(
+      &contacts_path,
+      &contacts,
+    )?;
+    for removed in &removed_contacts {
+      append_jsonl(
+        &deleted_path,
+        removed,
+      )?;
+    }
 
     let undo_id =
       Uuid::new_v4().to_string();
@@ -2406,6 +3411,50 @@ pub async fn contacts_merge(
         undo_id: undo_id.clone(),
         contacts_before: before,
         created_at: now_iso(),
+      },
+    )?;
+    let merge_audit_path =
+      contacts_merge_audit_path(
+        &contacts_path,
+      )?;
+    append_jsonl(
+      &merge_audit_path,
+      &MergeAudit {
+        undo_id: undo_id.clone(),
+        target_contact_id: merged.id,
+        source_contact_ids:
+          removed_ids.clone(),
+        merge_payload:
+          merged.clone(),
+        operator:
+          request_id.clone().unwrap_or_else(
+            || "user".to_string(),
+          ),
+        created_at: now_iso(),
+      },
+    )?;
+    let mut decision_group_ids =
+      ids.iter()
+        .map(|id| id.to_string())
+        .collect::<Vec<_>>();
+    decision_group_ids.sort();
+    let decisions_path =
+      contacts_dedupe_decisions_path(
+        &contacts_path,
+      )?;
+    append_jsonl(
+      &decisions_path,
+      &DedupDecision {
+        candidate_group_id: format!(
+          "group:{}",
+          decision_group_ids.join(",")
+        ),
+        decision: "merged".to_string(),
+        actor:
+          request_id.clone().unwrap_or_else(
+            || "user".to_string(),
+          ),
+        decided_at: now_iso(),
       },
     )?;
 
@@ -2488,6 +3537,58 @@ pub async fn contacts_merge_undo(
       &contacts_path,
       &entry.contacts_before,
     )?;
+    set_contacts_cache(
+      &contacts_path,
+      &entry.contacts_before,
+    )?;
+
+    let merge_audit_path =
+      contacts_merge_audit_path(
+        &contacts_path,
+      )?;
+    let audits = load_jsonl::<
+      MergeAudit,
+    >(&merge_audit_path)?;
+    if let Some(audit) = audits
+      .iter()
+      .rev()
+      .find(|audit| {
+        audit.undo_id
+          == entry.undo_id
+      })
+    {
+      let mut group_ids = vec![
+        audit
+          .target_contact_id
+          .to_string(),
+      ];
+      for id in &audit.source_contact_ids {
+        group_ids.push(id.to_string());
+      }
+      group_ids.sort();
+
+      let decisions_path =
+        contacts_dedupe_decisions_path(
+          &contacts_path,
+        )?;
+      append_jsonl(
+        &decisions_path,
+        &DedupDecision {
+          candidate_group_id: format!(
+            "group:{}",
+            group_ids.join(",")
+          ),
+          decision:
+            "reopened".to_string(),
+          actor: request_id
+            .clone()
+            .unwrap_or_else(|| {
+              "user".to_string()
+            }),
+          decided_at: now_iso(),
+        },
+      )?;
+    }
 
     Ok(ContactsMergeUndoResult {
       restored: entry
@@ -2504,4 +3605,788 @@ pub async fn contacts_merge_undo(
   }
 
   result.map_err(err_to_string)
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use std::future::Future;
+  use std::sync::{
+    Mutex,
+    OnceLock,
+  };
+
+  fn make_contact(
+    display_name: &str,
+    email: Option<&str>,
+    phone: Option<&str>,
+  ) -> ContactDto {
+    from_create_payload(
+      ContactCreate {
+        display_name: Some(
+          display_name.to_string(),
+        ),
+        avatar_data_url: None,
+        import_batch_id: None,
+        source_file_name: None,
+        given_name: None,
+        family_name: None,
+        nickname: None,
+        notes: None,
+        phones: phone
+          .map(|value| {
+            vec![ContactFieldValue {
+              value:
+                value.to_string(),
+              kind: "mobile"
+                .to_string(),
+              is_primary: true,
+            }]
+          })
+          .unwrap_or_default(),
+        emails: email
+          .map(|value| {
+            vec![ContactFieldValue {
+              value:
+                value.to_string(),
+              kind: "home".to_string(),
+              is_primary: true,
+            }]
+          })
+          .unwrap_or_default(),
+        websites: Vec::new(),
+        birthday: None,
+        organization: None,
+        title: None,
+        addresses: Vec::new(),
+        source_id:
+          Some("local".to_string()),
+        source_kind:
+          Some("local".to_string()),
+        remote_id: None,
+        link_group_id: None,
+      },
+      None,
+      None,
+    )
+  }
+
+  fn make_contact_create(
+    display_name: &str,
+    email: &str,
+    phone: &str,
+  ) -> ContactCreate {
+    ContactCreate {
+      display_name: Some(
+        display_name.to_string(),
+      ),
+      avatar_data_url: None,
+      import_batch_id: None,
+      source_file_name: None,
+      given_name: None,
+      family_name: None,
+      nickname: None,
+      notes: None,
+      phones: vec![ContactFieldValue {
+        value: phone.to_string(),
+        kind: "mobile".to_string(),
+        is_primary: true,
+      }],
+      emails: vec![ContactFieldValue {
+        value: email.to_string(),
+        kind: "home".to_string(),
+        is_primary: true,
+      }],
+      websites: Vec::new(),
+      birthday: None,
+      organization: None,
+      title: None,
+      addresses: Vec::new(),
+      source_id:
+        Some("local".to_string()),
+      source_kind:
+        Some("local".to_string()),
+      remote_id: None,
+      link_group_id: None,
+    }
+  }
+
+  fn dedupe_pair_key(
+    left: &str,
+    right: &str,
+  ) -> (String, String) {
+    if left <= right {
+      (
+        left.to_string(),
+        right.to_string(),
+      )
+    } else {
+      (
+        right.to_string(),
+        left.to_string(),
+      )
+    }
+  }
+
+  fn dedupe_pairs(
+    groups: &[
+      ContactDedupeCandidateGroup
+    ]
+  ) -> HashSet<(String, String)> {
+    let mut pairs = HashSet::<(
+      String,
+      String,
+    )>::new();
+    for group in groups {
+      for left in 0
+        ..group.contacts.len()
+      {
+        for right in
+          (left + 1)
+            ..group.contacts.len()
+        {
+          let left_id = group.contacts[left]
+            .id
+            .to_string();
+          let right_id =
+            group.contacts[right]
+              .id
+              .to_string();
+          pairs.insert(dedupe_pair_key(
+            &left_id, &right_id,
+          ));
+        }
+      }
+    }
+    pairs
+  }
+
+  fn run_async<T>(
+    future: impl Future<
+      Output = T,
+    >,
+  ) -> T {
+    tokio::runtime::Builder::new_current_thread()
+      .enable_all()
+      .build()
+      .expect("tokio runtime")
+      .block_on(future)
+  }
+
+  fn temp_env_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> =
+      OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+  }
+
+  fn with_temp_contacts_dir(
+    run: impl FnOnce(),
+  ) {
+    let _guard = temp_env_lock()
+      .lock()
+      .expect("temp env lock");
+    let previous = std::env::var(
+      "RIVET_GUI_DATA",
+    )
+    .ok();
+    let temp_dir = std::env::temp_dir()
+      .join(format!(
+        "rivet_contacts_test_{}",
+        Uuid::new_v4()
+      ));
+    std::fs::create_dir_all(&temp_dir)
+      .expect("create temp dir");
+    unsafe {
+      std::env::set_var(
+        "RIVET_GUI_DATA",
+        &temp_dir,
+      );
+    }
+    if let Ok(mut cache) =
+      contacts_index_cache().lock()
+    {
+      *cache =
+        ContactsIndexCache::default();
+    }
+
+    run();
+
+    if let Some(previous) = previous {
+      unsafe {
+        std::env::set_var(
+          "RIVET_GUI_DATA",
+          previous,
+        );
+      }
+    } else {
+      unsafe {
+        std::env::remove_var(
+          "RIVET_GUI_DATA",
+        );
+      }
+    }
+    if let Ok(mut cache) =
+      contacts_index_cache().lock()
+    {
+      *cache =
+        ContactsIndexCache::default();
+    }
+    let _ = std::fs::remove_dir_all(
+      &temp_dir,
+    );
+  }
+
+  #[test]
+  fn normalize_text_is_diacritic_insensitive()
+  {
+    assert_eq!(
+      normalize_text("  José Núñez  "),
+      "jose nunez"
+    );
+    assert_eq!(
+      normalize_text("MÜNCHEN"),
+      "munchen"
+    );
+  }
+
+  #[test]
+  fn validate_contact_enforces_identity_and_limits()
+  {
+    let mut contact = make_contact(
+      "",
+      None,
+      None,
+    );
+    assert!(
+      validate_contact(&contact)
+        .is_err()
+    );
+
+    contact.display_name = "A".repeat(
+      CONTACTS_MAX_NAME_LEN + 1
+    );
+    assert!(
+      validate_contact(&contact)
+        .is_err()
+    );
+  }
+
+  #[test]
+  fn score_pair_uses_email_or_phone_strong_signal()
+  {
+    let left = make_contact(
+      "Alice",
+      Some("alice@example.com"),
+      None,
+    );
+    let right = make_contact(
+      "Alice B",
+      Some("alice@example.com"),
+      None,
+    );
+    let score =
+      score_pair(&left, &right)
+        .expect("pair score")
+        .0;
+    assert_eq!(score, 100);
+  }
+
+  #[test]
+  fn dedupe_groups_respects_prior_decisions()
+  {
+    let left = make_contact(
+      "Chris",
+      Some("c@example.com"),
+      None,
+    );
+    let right = make_contact(
+      "Chris",
+      Some("c@example.com"),
+      None,
+    );
+    let ids = {
+      let mut tokens = vec![
+        left.id.to_string(),
+        right.id.to_string(),
+      ];
+      tokens.sort();
+      format!(
+        "group:{}",
+        tokens.join(",")
+      )
+    };
+    let mut decisions = HashMap::<
+      String,
+      DedupDecision,
+    >::new();
+    decisions.insert(
+      ids.clone(),
+      DedupDecision {
+        candidate_group_id: ids,
+        decision: "ignored"
+          .to_string(),
+        actor: "test".to_string(),
+        decided_at: now_iso(),
+      },
+    );
+
+    let groups = dedupe_groups(
+      &[left, right],
+      None,
+      &decisions,
+    );
+    assert!(groups.is_empty());
+  }
+
+  #[test]
+  fn matching_accuracy_stays_above_thresholds()
+  {
+    let mut c1 = make_contact(
+      "Alice Johnson",
+      Some("alice@acme.com"),
+      None,
+    );
+    c1.organization =
+      Some("Acme".to_string());
+    let mut c2 = make_contact(
+      "Alice Johnson",
+      Some("alice@acme.com"),
+      None,
+    );
+    c2.organization =
+      Some("Acme".to_string());
+
+    let c3 = make_contact(
+      "Bob Chen",
+      None,
+      Some("+1 (555) 111-1111"),
+    );
+    let c4 = make_contact(
+      "Robert Chen",
+      None,
+      Some("+1 555 111 1111"),
+    );
+
+    let mut c5 = make_contact(
+      "Carla Mendez",
+      Some("carla@contoso.com"),
+      None,
+    );
+    c5.organization = Some(
+      "Contoso".to_string(),
+    );
+    let mut c6 = make_contact(
+      "Karla Mendez",
+      Some("karla@contoso.com"),
+      None,
+    );
+    c6.organization = Some(
+      "Contoso".to_string(),
+    );
+
+    let c7 = make_contact(
+      "Daniel Lee",
+      Some("daniel@alpha.com"),
+      None,
+    );
+    let c8 = make_contact(
+      "Dana Lee",
+      Some("dana@beta.com"),
+      None,
+    );
+    let c9 = make_contact(
+      "Eve Adams",
+      Some("eve@random.com"),
+      None,
+    );
+    let c10 = make_contact(
+      "Evan Adamson",
+      Some("evan@elsewhere.com"),
+      None,
+    );
+
+    let contacts = vec![
+      c1.clone(),
+      c2.clone(),
+      c3.clone(),
+      c4.clone(),
+      c5.clone(),
+      c6.clone(),
+      c7, c8, c9, c10,
+    ];
+    let decisions = HashMap::<
+      String,
+      DedupDecision,
+    >::new();
+    let groups = dedupe_groups(
+      &contacts,
+      None,
+      &decisions,
+    );
+    let predicted = dedupe_pairs(
+      &groups,
+    );
+
+    let expected = HashSet::from([
+      dedupe_pair_key(
+        &c1.id.to_string(),
+        &c2.id.to_string(),
+      ),
+      dedupe_pair_key(
+        &c3.id.to_string(),
+        &c4.id.to_string(),
+      ),
+      dedupe_pair_key(
+        &c5.id.to_string(),
+        &c6.id.to_string(),
+      ),
+    ]);
+
+    let true_positives = predicted
+      .iter()
+      .filter(|pair| {
+        expected.contains(*pair)
+      })
+      .count();
+    let precision =
+      if predicted.is_empty() {
+        0.0
+      } else {
+        true_positives as f32
+          / predicted.len() as f32
+      };
+    let recall = true_positives
+      as f32
+      / expected.len() as f32;
+
+    assert!(
+      precision >= 0.85,
+      "precision below threshold: \
+       {precision}"
+    );
+    assert!(
+      recall >= 0.85,
+      "recall below threshold: \
+       {recall}"
+    );
+  }
+
+  #[test]
+  fn merge_contact_records_unions_unique_fields()
+  {
+    let mut target = make_contact(
+      "Dana",
+      Some("dana@one.test"),
+      Some("+1 555 000"),
+    );
+    target.notes = None;
+    let mut source = make_contact(
+      "Dana",
+      Some("dana@two.test"),
+      Some("+1 555 111"),
+    );
+    source.notes =
+      Some("new note".to_string());
+
+    merge_contact_records(
+      &mut target,
+      &source,
+    );
+
+    assert_eq!(
+      target.emails.len(),
+      2
+    );
+    assert_eq!(
+      target.phones.len(),
+      2
+    );
+    assert_eq!(
+      target.notes.as_deref(),
+      Some("new note")
+    );
+  }
+
+  #[test]
+  fn merge_and_undo_preserve_audit_and_dedupe_reopen()
+  {
+    with_temp_contacts_dir(|| {
+      let left = run_async(
+        contact_add(
+          make_contact_create(
+            "Morgan Lane",
+            "morgan.one@example.com",
+            "+1 555 0100",
+          ),
+          None,
+        ),
+      )
+      .expect("add left");
+      let right = run_async(
+        contact_add(
+          make_contact_create(
+            "Morgan Lane",
+            "morgan.two@example.com",
+            "+1 555 0100",
+          ),
+          None,
+        ),
+      )
+      .expect("add right");
+
+      let dedupe_before = run_async(
+        contacts_dedupe_preview(
+          ContactsDedupePreviewArgs {
+            query: None,
+          },
+          None,
+        ),
+      )
+      .expect("dedupe preview");
+      assert_eq!(
+        dedupe_before.groups.len(),
+        1
+      );
+
+      let merge = run_async(
+        contacts_merge(
+          ContactsMergeArgs {
+            ids: vec![
+              left.id,
+              right.id,
+            ],
+            target_id: Some(left.id),
+          },
+          Some("tester".to_string()),
+        ),
+      )
+      .expect("merge");
+      assert_eq!(merge.merged.id, left.id);
+      assert_eq!(
+        merge.removed_ids,
+        vec![right.id]
+      );
+      assert_eq!(
+        merge.merged.emails.len(),
+        2
+      );
+      assert_eq!(
+        merge
+          .merged
+          .emails
+          .iter()
+          .filter(|item| {
+            item.is_primary
+          })
+          .count(),
+        1
+      );
+
+      let (
+        contacts_path,
+        _deleted,
+        _batches,
+        _undo_path,
+      ) = ensure_contacts_store()
+        .expect("store");
+      let audit_path =
+        contacts_merge_audit_path(
+          &contacts_path,
+        )
+        .expect("audit path");
+      let audits = load_jsonl::<
+        MergeAudit,
+      >(&audit_path)
+      .expect("load audits");
+      let audit = audits
+        .iter()
+        .find(|entry| {
+          entry.undo_id
+            == merge.undo_id
+        })
+        .expect("merge audit");
+      assert_eq!(
+        audit.target_contact_id,
+        merge.merged.id
+      );
+      assert_eq!(
+        audit.source_contact_ids,
+        vec![right.id]
+      );
+      assert_eq!(
+        audit.operator, "tester"
+      );
+
+      let dedupe_after_merge =
+        run_async(
+          contacts_dedupe_preview(
+            ContactsDedupePreviewArgs {
+              query: None,
+            },
+            None,
+          ),
+        )
+        .expect(
+          "dedupe after merge"
+        );
+      assert!(
+        dedupe_after_merge.groups.is_empty()
+      );
+
+      let undo = run_async(
+        contacts_merge_undo(
+          ContactsMergeUndoArgs {
+            undo_id: Some(
+              merge.undo_id.clone(),
+            ),
+          },
+          Some("tester".to_string()),
+        ),
+      )
+      .expect("merge undo");
+      assert_eq!(
+        undo.undo_id,
+        merge.undo_id
+      );
+      assert_eq!(undo.restored, 2);
+
+      let listed = run_async(
+        contacts_list(
+          ContactsListArgs {
+            query: None,
+            limit: Some(200),
+            cursor: None,
+            source: None,
+            updated_after: None,
+          },
+          None,
+        ),
+      )
+      .expect("contacts list");
+      assert_eq!(listed.total, 2);
+
+      let dedupe_after_undo =
+        run_async(
+          contacts_dedupe_preview(
+            ContactsDedupePreviewArgs {
+              query: None,
+            },
+            None,
+          ),
+        )
+        .expect(
+          "dedupe after undo"
+        );
+      assert_eq!(
+        dedupe_after_undo
+          .groups
+          .len(),
+        1
+      );
+
+      let decisions_path =
+        contacts_dedupe_decisions_path(
+          &contacts_path,
+        )
+        .expect("decisions path");
+      let decisions = load_jsonl::<
+        DedupDecision,
+      >(&decisions_path)
+      .expect("load decisions");
+      assert!(decisions.iter().any(
+        |decision| {
+          decision.decision
+            == "merged"
+        }
+      ));
+      assert!(decisions.iter().any(
+        |decision| {
+          decision.decision
+            == "reopened"
+        }
+      ));
+    });
+  }
+
+  #[test]
+  fn parse_vcard_preserves_primary_flags()
+  {
+    let payload = concat!(
+      "BEGIN:VCARD\n",
+      "VERSION:3.0\n",
+      "FN:Example Person\n",
+      "EMAIL;TYPE=HOME,PREF:person@example.com\n",
+      "TEL;TYPE=CELL,PREF:+1-555-222\n",
+      "END:VCARD\n"
+    );
+    let (contacts, errors) =
+      parse_vcard_contacts(
+        payload,
+        "gmail_file",
+      );
+    assert!(errors.is_empty());
+    assert_eq!(contacts.len(), 1);
+    assert!(
+      contacts[0]
+        .emails
+        .first()
+        .is_some_and(|item| {
+          item.is_primary
+        })
+    );
+    assert!(
+      contacts[0]
+        .phones
+        .first()
+        .is_some_and(|item| {
+          item.is_primary
+        })
+    );
+  }
+
+  #[test]
+  fn parses_gmail_fixture_with_expected_labels()
+  {
+    let payload = include_str!(
+      "fixtures/contacts_gmail_sample.vcf"
+    );
+    let (contacts, errors) =
+      parse_vcard_contacts(
+        payload,
+        "gmail_file",
+      );
+    assert!(errors.is_empty());
+    assert_eq!(contacts.len(), 1);
+    assert_eq!(
+      contacts[0]
+        .emails
+        .first()
+        .map(|item| item.kind.as_str()),
+      Some("home")
+    );
+  }
+
+  #[test]
+  fn parses_iphone_fixture_and_keeps_photo_reference()
+  {
+    let payload = include_str!(
+      "fixtures/contacts_iphone_sample.vcf"
+    );
+    let (contacts, errors) =
+      parse_vcard_contacts(
+        payload,
+        "iphone_file",
+      );
+    assert!(errors.is_empty());
+    assert_eq!(contacts.len(), 1);
+    let notes = contacts[0]
+      .notes
+      .as_deref()
+      .unwrap_or_default();
+    assert!(
+      notes.contains(
+        "photo_ref:https://example.invalid/photo/taylor.jpg"
+      )
+    );
+  }
 }

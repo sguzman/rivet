@@ -67,6 +67,8 @@ export const ContactDtoSchema = z.object({
   id: z.string().min(1),
   display_name: z.string(),
   avatar_data_url: z.string().nullable(),
+  import_batch_id: z.string().nullable().optional().default(null),
+  source_file_name: z.string().nullable().optional().default(null),
   given_name: z.string().nullable(),
   family_name: z.string().nullable(),
   nickname: z.string().nullable(),
@@ -97,6 +99,8 @@ export const ContactsListResultSchema = z.object({
 export const ContactCreateSchema = z.object({
   display_name: z.string().nullable(),
   avatar_data_url: z.string().nullable(),
+  import_batch_id: z.string().nullable(),
+  source_file_name: z.string().nullable(),
   given_name: z.string().nullable(),
   family_name: z.string().nullable(),
   nickname: z.string().nullable(),
@@ -117,6 +121,8 @@ export const ContactCreateSchema = z.object({
 export const ContactPatchSchema = z.object({
   display_name: z.string().nullable().optional(),
   avatar_data_url: z.string().nullable().optional(),
+  import_batch_id: z.string().nullable().optional(),
+  source_file_name: z.string().nullable().optional(),
   given_name: z.string().nullable().optional(),
   family_name: z.string().nullable().optional(),
   nickname: z.string().nullable().optional(),
@@ -148,6 +154,13 @@ export const ContactDedupeCandidateGroupSchema = z.object({
 
 export const ContactsDedupePreviewResultSchema = z.object({
   groups: z.array(ContactDedupeCandidateGroupSchema)
+});
+
+export const ContactsDedupeDecideResultSchema = z.object({
+  candidate_group_id: z.string().min(1),
+  decision: z.string().min(1),
+  actor: z.string().min(1),
+  decided_at: z.string().min(1)
 });
 
 export const ContactOpenActionResultSchema = z.object({

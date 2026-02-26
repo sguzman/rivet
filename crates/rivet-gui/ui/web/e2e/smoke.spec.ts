@@ -1,6 +1,11 @@
 import { expect, test } from "@playwright/test";
 
 const nodeEnv = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env ?? {};
+const nodeBufferFactory = (globalThis as unknown as {
+  Buffer?: {
+    from: (value: string, encoding?: string) => Uint8Array;
+  };
+}).Buffer;
 const e2eTheme = String(nodeEnv.RIVET_E2E_THEME ?? "day").trim().toLowerCase();
 const e2eTaskCount = Number.parseInt(String(nodeEnv.RIVET_E2E_TASK_COUNT ?? "0"), 10);
 
@@ -69,12 +74,17 @@ test("kanban smoke: create board, add card, move lane", async ({ page }) => {
   await page.getByLabel("Title").fill("Kanban Smoke Task");
   await page.getByRole("button", { name: "Save" }).click();
 
-  await expect(page.getByText("Kanban Smoke Task")).toBeVisible();
+  await expect(
+    page
+      .getByTestId(/kanban-card-.+/)
+      .filter({ hasText: "Kanban Smoke Task" })
+      .first()
+  ).toBeVisible();
 
   const laneCard = page.getByTestId(/kanban-card-.+/).first();
   const targetLane = page.getByTestId("kanban-lane-finished");
   await laneCard.dragTo(targetLane);
-  await expect(page.getByText("kanban:finished").first()).toBeVisible();
+  await expect(targetLane.getByText("Kanban Smoke Task")).toBeVisible();
 });
 
 test("calendar smoke: add external calendar source", async ({ page }) => {
@@ -124,7 +134,7 @@ test("tasks parity: edit flow and bulk filtered actions", async ({ page }) => {
   await page.getByRole("button", { name: "Save" }).click();
   await expect(page.getByRole("button", { name: /Bulk A Edited/i })).toBeVisible();
 
-  await page.getByRole("button", { name: /Complete Filtered/i }).click();
+  await page.getByRole("button", { name: /^Complete Filtered/ }).first().click();
   await expect(page.getByText("Completed").first()).toBeVisible();
 
   await page.getByLabel("Search").fill("Bulk");
@@ -144,4 +154,98 @@ test("keyboard shortcuts: add task and settings", async ({ page }) => {
   await page.getByLabel("Enable OS due notifications").click();
   await page.getByRole("button", { name: "Close" }).click();
   await expect(page.getByRole("heading", { name: "Settings" })).toHaveCount(0);
+});
+
+test("contacts smoke: create, search, update, and bulk delete", async ({ page }) => {
+  await page.getByRole("tab", { name: "Contacts" }).click();
+  await expect(page.getByRole("heading", { name: "Contacts" })).toBeVisible();
+
+  await page.getByLabel("Display Name").fill("Smoke Contact");
+  await page.getByLabel("Email").first().fill("smoke.contact@example.com");
+  await page.getByRole("button", { name: "Create Contact" }).click();
+
+  await expect(page.getByText("Smoke Contact")).toBeVisible();
+  await page.getByLabel("Search contacts").fill("Smoke Contact");
+  await page.getByText("Smoke Contact").first().click();
+  await page.getByLabel("Notes").fill("Updated note");
+  await page.getByRole("button", { name: "Update Selected" }).click();
+
+  await page.getByRole("button", { name: /^Select$/ }).click();
+  await page.getByText("Smoke Contact").first().click();
+  await page.getByRole("button", { name: /^Delete Selected$/ }).first().click();
+  await expect(page.getByText("Smoke Contact")).toHaveCount(0);
+});
+
+test("app startup regression: diagnostics and tab switching remain responsive", async ({ page }) => {
+  await expect(page.getByText("mode: dev")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Diagnostics" })).toBeVisible();
+
+  await page.getByRole("tab", { name: "Tasks" }).click();
+  await expect(page.getByRole("button", { name: "Add Task" })).toBeVisible();
+
+  await page.getByRole("tab", { name: "Kanban" }).click();
+  await expect(page.getByRole("button", { name: "New" })).toBeVisible();
+
+  await page.getByRole("tab", { name: "Calendar" }).click();
+  await expect(page.getByRole("button", { name: "Year" })).toBeVisible();
+
+  await page.getByRole("tab", { name: "Contacts" }).click();
+  await expect(page.getByRole("heading", { name: "Contacts" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Diagnostics" }).click();
+  await expect(page.getByText("Diagnostics (last invoke failures)")).toBeVisible();
+  await page.getByTitle("Close diagnostics").click();
+  await expect(page.getByText("Diagnostics (last invoke failures)")).toHaveCount(0);
+});
+
+test("contacts e2e: import preview conflicts then merge and verify list/search", async ({ page }) => {
+  await page.getByRole("tab", { name: "Contacts" }).click();
+
+  await page.getByLabel("Display Name").fill("Mergeable Contact");
+  await page.getByLabel("Email").first().fill("merge.a@example.com");
+  await page.getByLabel("Phone").first().fill("+1-555-1000");
+  await page.getByRole("button", { name: "Create Contact" }).click();
+  await expect(page.getByText("Mergeable Contact")).toBeVisible();
+
+  await page.getByLabel("Display Name").fill("Mergeable Contact");
+  await page.getByLabel("Email").first().fill("merge.b@example.com");
+  await page.getByLabel("Phone").first().fill("+1-555-1001");
+  await page.getByRole("button", { name: "Create Contact" }).click();
+
+  const vcard = [
+    "BEGIN:VCARD",
+    "VERSION:3.0",
+    "FN:Mergeable Contact",
+    "EMAIL;TYPE=HOME,PREF:merge.a@example.com",
+    "TEL;TYPE=CELL:+1-555-1000",
+    "END:VCARD",
+    ""
+  ].join("\n");
+  const vcardBuffer = nodeBufferFactory?.from(vcard, "utf-8");
+  if (!vcardBuffer) {
+    throw new Error("node Buffer is unavailable for e2e file upload");
+  }
+  await page.locator('input[type="file"][accept*=".vcf"]').setInputFiles({
+    name: "gmail-contacts.vcf",
+    mimeType: "text/vcard",
+    buffer: vcardBuffer as never
+  });
+
+  await expect(page.getByText(/preview rows:/i)).toBeVisible();
+  await expect(page.getByText(/duplicates:\s*\d+/i)).toBeVisible();
+
+  await page.getByLabel("Import Mode").click();
+  await page.getByRole("option", { name: /Review \(preview first\)/i }).click();
+  await page.getByRole("button", { name: "Commit Import" }).click();
+  await expect(page.getByText(/import result:/i)).toBeVisible();
+
+  const mergeButtons = page.getByRole("button", { name: /^Merge Group$/ });
+  const mergeCountBefore = await mergeButtons.count();
+  expect(mergeCountBefore).toBeGreaterThan(0);
+  await mergeButtons.first().click();
+  await expect.poll(async () => mergeButtons.count()).toBeLessThan(mergeCountBefore);
+
+  await page.getByLabel("Search contacts").fill("Mergeable Contact");
+  await page.getByText("Mergeable Contact").first().click();
+  await expect(page.getByLabel("Display Name")).toHaveValue("Mergeable Contact");
 });

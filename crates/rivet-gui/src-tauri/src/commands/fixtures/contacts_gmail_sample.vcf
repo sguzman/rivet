@@ -1,0 +1,9 @@
+BEGIN:VCARD
+VERSION:3.0
+FN:Jordan Gmail
+N:Gmail;Jordan;;;
+EMAIL;TYPE=INTERNET;TYPE=HOME;TYPE=pref:jordan.gmail@example.com
+TEL;TYPE=CELL;TYPE=pref:+1-555-1010
+ORG:Rivet Labs
+TITLE:Operator
+END:VCARD

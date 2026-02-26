@@ -8,6 +8,7 @@ import {
   ContactDtoSchema,
   ContactOpenActionResultSchema,
   ContactUpdateArgsSchema,
+  ContactsDedupeDecideResultSchema,
   ContactsDedupePreviewResultSchema,
   ContactsImportCommitResultSchema,
   ContactsImportPreviewResultSchema,
@@ -27,12 +28,15 @@ import {
 } from "./schemas";
 import type {
   ContactCreate,
+  ContactFieldValue,
   ContactDto,
   ContactIdArg,
   ContactOpenActionArgs,
   ContactOpenActionResult,
   ContactUpdateArgs,
   ContactsDedupePreviewArgs,
+  ContactsDedupeDecideArgs,
+  ContactsDedupeDecideResult,
   ContactsDedupePreviewResult,
   ContactsDeleteBulkArgs,
   ContactsImportCommitArgs,
@@ -58,6 +62,8 @@ import type { RivetRuntimeConfig, TagSchema } from "../types/config";
 
 const MOCK_TASKS_KEY = "rivet.mock.tasks";
 const MOCK_CONTACTS_KEY = "rivet.mock.contacts";
+const MOCK_CONTACTS_DEDUPE_DECISIONS_KEY = "rivet.mock.contacts.dedupe.decisions";
+const MOCK_CONTACTS_MERGE_UNDO_KEY = "rivet.mock.contacts.merge.undo";
 const DEFAULT_TIMEOUT_MS = 30_000;
 const EXTERNAL_CALENDAR_TIMEOUT_MS = 90_000;
 const DEFAULT_TASK_QUERY: TasksListArgs = {
@@ -105,6 +111,7 @@ function resolveRuntimeTransportMode(): RuntimeTransportMode {
 }
 
 const runtimeTransportMode = resolveRuntimeTransportMode();
+const verboseInvokeLogging = String(import.meta.env.VITE_RIVET_TRACE_INVOKE ?? "").trim() === "1";
 
 export function setCommandFailureSink(sink: CommandFailureSink | null): void {
   commandFailureSink = sink;
@@ -156,6 +163,45 @@ function parseStoredContacts(): ContactDto[] {
   return parseWithSchema("mock.contacts", readLocalStorageJson(MOCK_CONTACTS_KEY), ContactDtoArraySchema);
 }
 
+type DedupeDecisionMap = Record<string, string>;
+type MockMergeUndoEntry = {
+  undo_id: string;
+  contacts_before: ContactDto[];
+};
+function parseStoredDedupeDecisions(): DedupeDecisionMap {
+  const raw = readLocalStorageJson(MOCK_CONTACTS_DEDUPE_DECISIONS_KEY);
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return {};
+  }
+  const out: DedupeDecisionMap = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (typeof value === "string" && key.trim().length > 0) {
+      out[key] = value;
+    }
+  }
+  return out;
+}
+
+function parseStoredMergeUndoEntries(): MockMergeUndoEntry[] {
+  const raw = readLocalStorageJson(MOCK_CONTACTS_MERGE_UNDO_KEY);
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  return raw
+    .filter((entry): entry is MockMergeUndoEntry => {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+        return false;
+      }
+      const undo_id = (entry as { undo_id?: unknown }).undo_id;
+      const contacts_before = (entry as { contacts_before?: unknown }).contacts_before;
+      return typeof undo_id === "string" && Array.isArray(contacts_before);
+    })
+    .map((entry) => ({
+      undo_id: entry.undo_id,
+      contacts_before: parseWithSchema("mock.contacts_merge_undo.contacts_before", entry.contacts_before, ContactDtoArraySchema)
+    }));
+}
+
 function writeStorageJson(key: string, value: unknown): void {
   if (typeof window === "undefined") {
     return;
@@ -169,6 +215,14 @@ function writeStoredTasks(tasks: TaskDto[]): void {
 
 function writeStoredContacts(contacts: ContactDto[]): void {
   writeStorageJson(MOCK_CONTACTS_KEY, contacts);
+}
+
+function writeStoredDedupeDecisions(decisions: DedupeDecisionMap): void {
+  writeStorageJson(MOCK_CONTACTS_DEDUPE_DECISIONS_KEY, decisions);
+}
+
+function writeStoredMergeUndoEntries(entries: MockMergeUndoEntry[]): void {
+  writeStorageJson(MOCK_CONTACTS_MERGE_UNDO_KEY, entries);
 }
 
 function makeMockTask(input: TaskCreate): TaskDto {
@@ -200,6 +254,8 @@ function makeMockContact(input: ContactCreate): ContactDto {
     id: crypto.randomUUID(),
     display_name: display,
     avatar_data_url: input.avatar_data_url ?? null,
+    import_batch_id: input.import_batch_id ?? null,
+    source_file_name: input.source_file_name ?? null,
     given_name: input.given_name,
     family_name: input.family_name,
     nickname: input.nickname,
@@ -221,7 +277,11 @@ function makeMockContact(input: ContactCreate): ContactDto {
 }
 
 function contactSearchMatches(contact: ContactDto, query: string): boolean {
-  const q = query.trim().toLowerCase();
+  const normalize = (value: string) => value
+    .normalize("NFKD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase();
+  const q = normalize(query.trim());
   if (!q) {
     return true;
   }
@@ -235,9 +295,338 @@ function contactSearchMatches(contact: ContactDto, query: string): boolean {
     contact.organization ?? "",
     ...contact.emails.map((item) => item.value),
     ...contact.phones.map((item) => item.value)
-  ].join(" ").toLowerCase();
+  ].join(" ");
 
-  return fields.includes(q);
+  return normalize(fields).includes(q);
+}
+
+function normalizeMockSource(source: string): string {
+  const token = source.trim().toLowerCase();
+  if (token.includes("gmail")) {
+    return "gmail";
+  }
+  if (token.includes("iphone") || token.includes("icloud")) {
+    return "iphone";
+  }
+  return "vcard";
+}
+
+function normalizeMockToken(value: string): string {
+  return value
+    .normalize("NFKD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .trim();
+}
+
+function normalizeMockEmail(value: string): string {
+  return normalizeMockToken(value);
+}
+
+function normalizeMockPhone(value: string): string {
+  return value.replace(/[^0-9+]/g, "").toLowerCase();
+}
+
+function mockFieldKind(header: string, fallback: string): string {
+  const token = header.toLowerCase();
+  if (token.includes("home")) {
+    return "home";
+  }
+  if (token.includes("work")) {
+    return "work";
+  }
+  if (token.includes("cell") || token.includes("mobile") || token.includes("iphone")) {
+    return "mobile";
+  }
+  return fallback;
+}
+
+function mockFieldPrimary(header: string): boolean {
+  const token = header.toLowerCase();
+  return token.includes("pref") || token.includes("primary") || token.includes("main");
+}
+
+function unescapeVcard(value: string): string {
+  return value
+    .replace(/\\n/gi, "\n")
+    .replace(/\\,/g, ",")
+    .replace(/\\;/g, ";")
+    .trim();
+}
+
+function parseMockVcardContacts(
+  content: string,
+  sourceKind: string,
+  fileName: string | null,
+  batchId: string
+): { contacts: ContactDto[]; errors: string[] } {
+  const unfolded = content
+    .replace(/\r\n[ \t]/g, "")
+    .replace(/\n[ \t]/g, "");
+  const blocks = unfolded
+    .split(/BEGIN:VCARD/gi)
+    .map((block) => block.trim())
+    .filter((block) => block.length > 0)
+    .map((block) => `BEGIN:VCARD\n${block}`);
+  const contacts: ContactDto[] = [];
+  const errors: string[] = [];
+
+  for (const [index, block] of blocks.entries()) {
+    if (!/END:VCARD/i.test(block)) {
+      errors.push(`row ${index + 1}: missing END:VCARD`);
+      continue;
+    }
+
+    const lines = block.split(/\r?\n/);
+    let displayName = "";
+    let givenName = "";
+    let familyName = "";
+    let nickname = "";
+    let notes = "";
+    let organization = "";
+    let title = "";
+    let birthday: string | null = null;
+    const emails: ContactFieldValue[] = [];
+    const phones: ContactFieldValue[] = [];
+    const websites: ContactFieldValue[] = [];
+    const addresses: ContactCreate["addresses"] = [];
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed.length === 0 || /^BEGIN:VCARD$/i.test(trimmed) || /^END:VCARD$/i.test(trimmed)) {
+        continue;
+      }
+      const colonIndex = trimmed.indexOf(":");
+      if (colonIndex < 0) {
+        continue;
+      }
+
+      const header = trimmed.slice(0, colonIndex);
+      const value = unescapeVcard(trimmed.slice(colonIndex + 1));
+      const upper = header.toUpperCase();
+      if (upper.startsWith("FN")) {
+        displayName = value;
+        continue;
+      }
+      if (upper.startsWith("N")) {
+        const [family = "", given = ""] = value.split(";");
+        familyName = familyName || family.trim();
+        givenName = givenName || given.trim();
+        continue;
+      }
+      if (upper.startsWith("NICKNAME")) {
+        nickname = value;
+        continue;
+      }
+      if (upper.startsWith("EMAIL")) {
+        if (value.length > 0) {
+          emails.push({
+            value,
+            kind: mockFieldKind(header, "home"),
+            is_primary: mockFieldPrimary(header)
+          });
+        }
+        continue;
+      }
+      if (upper.startsWith("TEL")) {
+        if (value.length > 0) {
+          phones.push({
+            value,
+            kind: mockFieldKind(header, "mobile"),
+            is_primary: mockFieldPrimary(header)
+          });
+        }
+        continue;
+      }
+      if (upper.startsWith("URL")) {
+        if (value.length > 0) {
+          websites.push({
+            value,
+            kind: mockFieldKind(header, "other"),
+            is_primary: mockFieldPrimary(header)
+          });
+        }
+        continue;
+      }
+      if (upper.startsWith("ADR")) {
+        const parts = value.split(";");
+        const street = (parts[2] ?? "").trim();
+        const city = (parts[3] ?? "").trim();
+        const region = (parts[4] ?? "").trim();
+        const postal_code = (parts[5] ?? "").trim();
+        const country = (parts[6] ?? "").trim();
+        if (street || city || region || postal_code || country) {
+          addresses.push({
+            kind: mockFieldKind(header, "home"),
+            street,
+            city,
+            region,
+            postal_code,
+            country
+          });
+        }
+        continue;
+      }
+      if (upper.startsWith("NOTE")) {
+        notes = notes ? `${notes}\n${value}` : value;
+        continue;
+      }
+      if (upper.startsWith("ORG")) {
+        organization = value;
+        continue;
+      }
+      if (upper.startsWith("TITLE")) {
+        title = value;
+        continue;
+      }
+      if (upper.startsWith("BDAY")) {
+        birthday = value || null;
+      }
+    }
+
+    const firstEmail = emails.find((item) => item.value.trim().length > 0)?.value ?? "";
+    const firstPhone = phones.find((item) => item.value.trim().length > 0)?.value ?? "";
+    const resolvedName = displayName.trim() || `${givenName} ${familyName}`.trim() || firstEmail || firstPhone;
+    if (!resolvedName && !firstEmail && !firstPhone) {
+      errors.push(`row ${index + 1}: missing name, email, and phone`);
+      continue;
+    }
+    if (emails.length > 0 && !emails.some((item) => item.is_primary)) {
+      emails[0] = { ...emails[0], is_primary: true };
+    }
+    if (phones.length > 0 && !phones.some((item) => item.is_primary)) {
+      phones[0] = { ...phones[0], is_primary: true };
+    }
+    if (websites.length > 0 && !websites.some((item) => item.is_primary)) {
+      websites[0] = { ...websites[0], is_primary: true };
+    }
+
+    contacts.push(makeMockContact({
+      display_name: resolvedName,
+      avatar_data_url: null,
+      import_batch_id: batchId,
+      source_file_name: fileName,
+      given_name: givenName || null,
+      family_name: familyName || null,
+      nickname: nickname || null,
+      notes: notes || null,
+      phones,
+      emails,
+      websites,
+      birthday,
+      organization: organization || null,
+      title: title || null,
+      addresses,
+      source_id: `import:${sourceKind}`,
+      source_kind: sourceKind,
+      remote_id: null,
+      link_group_id: null
+    }));
+  }
+
+  return { contacts, errors };
+}
+
+function mockMergeFields(current: ContactFieldValue[], incoming: ContactFieldValue[]): ContactFieldValue[] {
+  const seen = new Set(current.map((item) => `${item.kind}:${normalizeMockToken(item.value)}`));
+  const out = [...current];
+  for (const value of incoming) {
+    const key = `${value.kind}:${normalizeMockToken(value.value)}`;
+    if (!value.value.trim() || seen.has(key)) {
+      continue;
+    }
+    out.push({ ...value, is_primary: false });
+    seen.add(key);
+  }
+  const primaryIndex = out.findIndex((item) => item.is_primary);
+  if (out.length > 0) {
+    if (primaryIndex < 0) {
+      out[0] = { ...out[0], is_primary: true };
+    } else {
+      for (let index = 0; index < out.length; index += 1) {
+        out[index] = { ...out[index], is_primary: index === primaryIndex };
+      }
+    }
+  }
+  return out;
+}
+
+function mergeMockContact(existing: ContactDto, incoming: ContactDto): ContactDto {
+  return {
+    ...existing,
+    display_name: existing.display_name.trim() || incoming.display_name,
+    avatar_data_url: existing.avatar_data_url || incoming.avatar_data_url,
+    import_batch_id: existing.import_batch_id || incoming.import_batch_id,
+    source_file_name: existing.source_file_name || incoming.source_file_name,
+    given_name: existing.given_name || incoming.given_name,
+    family_name: existing.family_name || incoming.family_name,
+    nickname: existing.nickname || incoming.nickname,
+    notes: existing.notes || incoming.notes,
+    phones: mockMergeFields(existing.phones, incoming.phones),
+    emails: mockMergeFields(existing.emails, incoming.emails),
+    websites: mockMergeFields(existing.websites, incoming.websites),
+    birthday: existing.birthday || incoming.birthday,
+    organization: existing.organization || incoming.organization,
+    title: existing.title || incoming.title,
+    addresses: existing.addresses.length > 0 ? existing.addresses : incoming.addresses,
+    source_id: existing.source_id || incoming.source_id,
+    source_kind: existing.source_kind || incoming.source_kind,
+    remote_id: existing.remote_id || incoming.remote_id,
+    link_group_id: existing.link_group_id || incoming.link_group_id,
+    updated_at: new Date().toISOString()
+  };
+}
+
+function bestMockConflict(
+  incoming: ContactDto,
+  existing: ContactDto[]
+): { index: number; score: number; reason: string } | null {
+  const incomingEmails = new Set(incoming.emails.map((item) => normalizeMockEmail(item.value)).filter(Boolean));
+  const incomingPhones = new Set(incoming.phones.map((item) => normalizeMockPhone(item.value)).filter(Boolean));
+  const incomingName = normalizeMockToken(incoming.display_name);
+  const incomingOrg = normalizeMockToken(incoming.organization ?? "");
+  const incomingDomains = new Set(
+    incoming.emails
+      .map((item) => normalizeMockEmail(item.value).split("@")[1] ?? "")
+      .filter(Boolean)
+  );
+
+  for (let index = 0; index < existing.length; index += 1) {
+    const candidate = existing[index];
+    const candidateEmails = new Set(candidate.emails.map((item) => normalizeMockEmail(item.value)).filter(Boolean));
+    for (const token of incomingEmails) {
+      if (candidateEmails.has(token)) {
+        return { index, score: 100, reason: "exact email match" };
+      }
+    }
+
+    const candidatePhones = new Set(candidate.phones.map((item) => normalizeMockPhone(item.value)).filter(Boolean));
+    for (const token of incomingPhones) {
+      if (candidatePhones.has(token)) {
+        return { index, score: 100, reason: "exact phone match" };
+      }
+    }
+
+    const candidateName = normalizeMockToken(candidate.display_name);
+    if (incomingName.length > 0 && incomingName === candidateName) {
+      const candidateOrg = normalizeMockToken(candidate.organization ?? "");
+      if (incomingOrg.length > 0 && incomingOrg === candidateOrg) {
+        return { index, score: 70, reason: "same full name + org" };
+      }
+      const candidateDomains = new Set(
+        candidate.emails
+          .map((item) => normalizeMockEmail(item.value).split("@")[1] ?? "")
+          .filter(Boolean)
+      );
+      for (const domain of incomingDomains) {
+        if (candidateDomains.has(domain)) {
+          return { index, score: 60, reason: "same full name + email domain" };
+        }
+      }
+    }
+  }
+
+  return null;
 }
 
 async function invokeCommand<R>(command: string, args?: unknown): Promise<R> {
@@ -245,7 +634,7 @@ async function invokeCommand<R>(command: string, args?: unknown): Promise<R> {
   const startedAt = performance.now();
   const timeoutMs = command.startsWith("external_calendar_") ? EXTERNAL_CALENDAR_TIMEOUT_MS : DEFAULT_TIMEOUT_MS;
   const instrumentCommand = command !== "ui_log";
-  if (instrumentCommand) {
+  if (instrumentCommand && verboseInvokeLogging) {
     logger.debug("invoke.start", `${command} request_id=${requestId}`);
   }
 
@@ -370,6 +759,8 @@ async function invokeCommand<R>(command: string, args?: unknown): Promise<R> {
             ...entry,
             display_name: typeof payload.patch.display_name === "undefined" ? entry.display_name : (payload.patch.display_name ?? ""),
             avatar_data_url: typeof payload.patch.avatar_data_url === "undefined" ? entry.avatar_data_url : payload.patch.avatar_data_url,
+            import_batch_id: typeof payload.patch.import_batch_id === "undefined" ? entry.import_batch_id : payload.patch.import_batch_id,
+            source_file_name: typeof payload.patch.source_file_name === "undefined" ? entry.source_file_name : payload.patch.source_file_name,
             given_name: typeof payload.patch.given_name === "undefined" ? entry.given_name : payload.patch.given_name,
             family_name: typeof payload.patch.family_name === "undefined" ? entry.family_name : payload.patch.family_name,
             nickname: typeof payload.patch.nickname === "undefined" ? entry.nickname : payload.patch.nickname,
@@ -413,6 +804,7 @@ async function invokeCommand<R>(command: string, args?: unknown): Promise<R> {
       case "contacts_dedupe_preview":
       case "contacts_dedupe_candidates": {
         const all = parseStoredContacts();
+        const decisions = parseStoredDedupeDecisions();
         const groups = new Map<string, ContactDto[]>();
         for (const contact of all) {
           const key = contact.display_name.trim().toLowerCase();
@@ -425,13 +817,30 @@ async function invokeCommand<R>(command: string, args?: unknown): Promise<R> {
         }
         const out = [...groups.entries()]
           .filter(([, contacts]) => contacts.length > 1)
-          .map(([key, contacts], index) => ({
-            group_id: `mock-${index}`,
+          .map(([key, contacts]) => ({
+            group_id: `group:${contacts.map((contact) => contact.id).sort().join(",")}`,
             reason: `same name: ${key}`,
             score: 60,
             contacts
-          }));
+          }))
+          .filter((group) => {
+            const decision = (decisions[group.group_id] ?? "").toLowerCase();
+            return decision !== "ignored" && decision !== "separate" && decision !== "merged";
+          });
         return { groups: out } as R;
+      }
+      case "contacts_dedupe_decide": {
+        const payload = args as ContactsDedupeDecideArgs;
+        const decisions = parseStoredDedupeDecisions();
+        const decision = (payload.decision ?? "").trim().toLowerCase() || "ignored";
+        decisions[payload.candidate_group_id] = decision;
+        writeStoredDedupeDecisions(decisions);
+        return {
+          candidate_group_id: payload.candidate_group_id,
+          decision,
+          actor: payload.actor ?? "user",
+          decided_at: new Date().toISOString()
+        } as R;
       }
       case "contact_open_action": {
         const payload = args as ContactOpenActionArgs;
@@ -445,27 +854,79 @@ async function invokeCommand<R>(command: string, args?: unknown): Promise<R> {
       }
       case "contacts_import_preview": {
         const payload = args as ContactsImportPreviewArgs;
+        const source = normalizeMockSource(payload.source);
+        const batch_id = crypto.randomUUID();
+        const parsed = parseMockVcardContacts(payload.content, source, payload.file_name ?? null, batch_id);
+        const existing = parseStoredContacts();
+        const conflicts = parsed.contacts
+          .map((imported) => {
+            const match = bestMockConflict(imported, existing);
+            if (!match || match.score < 80) {
+              return null;
+            }
+            return {
+              imported,
+              existing: existing[match.index]!,
+              score: match.score,
+              reason: match.reason
+            };
+          })
+          .filter((item): item is NonNullable<typeof item> => item !== null);
         return {
-          batch_id: crypto.randomUUID(),
-          source: payload.source,
-          total_rows: 0,
-          valid_rows: 0,
-          skipped_rows: 0,
-          potential_duplicates: 0,
-          contacts: [],
-          conflicts: [],
-          errors: []
+          batch_id,
+          source,
+          total_rows: parsed.contacts.length + parsed.errors.length,
+          valid_rows: parsed.contacts.length,
+          skipped_rows: parsed.errors.length,
+          potential_duplicates: conflicts.length,
+          contacts: parsed.contacts,
+          conflicts,
+          errors: parsed.errors
         } as R;
       }
       case "contacts_import_commit": {
+        const payload = args as ContactsImportCommitArgs;
+        const source = normalizeMockSource(payload.source);
+        const batch_id = crypto.randomUUID();
+        const parsed = parseMockVcardContacts(payload.content, source, payload.file_name ?? null, batch_id);
+        const mode = String(payload.mode ?? "safe").trim().toLowerCase();
+        const contacts = parseStoredContacts();
+        let created = 0;
+        let updated = 0;
+        let skipped = 0;
+        let conflicts = 0;
+
+        for (const incoming of parsed.contacts) {
+          const match = bestMockConflict(incoming, contacts);
+          if (match && match.score >= 80) {
+            conflicts += 1;
+            if (mode === "upsert") {
+              const current = contacts[match.index];
+              if (current) {
+                contacts[match.index] = mergeMockContact(current, incoming);
+                updated += 1;
+              } else {
+                skipped += 1;
+              }
+            } else {
+              skipped += 1;
+            }
+            continue;
+          }
+
+          contacts.unshift(incoming);
+          created += 1;
+        }
+        writeStoredContacts(contacts);
+
         return {
-          batch_id: crypto.randomUUID(),
-          created: 0,
-          updated: 0,
-          skipped: 0,
-          failed: 0,
-          conflicts: 0,
-          errors: []
+          batch_id,
+          created,
+          updated,
+          skipped,
+          failed: parsed.errors.length,
+          conflicts,
+          errors: parsed.errors
         } as R;
       }
       case "contacts_merge": {
@@ -476,25 +937,84 @@ async function invokeCommand<R>(command: string, args?: unknown): Promise<R> {
         if (selected.length < 2) {
           throw new Error("need at least two contacts to merge");
         }
-        const targetId = payload.target_id ?? selected[0].id;
-        const target = selected.find((entry) => entry.id === targetId) ?? selected[0];
-        const removed = selected.filter((entry) => entry.id !== target.id).map((entry) => entry.id);
-        const next = contacts.filter((entry) => !removed.includes(entry.id));
+        const targetId = payload.target_id ?? selected[0]!.id;
+        let merged = selected.find((entry) => entry.id === targetId) ?? selected[0]!;
+        const removed = selected.filter((entry) => entry.id !== merged.id).map((entry) => entry.id);
+        for (const entry of selected) {
+          if (entry.id === merged.id) {
+            continue;
+          }
+          merged = mergeMockContact(merged, entry);
+        }
+
+        const next = contacts
+          .filter((entry) => !removed.includes(entry.id))
+          .map((entry) => (entry.id === merged.id ? merged : entry));
         writeStoredContacts(next);
+
+        const snapshots = parseStoredMergeUndoEntries();
+        const undo_id = crypto.randomUUID();
+        snapshots.push({
+          undo_id,
+          contacts_before: contacts
+        });
+        writeStoredMergeUndoEntries(snapshots.slice(-20));
+
+        const decisionGroupId = `group:${selected.map((entry) => entry.id).sort().join(",")}`;
+        const decisions = parseStoredDedupeDecisions();
+        decisions[decisionGroupId] = "merged";
+        writeStoredDedupeDecisions(decisions);
+
         return {
-          merged: target,
+          merged,
           removed_ids: removed,
-          undo_id: crypto.randomUUID()
+          undo_id
         } as R;
       }
       case "contacts_merge_undo": {
+        const payload = args as ContactsMergeUndoArgs;
+        const snapshots = parseStoredMergeUndoEntries();
+        if (snapshots.length === 0) {
+          return {
+            restored: 0,
+            undo_id: payload?.undo_id ?? ""
+          } as R;
+        }
+
+        const index = payload?.undo_id
+          ? snapshots.findIndex((entry) => entry.undo_id === payload.undo_id)
+          : snapshots.length - 1;
+        if (index < 0) {
+          return {
+            restored: 0,
+            undo_id: payload?.undo_id ?? ""
+          } as R;
+        }
+
+        const [entry] = snapshots.splice(index, 1);
+        writeStoredMergeUndoEntries(snapshots);
+        writeStoredContacts(entry?.contacts_before ?? []);
         return {
-          restored: 0,
-          undo_id: (args as ContactsMergeUndoArgs)?.undo_id ?? ""
+          restored: entry?.contacts_before.length ?? 0,
+          undo_id: entry?.undo_id ?? ""
         } as R;
       }
       case "config_snapshot": {
-        return {} as R;
+        return {
+          mode: "dev",
+          app: {
+            mode: "dev"
+          },
+          logging: {
+            directory: "logs",
+            file_prefix: "rivet"
+          },
+          ui: {
+            features: {
+              contacts: true
+            }
+          }
+        } as R;
       }
       case "config_apply_updates": {
         return {} as R;
@@ -534,7 +1054,7 @@ async function invokeCommand<R>(command: string, args?: unknown): Promise<R> {
   try {
     const result = await Promise.race([run(), timeout]);
     const elapsed = Math.round((performance.now() - startedAt) * 100) / 100;
-    if (instrumentCommand) {
+    if (instrumentCommand && verboseInvokeLogging) {
       logger.info("invoke.success", `${command} request_id=${requestId} duration_ms=${elapsed}`);
     }
     return result;
@@ -565,7 +1085,7 @@ setLoggerBridge(async (event, detail) => {
   } catch {
     // avoid recursive logger calls for logging failures.
   }
-});
+}, "warn");
 
 export async function healthCheck(): Promise<void> {
   const response = await invokeCommand<unknown>("tasks_list", DEFAULT_TASK_QUERY);
@@ -638,6 +1158,11 @@ export async function previewContactsDedupe(args: ContactsDedupePreviewArgs): Pr
 export async function listContactsDedupeCandidates(args: ContactsDedupePreviewArgs): Promise<ContactsDedupePreviewResult> {
   const response = await invokeCommand<unknown>("contacts_dedupe_candidates", args);
   return parseWithSchema("contacts_dedupe_candidates response", response, ContactsDedupePreviewResultSchema);
+}
+
+export async function decideContactsDedupe(args: ContactsDedupeDecideArgs): Promise<ContactsDedupeDecideResult> {
+  const response = await invokeCommand<unknown>("contacts_dedupe_decide", args);
+  return parseWithSchema("contacts_dedupe_decide response", response, ContactsDedupeDecideResultSchema);
 }
 
 export async function openContactAction(args: ContactOpenActionArgs): Promise<ContactOpenActionResult> {

@@ -84,18 +84,28 @@ export function AppShell() {
   const runtimeMode = runtimeConfig?.app?.mode ?? runtimeConfig?.mode ?? "prod";
   const loggingDirectory = runtimeConfig?.logging?.directory ?? "logs";
   const isDevMode = runtimeMode === "dev";
+  const verboseRenderProfiling = String(import.meta.env.VITE_RIVET_PROFILE_VERBOSE ?? "").trim() === "1";
+  const contactsFeatureEnabled = runtimeConfig?.ui?.features?.contacts ?? true;
   const themeIconMode = themeFollowSystem ? systemThemeMode : themeMode;
   const onProfilerRender = useCallback<ProfilerOnRenderCallback>(
     (id, phase, actualDuration, baseDuration) => {
       if (!isDevMode) {
         return;
       }
-      logger.debug(
-        "render.profile",
-        `${id} phase=${phase} actual_ms=${actualDuration.toFixed(2)} base_ms=${baseDuration.toFixed(2)}`
-      );
+      if (id.endsWith(".workspace") && actualDuration > 120) {
+        logger.warn(
+          "render.budget",
+          `${id} phase=${phase} actual_ms=${actualDuration.toFixed(2)} budget_ms=120`
+        );
+      }
+      if (verboseRenderProfiling) {
+        logger.debug(
+          "render.profile",
+          `${id} phase=${phase} actual_ms=${actualDuration.toFixed(2)} base_ms=${baseDuration.toFixed(2)}`
+        );
+      }
     },
-    [isDevMode]
+    [isDevMode, verboseRenderProfiling]
   );
 
   useEffect(() => {
@@ -104,6 +114,12 @@ export function AppShell() {
       [activeTab]: true
     }));
   }, [activeTab]);
+
+  useEffect(() => {
+    if (!contactsFeatureEnabled && activeTab === "contacts") {
+      setActiveTab("tasks");
+    }
+  }, [activeTab, contactsFeatureEnabled, setActiveTab]);
 
   useEffect(() => {
     scanDueNotifications();
@@ -127,6 +143,9 @@ export function AppShell() {
       const key = event.key.toLowerCase();
 
       if (isMeta && key === "n") {
+        if (activeTab === "contacts" && contactsFeatureEnabled) {
+          return;
+        }
         event.preventDefault();
         openAddTaskDialog();
         return;
@@ -154,6 +173,9 @@ export function AppShell() {
         return;
       }
       if (isMeta && key === "4") {
+        if (!contactsFeatureEnabled) {
+          return;
+        }
         event.preventDefault();
         setActiveTab("contacts");
         return;
@@ -168,7 +190,7 @@ export function AppShell() {
 
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [closeSettings, openAddTaskDialog, openSettings, setActiveTab, settingsOpen]);
+  }, [activeTab, closeSettings, contactsFeatureEnabled, openAddTaskDialog, openSettings, setActiveTab, settingsOpen]);
 
   return (
     <div className="flex h-screen min-h-screen flex-col overflow-hidden">
@@ -187,7 +209,7 @@ export function AppShell() {
             <Tab value="tasks" label="Tasks" />
             <Tab value="kanban" label="Kanban" />
             <Tab value="calendar" label="Calendar" />
-            <Tab value="contacts" label="Contacts" />
+            {contactsFeatureEnabled ? <Tab value="contacts" label="Contacts" /> : null}
           </Tabs>
           <div className="ml-auto" />
           <Stack direction="row" spacing={1} alignItems="center">
@@ -258,7 +280,7 @@ export function AppShell() {
             </Profiler>
           </div>
         ) : null}
-        {mountedTabs.contacts ? (
+        {contactsFeatureEnabled && mountedTabs.contacts ? (
           <div className={activeTab === "contacts" ? "h-full" : "hidden h-full"} aria-hidden={activeTab !== "contacts"}>
             <Profiler id="contacts.workspace" onRender={onProfilerRender}>
               <ContactsWorkspaceMemo />

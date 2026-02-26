@@ -40,6 +40,9 @@ export interface RivetRuntimeConfig {
       mode?: "day" | "night" | string;
       follow_system?: boolean;
     };
+    features?: {
+      contacts?: boolean;
+    };
   };
   calendar?: {
     version?: number;

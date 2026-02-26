@@ -526,6 +526,7 @@ fn main() {
         commands::contacts_delete_bulk,
         commands::contacts_dedupe_preview,
         commands::contacts_dedupe_candidates,
+        commands::contacts_dedupe_decide,
         commands::contact_open_action,
         commands::contacts_import_preview,
         commands::contacts_import_commit,

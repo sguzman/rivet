@@ -74,6 +74,8 @@ export interface ContactDto {
   id: string;
   display_name: string;
   avatar_data_url: string | null;
+  import_batch_id: string | null;
+  source_file_name: string | null;
   given_name: string | null;
   family_name: string | null;
   nickname: string | null;
@@ -110,6 +112,8 @@ export interface ContactsListResult {
 export interface ContactCreate {
   display_name: string | null;
   avatar_data_url: string | null;
+  import_batch_id: string | null;
+  source_file_name: string | null;
   given_name: string | null;
   family_name: string | null;
   nickname: string | null;
@@ -130,6 +134,8 @@ export interface ContactCreate {
 export interface ContactPatch {
   display_name?: string | null;
   avatar_data_url?: string | null;
+  import_batch_id?: string | null;
+  source_file_name?: string | null;
   given_name?: string | null;
   family_name?: string | null;
   nickname?: string | null;
@@ -173,6 +179,19 @@ export interface ContactDedupeCandidateGroup {
 
 export interface ContactsDedupePreviewResult {
   groups: ContactDedupeCandidateGroup[];
+}
+
+export interface ContactsDedupeDecideArgs {
+  candidate_group_id: string;
+  decision: "ignored" | "separate" | "merged" | string;
+  actor: string | null;
+}
+
+export interface ContactsDedupeDecideResult {
+  candidate_group_id: string;
+  decision: string;
+  actor: string;
+  decided_at: string;
 }
 
 export interface ContactOpenActionArgs {

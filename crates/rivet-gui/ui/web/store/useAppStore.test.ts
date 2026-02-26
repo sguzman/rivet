@@ -244,4 +244,62 @@ describe("useAppStore modal and save regressions", () => {
     const current = useAppStore.getState();
     expect(current.tasks[0]?.tags).toEqual(["kanban:working", "board:beta"]);
   });
+
+  it("bootstraps startup state and keeps existing tabs responsive", async () => {
+    const startupTask = sampleTask("Startup task");
+    mocks.healthCheckMock.mockResolvedValueOnce(undefined);
+    mocks.listTasksMock.mockResolvedValueOnce([startupTask]);
+    mocks.loadConfigSnapshotMock.mockResolvedValueOnce({
+      mode: "dev",
+      app: { mode: "dev" },
+      ui: { features: { contacts: true } }
+    });
+    mocks.loadTagSchemaSnapshotMock.mockResolvedValueOnce({
+      version: 1,
+      keys: [{ id: "kanban", values: ["todo", "working", "finished"] }]
+    });
+
+    await useAppStore.getState().bootstrap();
+
+    const current = useAppStore.getState();
+    expect(current.bootstrapped).toBe(true);
+    expect(current.loading).toBe(false);
+    expect(current.tasks[0]?.uuid).toBe(startupTask.uuid);
+    expect(current.runtimeConfig?.app?.mode).toBe("dev");
+
+    current.setActiveTab("tasks");
+    expect(useAppStore.getState().activeTab).toBe("tasks");
+    current.setActiveTab("kanban");
+    expect(useAppStore.getState().activeTab).toBe("kanban");
+    current.setActiveTab("calendar");
+    expect(useAppStore.getState().activeTab).toBe("calendar");
+    current.setActiveTab("contacts");
+    expect(useAppStore.getState().activeTab).toBe("contacts");
+  });
+
+  it("captures and clears diagnostics failure records", () => {
+    const sink = mocks.setCommandFailureSinkMock.mock.calls.at(-1)?.[0] as
+      | ((record: {
+          command: string;
+          request_id: string;
+          duration_ms: number;
+          error: string;
+          timestamp: string;
+        }) => void)
+      | undefined;
+    expect(typeof sink).toBe("function");
+
+    sink?.({
+      command: "contacts_list",
+      request_id: "req-1",
+      duration_ms: 33,
+      error: "boom",
+      timestamp: new Date().toISOString()
+    });
+    expect(useAppStore.getState().commandFailures).toHaveLength(1);
+    expect(useAppStore.getState().commandFailures[0]?.request_id).toBe("req-1");
+
+    useAppStore.getState().clearCommandFailures();
+    expect(useAppStore.getState().commandFailures).toHaveLength(0);
+  });
 });
