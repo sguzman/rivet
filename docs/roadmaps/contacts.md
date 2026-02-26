@@ -2,32 +2,32 @@
 
 **1. Product Scope**
 
-- [ ] Add a new `Contacts` tab to the existing app shell, alongside
+- [x] Add a new `Contacts` tab to the existing app shell, alongside
    Tasks/Kanban/Calendar.
-- [ ] Primary layout requirement: left area for search + browsing contacts, right
+- [x] Primary layout requirement: left area for search + browsing contacts, right
    area for adding a new contact.
-- [ ] Keep first release local-first and offline-first, with architecture ready for
+- [x] Keep first release local-first and offline-first, with architecture ready for
    online/contact-source aggregation later.
-- [ ] Exclude all command-line behavior from scope.
+- [x] Exclude all command-line behavior from scope.
 
 **2. Feature Set Adapted From GNOME Contacts**
 
-- [ ] Include now: contact list, search, create, edit, delete, multiple
+- [x] Include now: contact list, search, create, edit, delete, multiple
    phones/emails, typed fields, optional expanded fields, duplicate-aware
    behavior.
-- [ ] Include now: selection mode for multi-delete and future merge/link.
-- [ ] Include now: quick actions to launch `mailto:` and `tel:` (where platform
+- [x] Include now: selection mode for multi-delete and future merge/link.
+- [x] Include now: quick actions to launch `mailto:` and `tel:` (where platform
    supports).
 - [ ] Include later: source aggregation (local + external), contact
    linking/unlinking, richer profile metadata, avatars, birthday UX.
-- [ ] Exclude initially: account setup flows, platform account provisioning,
+- [x] Exclude initially: account setup flows, platform account provisioning,
    advanced sync conflict UIs.
 
 **3. UX Structure**
 
 - [ ] Left pane: search box, filters, result list, optional selection mode toggle,
    bulk actions bar.
-- [ ] Right pane: “Add Contact” form by default, with fast create workflow and
+- [x] Right pane: “Add Contact” form by default, with fast create workflow and
    validation.
 - [ ] Right pane behavior after selection: switch to “Contact Details/Edit” view
    while preserving an “Add New” button.
@@ -38,54 +38,54 @@
 
 **4. Contact Data Model (V1)**
 
-- [ ] `Contact`: `id`, `display_name`, `given_name`, `family_name`, `nickname`,
+- [x] `Contact`: `id`, `display_name`, `given_name`, `family_name`, `nickname`,
    `notes`, `created_at`, `updated_at`.
-- [ ] `Phones[]`: `value`, `type` (`mobile/home/work/other`), `is_primary`.
-- [ ] `Emails[]`: `value`, `type`, `is_primary`.
-- [ ] `Websites[]`, `Birthday` (optional), `Organization` (optional), `Title`
+- [x] `Phones[]`: `value`, `type` (`mobile/home/work/other`), `is_primary`.
+- [x] `Emails[]`: `value`, `type`, `is_primary`.
+- [x] `Websites[]`, `Birthday` (optional), `Organization` (optional), `Title`
    (optional).
 - [ ] `Addresses[]` deferred to V1.1 unless needed immediately.
-- [ ] `Source metadata`: `source_id`, `source_kind` (start with `local`),
+- [x] `Source metadata`: `source_id`, `source_kind` (start with `local`),
    `remote_id` nullable.
-- [ ] `Merged identity hooks` (for future linking): `link_group_id` nullable.
+- [x] `Merged identity hooks` (for future linking): `link_group_id` nullable.
 
 **5. Backend Architecture (Tauri + Rust)**
 
-- [ ] Add contact domain/state handling in GUI backend first, parallel to existing
+- [x] Add contact domain/state handling in GUI backend first, parallel to existing
    task commands.
-- [ ] Persist contacts in dedicated storage, not task records.
-- [ ] Recommended storage shape: `contacts.data` JSONL (and optional
+- [x] Persist contacts in dedicated storage, not task records.
+- [x] Recommended storage shape: `contacts.data` JSONL (and optional
    `contacts_deleted.data` if soft delete is needed).
 - [ ] Build normalized in-memory indexes for search (name/email/phone tokens) to
    avoid full scans on every keypress.
-- [ ] Add DTOs in `rivet-gui-shared` for strict frontend/backend contract typing.
+- [x] Add DTOs in `rivet-gui-shared` for strict frontend/backend contract typing.
 - [ ] Keep design ready for eventual migration into `rivet-core` domain if
    cross-surface reuse is needed later.
 
 **6. Tauri Command Contract (V1)**
 
-- [ ] `contacts_list(args)` with `query`, `limit`, `cursor`, optional `source`,
+- [x] `contacts_list(args)` with `query`, `limit`, `cursor`, optional `source`,
    optional `updated_after`.
-- [ ] `contact_add(args)` with full create payload and server-side validation.
-- [ ] `contact_update(args)` patch-style updates.
-- [ ] `contact_delete(args)` single delete.
-- [ ] `contacts_delete_bulk(args)` bulk delete.
-- [ ] `contacts_dedupe_preview(args)` optional early dedupe utility.
-- [ ] `contact_open_action(args)` for `mailto:` / `tel:` launch abstraction.
-- [ ] Add command correlation + error surfacing exactly like existing command
+- [x] `contact_add(args)` with full create payload and server-side validation.
+- [x] `contact_update(args)` patch-style updates.
+- [x] `contact_delete(args)` single delete.
+- [x] `contacts_delete_bulk(args)` bulk delete.
+- [x] `contacts_dedupe_preview(args)` optional early dedupe utility.
+- [x] `contact_open_action(args)` for `mailto:` / `tel:` launch abstraction.
+- [x] Add command correlation + error surfacing exactly like existing command
    telemetry patterns.
 
 **7. Frontend State Design (Zustand)**
 
-- [ ] Create a dedicated `contacts` slice, separate from task/kanban/calendar
+- [x] Create a dedicated `contacts` slice, separate from task/kanban/calendar
    concerns.
-- [ ] Store only UI/session state in Zustand, keep canonical data from backend
+- [x] Store only UI/session state in Zustand, keep canonical data from backend
    responses.
 - [ ] State keys: `contacts`, `query`, `selectedContactId`, `selectionIds`,
    `loading`, `error`, `formDraft`, `dirty`.
 - [ ] Derived selectors must be memoized and cheap, especially for search results
    and facet counts.
-- [ ] Avoid full-list recomputation on every keystroke by using indexed backend
+- [x] Avoid full-list recomputation on every keystroke by using indexed backend
    query + debounced input.
 - [ ] Preserve current tab performance discipline: avoid high-frequency bridge
    logging for every input event.
@@ -104,10 +104,10 @@
 
 **9. Validation and Data Quality**
 
-- [ ] Require at least one of: display name, email, or phone.
-- [ ] Email format validation (strict enough to catch obvious errors, not
+- [x] Require at least one of: display name, email, or phone.
+- [x] Email format validation (strict enough to catch obvious errors, not
    RFC-overkill UX).
-- [ ] Phone normalization for search but preserve original display formatting.
+- [x] Phone normalization for search but preserve original display formatting.
 - [ ] Prevent accidental duplicates with non-blocking warning (“possible duplicate
    exists”).
 - [ ] Enforce safe field limits to prevent runaway payloads.
@@ -149,37 +149,37 @@
 
 **13. Immediate Execution Order**
 
-- [ ] Define V1 schema and command contracts.
-- [ ] Implement backend persistence and list/add/update/delete commands.
-- [ ] Add Contacts tab + left-search/right-add UI.
-- [ ] Wire Zustand slice and selectors with performance constraints.
+- [x] Define V1 schema and command contracts.
+- [x] Implement backend persistence and list/add/update/delete commands.
+- [x] Add Contacts tab + left-search/right-add UI.
+- [x] Wire Zustand slice and selectors with performance constraints.
 - [ ] Add tests and performance instrumentation.
 - [ ] Run internal dogfood pass, then enable by default.
 
 **14. Import From Gmail and Apple iPhone**
 
-- [ ] Support import sources in phases:
+- [x] Support import sources in phases:
    - [ ] Phase 1: file-based import only (`.vcf`/vCard), including Google and
       iPhone exports.
    - [ ] Phase 2: direct provider import (Google People API / iCloud contacts API)
       if needed later.
-- [ ] UI entry points:
+- [x] UI entry points:
    - [ ] Add `Import Contacts` button in Contacts tab.
-   - [ ] Import modal with source presets: `Gmail Export`, `iPhone/iCloud Export`,
+   - [x] Import modal with source presets: `Gmail Export`, `iPhone/iCloud Export`,
       `Generic vCard`.
-   - [ ] Show preview before commit: total rows, valid rows, skipped rows,
+   - [x] Show preview before commit: total rows, valid rows, skipped rows,
       potential duplicates.
-- [ ] Parser pipeline:
-   - [ ] Parse vCard versions 2.1/3.0/4.0.
-   - [ ] Normalize names, phone numbers, emails, notes, org/title, birthday.
+- [x] Parser pipeline:
+   - [x] Parse vCard versions 2.1/3.0/4.0.
+   - [x] Normalize names, phone numbers, emails, notes, org/title, birthday.
    - [ ] Keep raw/source metadata for traceability (`import_batch_id`,
       `source_kind`, `source_file_name`).
-- [ ] Import modes:
-   - [ ] `Safe import`: add only non-conflicting contacts.
-   - [ ] `Upsert import`: update existing contacts when match confidence is high.
-   - [ ] `Review mode`: user confirms each conflict group.
-- [ ] Import reporting:
-   - [ ] Created / Updated / Skipped / Failed counts.
+- [x] Import modes:
+   - [x] `Safe import`: add only non-conflicting contacts.
+   - [x] `Upsert import`: update existing contacts when match confidence is high.
+   - [x] `Review mode`: user confirms each conflict group.
+- [x] Import reporting:
+   - [x] Created / Updated / Skipped / Failed counts.
    - [ ] Downloadable or copyable error summary for malformed cards.
 - [ ] iPhone-specific handling:
    - [ ] Normalize Apple labels and multi-value fields.
@@ -191,31 +191,31 @@
 
 **15. Merge / Dedup Capability**
 
-- [ ] Matching strategy (scored, not binary):
-   - [ ] Strong signals: exact normalized email, exact normalized phone.
-   - [ ] Medium signals: same name + same org, same name + shared domain.
-   - [ ] Weak signals: fuzzy name only (never auto-merge on weak signal alone).
-- [ ] Dedup workflow:
-   - [ ] `Dedup Center` view lists candidate duplicate groups with confidence
+- [x] Matching strategy (scored, not binary):
+   - [x] Strong signals: exact normalized email, exact normalized phone.
+   - [x] Medium signals: same name + same org, same name + shared domain.
+   - [x] Weak signals: fuzzy name only (never auto-merge on weak signal alone).
+- [x] Dedup workflow:
+   - [x] `Dedup Center` view lists candidate duplicate groups with confidence
       score.
    - [ ] Group details show side-by-side field comparison.
    - [ ] User actions: `Merge`, `Keep Separate`, `Ignore`.
-- [ ] Merge rules:
-   - [ ] Prefer non-empty values over empty.
-   - [ ] Preserve all unique phones/emails/websites.
+- [x] Merge rules:
+   - [x] Prefer non-empty values over empty.
+   - [x] Preserve all unique phones/emails/websites.
    - [ ] Choose primary value by confidence/recency/user override.
    - [ ] Keep merge audit trail (`merged_from_ids`, timestamp, operator).
-- [ ] Safety controls:
+- [x] Safety controls:
    - [ ] Preview merged result before commit.
-   - [ ] Undo merge (single-step and batch undo).
+   - [x] Undo merge (single-step and batch undo).
    - [ ] Soft-delete redundant records first; hard purge later.
-- [ ] Auto-dedup at import:
-   - [ ] Run matcher during import and route conflicts to review queue.
-   - [ ] Never auto-merge low-confidence groups.
+- [x] Auto-dedup at import:
+   - [x] Run matcher during import and route conflicts to review queue.
+   - [x] Never auto-merge low-confidence groups.
 
 **16. Data Model Additions**
 
-- [ ] `ContactImportBatch`: id, source type, file name, imported_at, stats.
+- [x] `ContactImportBatch`: id, source type, file name, imported_at, stats.
 - [ ] `ContactIdentityFingerprint`: normalized name/email/phone hashes for
    matching.
 - [ ] `MergeAudit`: target_contact_id, source_contact_ids, merge_payload,
@@ -225,12 +225,12 @@
 
 **17. Command/API Additions**
 
-- [ ] `contacts_import_preview(args)` -> parse + normalize + candidate conflicts.
-- [ ] `contacts_import_commit(args)` -> apply creates/updates with summary.
-- [ ] `contacts_dedupe_candidates(args)` -> fetch grouped duplicate candidates.
-- [ ] `contacts_merge(args)` -> merge selected contacts with chosen field
+- [x] `contacts_import_preview(args)` -> parse + normalize + candidate conflicts.
+- [x] `contacts_import_commit(args)` -> apply creates/updates with summary.
+- [x] `contacts_dedupe_candidates(args)` -> fetch grouped duplicate candidates.
+- [x] `contacts_merge(args)` -> merge selected contacts with chosen field
    resolutions.
-- [ ] `contacts_merge_undo(args)` -> undo a merge transaction.
+- [x] `contacts_merge_undo(args)` -> undo a merge transaction.
 
 **18. Milestone Updates**
 
