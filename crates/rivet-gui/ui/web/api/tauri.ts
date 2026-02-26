@@ -3,6 +3,17 @@ import type { ZodType } from "zod";
 
 import { logger, setLoggerBridge } from "../lib/logger";
 import {
+  ContactCreateSchema,
+  ContactDtoArraySchema,
+  ContactDtoSchema,
+  ContactOpenActionResultSchema,
+  ContactUpdateArgsSchema,
+  ContactsDedupePreviewResultSchema,
+  ContactsImportCommitResultSchema,
+  ContactsImportPreviewResultSchema,
+  ContactsListResultSchema,
+  ContactsMergeResultSchema,
+  ContactsMergeUndoResultSchema,
   ExternalCalendarCacheEntryArraySchema,
   ExternalCalendarSourceSchema,
   ExternalCalendarSyncResultSchema,
@@ -15,6 +26,25 @@ import {
   describeSchemaError
 } from "./schemas";
 import type {
+  ContactCreate,
+  ContactDto,
+  ContactIdArg,
+  ContactOpenActionArgs,
+  ContactOpenActionResult,
+  ContactUpdateArgs,
+  ContactsDedupePreviewArgs,
+  ContactsDedupePreviewResult,
+  ContactsDeleteBulkArgs,
+  ContactsImportCommitArgs,
+  ContactsImportCommitResult,
+  ContactsImportPreviewArgs,
+  ContactsImportPreviewResult,
+  ContactsListArgs,
+  ContactsListResult,
+  ContactsMergeArgs,
+  ContactsMergeResult,
+  ContactsMergeUndoArgs,
+  ContactsMergeUndoResult,
   ExternalCalendarCacheEntry,
   ExternalCalendarSource,
   ExternalCalendarSyncResult,
@@ -27,6 +57,7 @@ import type {
 import type { RivetRuntimeConfig, TagSchema } from "../types/config";
 
 const MOCK_TASKS_KEY = "rivet.mock.tasks";
+const MOCK_CONTACTS_KEY = "rivet.mock.contacts";
 const DEFAULT_TIMEOUT_MS = 30_000;
 const EXTERNAL_CALENDAR_TIMEOUT_MS = 90_000;
 const DEFAULT_TASK_QUERY: TasksListArgs = {
@@ -34,6 +65,13 @@ const DEFAULT_TASK_QUERY: TasksListArgs = {
   status: null,
   project: null,
   tag: null
+};
+const DEFAULT_CONTACTS_QUERY: ContactsListArgs = {
+  query: null,
+  limit: 200,
+  cursor: null,
+  source: null,
+  updated_after: null
 };
 
 export interface CommandFailureRecord {
@@ -95,29 +133,42 @@ function parseWithSchema<T>(
   return result.data;
 }
 
-function parseStoredTasks(): TaskDto[] {
+function readLocalStorageJson(key: string): unknown {
   if (typeof window === "undefined") {
     return [];
   }
-
-  const raw = window.localStorage.getItem(MOCK_TASKS_KEY);
+  const raw = window.localStorage.getItem(key);
   if (!raw) {
     return [];
   }
-
   try {
-    const parsed = JSON.parse(raw);
-    return parseWithSchema("mock.tasks", parsed, TaskDtoArraySchema);
+    return JSON.parse(raw);
   } catch {
     return [];
   }
 }
 
-function writeStoredTasks(tasks: TaskDto[]): void {
+function parseStoredTasks(): TaskDto[] {
+  return parseWithSchema("mock.tasks", readLocalStorageJson(MOCK_TASKS_KEY), TaskDtoArraySchema);
+}
+
+function parseStoredContacts(): ContactDto[] {
+  return parseWithSchema("mock.contacts", readLocalStorageJson(MOCK_CONTACTS_KEY), ContactDtoArraySchema);
+}
+
+function writeStorageJson(key: string, value: unknown): void {
   if (typeof window === "undefined") {
     return;
   }
-  window.localStorage.setItem(MOCK_TASKS_KEY, JSON.stringify(tasks));
+  window.localStorage.setItem(key, JSON.stringify(value));
+}
+
+function writeStoredTasks(tasks: TaskDto[]): void {
+  writeStorageJson(MOCK_TASKS_KEY, tasks);
+}
+
+function writeStoredContacts(contacts: ContactDto[]): void {
+  writeStorageJson(MOCK_CONTACTS_KEY, contacts);
 }
 
 function makeMockTask(input: TaskCreate): TaskDto {
@@ -137,6 +188,55 @@ function makeMockTask(input: TaskCreate): TaskDto {
     created: now,
     modified: now
   };
+}
+
+function makeMockContact(input: ContactCreate): ContactDto {
+  const now = new Date().toISOString();
+  const firstEmail = input.emails.find((item) => item.value.trim().length > 0)?.value ?? "";
+  const firstPhone = input.phones.find((item) => item.value.trim().length > 0)?.value ?? "";
+  const display = input.display_name?.trim() || [input.given_name ?? "", input.family_name ?? ""].join(" ").trim() || firstEmail || firstPhone || "Unnamed Contact";
+
+  return {
+    id: crypto.randomUUID(),
+    display_name: display,
+    given_name: input.given_name,
+    family_name: input.family_name,
+    nickname: input.nickname,
+    notes: input.notes,
+    phones: input.phones,
+    emails: input.emails,
+    websites: input.websites,
+    birthday: input.birthday,
+    organization: input.organization,
+    title: input.title,
+    addresses: input.addresses,
+    source_id: input.source_id ?? "local",
+    source_kind: input.source_kind ?? "local",
+    remote_id: input.remote_id,
+    link_group_id: input.link_group_id,
+    created_at: now,
+    updated_at: now
+  };
+}
+
+function contactSearchMatches(contact: ContactDto, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) {
+    return true;
+  }
+
+  const fields = [
+    contact.display_name,
+    contact.given_name ?? "",
+    contact.family_name ?? "",
+    contact.nickname ?? "",
+    contact.notes ?? "",
+    contact.organization ?? "",
+    ...contact.emails.map((item) => item.value),
+    ...contact.phones.map((item) => item.value)
+  ].join(" ").toLowerCase();
+
+  return fields.includes(q);
 }
 
 async function invokeCommand<R>(command: string, args?: unknown): Promise<R> {
@@ -239,6 +339,157 @@ async function invokeCommand<R>(command: string, args?: unknown): Promise<R> {
           throw new Error(`task not found: ${payload.uuid}`);
         }
         return target as R;
+      }
+      case "contacts_list": {
+        const payload = (args ?? DEFAULT_CONTACTS_QUERY) as ContactsListArgs;
+        const all = parseStoredContacts();
+        const filtered = all.filter((contact) => contactSearchMatches(contact, payload.query ?? ""));
+        const total = filtered.length;
+        const limit = Math.max(1, payload.limit ?? 200);
+        const offset = Number(payload.cursor ?? "0") || 0;
+        const contacts = filtered.slice(offset, offset + limit);
+        const next_cursor = offset + contacts.length < total ? String(offset + contacts.length) : null;
+        return { contacts, next_cursor, total } as R;
+      }
+      case "contact_add": {
+        const payload = args as ContactCreate;
+        const contacts = parseStoredContacts();
+        const created = makeMockContact(payload);
+        contacts.unshift(created);
+        writeStoredContacts(contacts);
+        return created as R;
+      }
+      case "contact_update": {
+        const payload = args as ContactUpdateArgs;
+        const contacts = parseStoredContacts().map((entry) => {
+          if (entry.id !== payload.id) {
+            return entry;
+          }
+          return {
+            ...entry,
+            display_name: typeof payload.patch.display_name === "undefined" ? entry.display_name : (payload.patch.display_name ?? ""),
+            given_name: typeof payload.patch.given_name === "undefined" ? entry.given_name : payload.patch.given_name,
+            family_name: typeof payload.patch.family_name === "undefined" ? entry.family_name : payload.patch.family_name,
+            nickname: typeof payload.patch.nickname === "undefined" ? entry.nickname : payload.patch.nickname,
+            notes: typeof payload.patch.notes === "undefined" ? entry.notes : payload.patch.notes,
+            phones: payload.patch.phones ?? entry.phones,
+            emails: payload.patch.emails ?? entry.emails,
+            websites: payload.patch.websites ?? entry.websites,
+            birthday: typeof payload.patch.birthday === "undefined" ? entry.birthday : payload.patch.birthday,
+            organization: typeof payload.patch.organization === "undefined" ? entry.organization : payload.patch.organization,
+            title: typeof payload.patch.title === "undefined" ? entry.title : payload.patch.title,
+            addresses: payload.patch.addresses ?? entry.addresses,
+            source_id: typeof payload.patch.source_id === "undefined" ? entry.source_id : (payload.patch.source_id ?? ""),
+            source_kind: typeof payload.patch.source_kind === "undefined" ? entry.source_kind : (payload.patch.source_kind ?? ""),
+            remote_id: typeof payload.patch.remote_id === "undefined" ? entry.remote_id : payload.patch.remote_id,
+            link_group_id: typeof payload.patch.link_group_id === "undefined" ? entry.link_group_id : payload.patch.link_group_id,
+            updated_at: new Date().toISOString()
+          };
+        });
+        writeStoredContacts(contacts);
+        const target = contacts.find((entry) => entry.id === payload.id);
+        if (!target) {
+          throw new Error(`contact not found: ${payload.id}`);
+        }
+        return target as R;
+      }
+      case "contact_delete": {
+        const payload = args as ContactIdArg;
+        const contacts = parseStoredContacts().filter((entry) => entry.id !== payload.id);
+        writeStoredContacts(contacts);
+        return undefined as R;
+      }
+      case "contacts_delete_bulk": {
+        const payload = args as ContactsDeleteBulkArgs;
+        const ids = new Set(payload.ids);
+        const contacts = parseStoredContacts();
+        const kept = contacts.filter((entry) => !ids.has(entry.id));
+        const deleted = contacts.length - kept.length;
+        writeStoredContacts(kept);
+        return deleted as R;
+      }
+      case "contacts_dedupe_preview":
+      case "contacts_dedupe_candidates": {
+        const all = parseStoredContacts();
+        const groups = new Map<string, ContactDto[]>();
+        for (const contact of all) {
+          const key = contact.display_name.trim().toLowerCase();
+          if (!key) {
+            continue;
+          }
+          const current = groups.get(key) ?? [];
+          current.push(contact);
+          groups.set(key, current);
+        }
+        const out = [...groups.entries()]
+          .filter(([, contacts]) => contacts.length > 1)
+          .map(([key, contacts], index) => ({
+            group_id: `mock-${index}`,
+            reason: `same name: ${key}`,
+            score: 60,
+            contacts
+          }));
+        return { groups: out } as R;
+      }
+      case "contact_open_action": {
+        const payload = args as ContactOpenActionArgs;
+        const url = payload.action === "tel" || payload.action === "phone"
+          ? `tel:${payload.value ?? ""}`
+          : `mailto:${payload.value ?? ""}`;
+        return {
+          launched: false,
+          url
+        } as R;
+      }
+      case "contacts_import_preview": {
+        const payload = args as ContactsImportPreviewArgs;
+        return {
+          batch_id: crypto.randomUUID(),
+          source: payload.source,
+          total_rows: 0,
+          valid_rows: 0,
+          skipped_rows: 0,
+          potential_duplicates: 0,
+          contacts: [],
+          conflicts: [],
+          errors: []
+        } as R;
+      }
+      case "contacts_import_commit": {
+        return {
+          batch_id: crypto.randomUUID(),
+          created: 0,
+          updated: 0,
+          skipped: 0,
+          failed: 0,
+          conflicts: 0,
+          errors: []
+        } as R;
+      }
+      case "contacts_merge": {
+        const payload = args as ContactsMergeArgs;
+        const contacts = parseStoredContacts();
+        const ids = new Set(payload.ids);
+        const selected = contacts.filter((entry) => ids.has(entry.id));
+        if (selected.length < 2) {
+          throw new Error("need at least two contacts to merge");
+        }
+        const targetId = payload.target_id ?? selected[0].id;
+        const target = selected.find((entry) => entry.id === targetId) ?? selected[0];
+        const removed = selected.filter((entry) => entry.id !== target.id).map((entry) => entry.id);
+        const next = contacts.filter((entry) => !removed.includes(entry.id));
+        writeStoredContacts(next);
+        return {
+          merged: target,
+          removed_ids: removed,
+          undo_id: crypto.randomUUID()
+        } as R;
+      }
+      case "contacts_merge_undo": {
+        return {
+          restored: 0,
+          undo_id: (args as ContactsMergeUndoArgs)?.undo_id ?? ""
+        } as R;
       }
       case "config_snapshot": {
         return {} as R;
@@ -349,6 +600,67 @@ export async function uncompleteTask(uuid: string): Promise<TaskDto> {
 
 export async function deleteTask(uuid: string): Promise<void> {
   return invokeCommand<void>("task_delete", { uuid });
+}
+
+export async function listContacts(args: ContactsListArgs = DEFAULT_CONTACTS_QUERY): Promise<ContactsListResult> {
+  const response = await invokeCommand<unknown>("contacts_list", args);
+  return parseWithSchema("contacts_list response", response, ContactsListResultSchema);
+}
+
+export async function addContact(args: ContactCreate): Promise<ContactDto> {
+  const payload = parseWithSchema("contact_add args", args, ContactCreateSchema);
+  const response = await invokeCommand<unknown>("contact_add", payload);
+  return parseWithSchema("contact_add response", response, ContactDtoSchema);
+}
+
+export async function updateContact(args: ContactUpdateArgs): Promise<ContactDto> {
+  const payload = parseWithSchema("contact_update args", args, ContactUpdateArgsSchema);
+  const response = await invokeCommand<unknown>("contact_update", payload);
+  return parseWithSchema("contact_update response", response, ContactDtoSchema);
+}
+
+export async function deleteContact(id: string): Promise<void> {
+  return invokeCommand<void>("contact_delete", { id });
+}
+
+export async function deleteContactsBulk(args: ContactsDeleteBulkArgs): Promise<number> {
+  const response = await invokeCommand<unknown>("contacts_delete_bulk", args);
+  return Number(response);
+}
+
+export async function previewContactsDedupe(args: ContactsDedupePreviewArgs): Promise<ContactsDedupePreviewResult> {
+  const response = await invokeCommand<unknown>("contacts_dedupe_preview", args);
+  return parseWithSchema("contacts_dedupe_preview response", response, ContactsDedupePreviewResultSchema);
+}
+
+export async function listContactsDedupeCandidates(args: ContactsDedupePreviewArgs): Promise<ContactsDedupePreviewResult> {
+  const response = await invokeCommand<unknown>("contacts_dedupe_candidates", args);
+  return parseWithSchema("contacts_dedupe_candidates response", response, ContactsDedupePreviewResultSchema);
+}
+
+export async function openContactAction(args: ContactOpenActionArgs): Promise<ContactOpenActionResult> {
+  const response = await invokeCommand<unknown>("contact_open_action", args);
+  return parseWithSchema("contact_open_action response", response, ContactOpenActionResultSchema);
+}
+
+export async function previewContactsImport(args: ContactsImportPreviewArgs): Promise<ContactsImportPreviewResult> {
+  const response = await invokeCommand<unknown>("contacts_import_preview", args);
+  return parseWithSchema("contacts_import_preview response", response, ContactsImportPreviewResultSchema);
+}
+
+export async function commitContactsImport(args: ContactsImportCommitArgs): Promise<ContactsImportCommitResult> {
+  const response = await invokeCommand<unknown>("contacts_import_commit", args);
+  return parseWithSchema("contacts_import_commit response", response, ContactsImportCommitResultSchema);
+}
+
+export async function mergeContacts(args: ContactsMergeArgs): Promise<ContactsMergeResult> {
+  const response = await invokeCommand<unknown>("contacts_merge", args);
+  return parseWithSchema("contacts_merge response", response, ContactsMergeResultSchema);
+}
+
+export async function undoContactsMerge(args: ContactsMergeUndoArgs): Promise<ContactsMergeUndoResult> {
+  const response = await invokeCommand<unknown>("contacts_merge_undo", args);
+  return parseWithSchema("contacts_merge_undo response", response, ContactsMergeUndoResultSchema);
 }
 
 export async function syncExternalCalendar(source: ExternalCalendarSource): Promise<ExternalCalendarSyncResult> {

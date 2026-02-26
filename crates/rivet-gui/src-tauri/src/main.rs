@@ -74,11 +74,8 @@ struct RuntimeSettings {
   log_file_prefix: String
 }
 
-fn env_is_truthy(
-  key: &str
-) -> bool {
-  let Some(value) =
-    env::var_os(key)
+fn env_is_truthy(key: &str) -> bool {
+  let Some(value) = env::var_os(key)
   else {
     return false;
   };
@@ -94,8 +91,7 @@ fn env_is_truthy(
 
 fn should_force_dev_mode() -> bool {
   // `cargo tauri dev` sets this.
-  if env_is_truthy("TAURI_ENV_DEBUG")
-  {
+  if env_is_truthy("TAURI_ENV_DEBUG") {
     return true;
   }
 
@@ -106,10 +102,8 @@ fn should_force_dev_mode() -> bool {
 
 fn find_runtime_config_upwards()
 -> Option<PathBuf> {
-  let cwd =
-    env::current_dir().ok()?;
-  let mut cursor =
-    Some(cwd.as_path());
+  let cwd = env::current_dir().ok()?;
+  let mut cursor = Some(cwd.as_path());
   while let Some(path) = cursor {
     let candidate =
       path.join(APP_CONFIG_FILE);
@@ -131,8 +125,7 @@ fn resolve_log_directory(
   }
 
   if let Some(path) = config_path
-    && let Some(parent) =
-      path.parent()
+    && let Some(parent) = path.parent()
   {
     return parent
       .join(raw)
@@ -278,7 +271,7 @@ fn load_runtime_settings()
   let log_directory =
     resolve_log_directory(
       Some(&path),
-      &configured_log_directory,
+      &configured_log_directory
     );
   let log_file_prefix = parsed
     .logging
@@ -526,6 +519,18 @@ fn main() {
         commands::task_done,
         commands::task_uncomplete,
         commands::task_delete,
+        commands::contacts_list,
+        commands::contact_add,
+        commands::contact_update,
+        commands::contact_delete,
+        commands::contacts_delete_bulk,
+        commands::contacts_dedupe_preview,
+        commands::contacts_dedupe_candidates,
+        commands::contact_open_action,
+        commands::contacts_import_preview,
+        commands::contacts_import_commit,
+        commands::contacts_merge,
+        commands::contacts_merge_undo,
         commands::ui_log,
         commands::external_calendar_sync,
         commands::external_calendar_import_ics,

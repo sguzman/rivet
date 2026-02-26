@@ -291,7 +291,8 @@ impl AppState {
         )
       })?;
 
-    let mut task = completed.remove(idx);
+    let mut task =
+      completed.remove(idx);
     task.status = Status::Pending;
     task.end = None;
     task.modified = now;

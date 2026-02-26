@@ -18,6 +18,7 @@ import { AddTaskDialog } from "../components/AddTaskDialog";
 import { DiagnosticsPanel } from "../components/DiagnosticsPanel";
 import { SettingsDialog } from "../components/SettingsDialog";
 import { CalendarWorkspace } from "../features/calendar/CalendarWorkspace";
+import { ContactsWorkspace } from "../features/contacts/ContactsWorkspace";
 import { KanbanWorkspace } from "../features/kanban/KanbanWorkspace";
 import { TasksWorkspace } from "../features/tasks/TasksWorkspace";
 import { logger } from "../lib/logger";
@@ -26,6 +27,7 @@ import { useDiagnosticsSlice, useSettingsSlice, useShellSlice } from "../store/s
 const TasksWorkspaceMemo = memo(TasksWorkspace);
 const KanbanWorkspaceMemo = memo(KanbanWorkspace);
 const CalendarWorkspaceMemo = memo(CalendarWorkspace);
+const ContactsWorkspaceMemo = memo(ContactsWorkspace);
 
 export function AppShell() {
   const {
@@ -67,10 +69,12 @@ export function AppShell() {
     tasks: boolean;
     kanban: boolean;
     calendar: boolean;
+    contacts: boolean;
   }>({
     tasks: true,
     kanban: false,
-    calendar: false
+    calendar: false,
+    contacts: false
   });
 
   useEffect(() => {
@@ -149,6 +153,11 @@ export function AppShell() {
         setActiveTab("calendar");
         return;
       }
+      if (isMeta && key === "4") {
+        event.preventDefault();
+        setActiveTab("contacts");
+        return;
+      }
 
       if (!isEditable && key === "escape") {
         if (settingsOpen) {
@@ -171,13 +180,14 @@ export function AppShell() {
           </Typography>
           <Tabs
             value={activeTab}
-            onChange={(_, value: string) => setActiveTab(value as "tasks" | "kanban" | "calendar")}
+            onChange={(_, value: string) => setActiveTab(value as "tasks" | "kanban" | "calendar" | "contacts")}
             textColor="primary"
             indicatorColor="primary"
           >
             <Tab value="tasks" label="Tasks" />
             <Tab value="kanban" label="Kanban" />
             <Tab value="calendar" label="Calendar" />
+            <Tab value="contacts" label="Contacts" />
           </Tabs>
           <div className="ml-auto" />
           <Stack direction="row" spacing={1} alignItems="center">
@@ -245,6 +255,13 @@ export function AppShell() {
           <div className={activeTab === "calendar" ? "h-full" : "hidden h-full"} aria-hidden={activeTab !== "calendar"}>
             <Profiler id="calendar.workspace" onRender={onProfilerRender}>
               <CalendarWorkspaceMemo />
+            </Profiler>
+          </div>
+        ) : null}
+        {mountedTabs.contacts ? (
+          <div className={activeTab === "contacts" ? "h-full" : "hidden h-full"} aria-hidden={activeTab !== "contacts"}>
+            <Profiler id="contacts.workspace" onRender={onProfilerRender}>
+              <ContactsWorkspaceMemo />
             </Profiler>
           </div>
         ) : null}

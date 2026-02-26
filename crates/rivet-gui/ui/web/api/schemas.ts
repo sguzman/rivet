@@ -48,6 +48,150 @@ export const TaskUpdateArgsSchema = z.object({
   patch: TaskPatchSchema
 });
 
+export const ContactFieldValueSchema = z.object({
+  value: z.string(),
+  kind: z.string(),
+  is_primary: z.boolean()
+});
+
+export const ContactAddressSchema = z.object({
+  kind: z.string(),
+  street: z.string(),
+  city: z.string(),
+  region: z.string(),
+  postal_code: z.string(),
+  country: z.string()
+});
+
+export const ContactDtoSchema = z.object({
+  id: z.string().min(1),
+  display_name: z.string(),
+  given_name: z.string().nullable(),
+  family_name: z.string().nullable(),
+  nickname: z.string().nullable(),
+  notes: z.string().nullable(),
+  phones: z.array(ContactFieldValueSchema),
+  emails: z.array(ContactFieldValueSchema),
+  websites: z.array(ContactFieldValueSchema),
+  birthday: z.string().nullable(),
+  organization: z.string().nullable(),
+  title: z.string().nullable(),
+  addresses: z.array(ContactAddressSchema),
+  source_id: z.string(),
+  source_kind: z.string(),
+  remote_id: z.string().nullable(),
+  link_group_id: z.string().nullable(),
+  created_at: z.string(),
+  updated_at: z.string()
+});
+
+export const ContactDtoArraySchema = z.array(ContactDtoSchema);
+
+export const ContactsListResultSchema = z.object({
+  contacts: ContactDtoArraySchema,
+  next_cursor: z.string().nullable(),
+  total: z.number().int().min(0)
+});
+
+export const ContactCreateSchema = z.object({
+  display_name: z.string().nullable(),
+  given_name: z.string().nullable(),
+  family_name: z.string().nullable(),
+  nickname: z.string().nullable(),
+  notes: z.string().nullable(),
+  phones: z.array(ContactFieldValueSchema),
+  emails: z.array(ContactFieldValueSchema),
+  websites: z.array(ContactFieldValueSchema),
+  birthday: z.string().nullable(),
+  organization: z.string().nullable(),
+  title: z.string().nullable(),
+  addresses: z.array(ContactAddressSchema),
+  source_id: z.string().nullable(),
+  source_kind: z.string().nullable(),
+  remote_id: z.string().nullable(),
+  link_group_id: z.string().nullable()
+});
+
+export const ContactPatchSchema = z.object({
+  display_name: z.string().nullable().optional(),
+  given_name: z.string().nullable().optional(),
+  family_name: z.string().nullable().optional(),
+  nickname: z.string().nullable().optional(),
+  notes: z.string().nullable().optional(),
+  phones: z.array(ContactFieldValueSchema).optional(),
+  emails: z.array(ContactFieldValueSchema).optional(),
+  websites: z.array(ContactFieldValueSchema).optional(),
+  birthday: z.string().nullable().optional(),
+  organization: z.string().nullable().optional(),
+  title: z.string().nullable().optional(),
+  addresses: z.array(ContactAddressSchema).optional(),
+  source_id: z.string().nullable().optional(),
+  source_kind: z.string().nullable().optional(),
+  remote_id: z.string().nullable().optional(),
+  link_group_id: z.string().nullable().optional()
+});
+
+export const ContactUpdateArgsSchema = z.object({
+  id: z.string().min(1),
+  patch: ContactPatchSchema
+});
+
+export const ContactDedupeCandidateGroupSchema = z.object({
+  group_id: z.string(),
+  reason: z.string(),
+  score: z.number().int().min(0),
+  contacts: ContactDtoArraySchema
+});
+
+export const ContactsDedupePreviewResultSchema = z.object({
+  groups: z.array(ContactDedupeCandidateGroupSchema)
+});
+
+export const ContactOpenActionResultSchema = z.object({
+  launched: z.boolean(),
+  url: z.string().min(1)
+});
+
+export const ContactImportConflictSchema = z.object({
+  imported: ContactDtoSchema,
+  existing: ContactDtoSchema,
+  score: z.number().int().min(0),
+  reason: z.string()
+});
+
+export const ContactsImportPreviewResultSchema = z.object({
+  batch_id: z.string(),
+  source: z.string(),
+  total_rows: z.number().int().min(0),
+  valid_rows: z.number().int().min(0),
+  skipped_rows: z.number().int().min(0),
+  potential_duplicates: z.number().int().min(0),
+  contacts: ContactDtoArraySchema,
+  conflicts: z.array(ContactImportConflictSchema),
+  errors: z.array(z.string())
+});
+
+export const ContactsImportCommitResultSchema = z.object({
+  batch_id: z.string(),
+  created: z.number().int().min(0),
+  updated: z.number().int().min(0),
+  skipped: z.number().int().min(0),
+  failed: z.number().int().min(0),
+  conflicts: z.number().int().min(0),
+  errors: z.array(z.string())
+});
+
+export const ContactsMergeResultSchema = z.object({
+  merged: ContactDtoSchema,
+  removed_ids: z.array(z.string().min(1)),
+  undo_id: z.string().min(1)
+});
+
+export const ContactsMergeUndoResultSchema = z.object({
+  restored: z.number().int().min(0),
+  undo_id: z.string().min(1)
+});
+
 export const ExternalCalendarSourceSchema = z.object({
   id: z.string().min(1),
   name: z.string(),
