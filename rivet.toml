@@ -246,7 +246,7 @@ schema_version = 1
 
 [dictionary] # ACTIVE (dictionary tab + sqlite-backed lookup)
 enabled = true
-sqlite_path = "wiktionary.sqlite"
+sqlite_path = "/win/linux/data/wiktionary/wiktionary.sqlite"
 default_language = "en"
 max_results = 100
 

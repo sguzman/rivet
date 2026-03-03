@@ -17,7 +17,8 @@ use rusqlite::{
 };
 
 const DEFAULT_DICTIONARY_PATH: &str =
-  "wiktionary.sqlite";
+  "/win/linux/data/wiktionary/\
+   wiktionary.sqlite";
 const DEFAULT_SEARCH_LIMIT: u32 = 100;
 const MAX_SEARCH_LIMIT: u32 = 500;
 

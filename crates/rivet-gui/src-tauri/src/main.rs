@@ -387,6 +387,11 @@ fn init_tracing(
           fmt::layer()
             .with_target(true)
             .with_line_number(true)
+        )
+        .with(
+          fmt::layer()
+            .with_target(true)
+            .with_line_number(true)
             .with_ansi(false)
             .with_writer(non_blocking)
         )
