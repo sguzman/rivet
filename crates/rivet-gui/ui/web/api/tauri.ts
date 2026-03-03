@@ -17,6 +17,7 @@ import {
   ContactsMergeResultSchema,
   ContactsMergeUndoResultSchema,
   DictionaryEntrySchema,
+  DictionarySearchArgsSchema,
   DictionarySearchResultSchema,
   ExternalCalendarCacheEntryArraySchema,
   ExternalCalendarSourceSchema,
@@ -90,7 +91,8 @@ const DEFAULT_CONTACTS_QUERY: ContactsListArgs = {
 const DEFAULT_DICTIONARY_QUERY: DictionarySearchArgs = {
   language: null,
   query: "",
-  limit: 100
+  limit: 100,
+  mode: "prefix"
 };
 
 export interface CommandFailureRecord {
@@ -1191,7 +1193,8 @@ async function invokeCommand<R>(command: string, args?: unknown): Promise<R> {
             enabled: true,
             sqlite_path: "/win/linux/data/wiktionary/wiktionary.sqlite",
             default_language: "en",
-            max_results: 100
+            max_results: 100,
+            search_mode: "prefix"
           }
         } as R;
       }
@@ -1404,7 +1407,8 @@ export async function listDictionaryLanguages(): Promise<string[]> {
 }
 
 export async function searchDictionary(args: DictionarySearchArgs): Promise<DictionarySearchResult> {
-  const response = await invokeCommand<unknown>("dictionary_search", args);
+  const payload = parseWithSchema("dictionary_search args", args, DictionarySearchArgsSchema);
+  const response = await invokeCommand<unknown>("dictionary_search", payload);
   return parseWithSchema("dictionary_search response", response, DictionarySearchResultSchema);
 }
 

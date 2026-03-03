@@ -3,13 +3,72 @@ import type { KeyboardEvent } from "react";
 
 import Alert from "@mui/material/Alert";
 import Button from "@mui/material/Button";
+import IconButton from "@mui/material/IconButton";
 import MenuItem from "@mui/material/MenuItem";
 import Paper from "@mui/material/Paper";
 import Stack from "@mui/material/Stack";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
+import ContentCopyIcon from "@mui/icons-material/ContentCopy";
+import StarIcon from "@mui/icons-material/Star";
+import StarBorderIcon from "@mui/icons-material/StarBorder";
 
 import { useDictionaryWorkspaceSlice } from "../../store/slices";
+
+const DICTIONARY_FAVORITES_KEY = "rivet.dictionary.favorites";
+const DICTIONARY_HISTORY_KEY = "rivet.dictionary.history";
+
+type DictionarySavedEntry = {
+  id: number | null;
+  word: string;
+  language: string | null;
+};
+
+function readStoredEntries(key: string): DictionarySavedEntry[] {
+  if (typeof window === "undefined") {
+    return [];
+  }
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) {
+      return [];
+    }
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    return parsed
+      .filter((item): item is DictionarySavedEntry => {
+        if (!item || typeof item !== "object" || Array.isArray(item)) {
+          return false;
+        }
+        const word = (item as { word?: unknown }).word;
+        const id = (item as { id?: unknown }).id;
+        const language = (item as { language?: unknown }).language;
+        const idOk = id === null || typeof id === "number";
+        const languageOk = language === null || typeof language === "string";
+        return typeof word === "string" && word.trim().length > 0 && idOk && languageOk;
+      })
+      .slice(0, 100);
+  } catch {
+    return [];
+  }
+}
+
+function writeStoredEntries(key: string, entries: DictionarySavedEntry[]): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  try {
+    window.localStorage.setItem(key, JSON.stringify(entries.slice(0, 100)));
+  } catch {
+    // no-op
+  }
+}
+
+function savedKey(entry: DictionarySavedEntry): string {
+  return `${entry.word.toLowerCase()}::${entry.language ?? ""}`;
+}
 
 export function DictionaryWorkspace() {
   const {
@@ -33,6 +92,8 @@ export function DictionaryWorkspace() {
   } = useDictionaryWorkspaceSlice();
   const [searchInput, setSearchInput] = useState(dictionaryQuery);
   const [cursorIndex, setCursorIndex] = useState(0);
+  const [favorites, setFavorites] = useState<DictionarySavedEntry[]>(() => readStoredEntries(DICTIONARY_FAVORITES_KEY));
+  const [history, setHistory] = useState<DictionarySavedEntry[]>(() => readStoredEntries(DICTIONARY_HISTORY_KEY));
 
   useEffect(() => {
     void loadDictionaryLanguages();
@@ -73,8 +134,26 @@ export function DictionaryWorkspace() {
     return () => window.clearTimeout(timeout);
   }, [searchInput, searchDictionaryEntries, setDictionaryQuery]);
 
+  useEffect(() => {
+    if (!dictionaryEntry) {
+      return;
+    }
+    const entry: DictionarySavedEntry = {
+      id: dictionaryEntry.id,
+      word: dictionaryEntry.word,
+      language: dictionaryEntry.language
+    };
+    setHistory((previous) => {
+      const key = savedKey(entry);
+      const next = [entry, ...previous.filter((item) => savedKey(item) !== key)].slice(0, 50);
+      writeStoredEntries(DICTIONARY_HISTORY_KEY, next);
+      return next;
+    });
+  }, [dictionaryEntry]);
+
   const dictionaryEnabled = runtimeConfig?.dictionary?.enabled ?? true;
   const dbPath = runtimeConfig?.dictionary?.sqlite_path ?? "wiktionary.sqlite";
+  const searchMode = String(runtimeConfig?.dictionary?.search_mode ?? "prefix").trim().toLowerCase();
   const hasResults = dictionaryResults.length > 0;
   const displayLanguage = dictionaryLanguage ?? "__all__";
 
@@ -88,6 +167,42 @@ export function DictionaryWorkspace() {
     }
     return dictionaryEntry.definitions.map((text, index) => ({ order: index + 1, text }));
   }, [dictionaryEntry]);
+  const relationBuckets = useMemo(() => {
+    const synonyms: string[] = [];
+    const antonyms: string[] = [];
+    const translations: string[] = [];
+    const domains: string[] = [];
+    const others: string[] = [];
+    const metadata = dictionaryEntry?.metadata ?? [];
+    for (const item of metadata) {
+      const relationType = item.relation_type.toLowerCase();
+      const target = item.target;
+      if (relationType.includes("synonym")) {
+        synonyms.push(target);
+      } else if (relationType.includes("antonym")) {
+        antonyms.push(target);
+      } else if (relationType.includes("translation")) {
+        translations.push(target);
+      } else if (relationType.includes("domain") || relationType.includes("register")) {
+        domains.push(target);
+      } else {
+        others.push(`${item.relation_type}: ${target}`);
+      }
+    }
+    return { synonyms, antonyms, translations, domains, others };
+  }, [dictionaryEntry]);
+  const isFavorite = useMemo(() => {
+    if (!dictionaryEntry) {
+      return false;
+    }
+    const current: DictionarySavedEntry = {
+      id: dictionaryEntry.id,
+      word: dictionaryEntry.word,
+      language: dictionaryEntry.language
+    };
+    const key = savedKey(current);
+    return favorites.some((entry) => savedKey(entry) === key);
+  }, [dictionaryEntry, favorites]);
 
   const handleSearchKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (dictionaryResults.length === 0) {
@@ -126,6 +241,47 @@ export function DictionaryWorkspace() {
       void selectDictionaryHit(hit);
     }
   };
+  const openSavedEntry = (entry: DictionarySavedEntry) => {
+    void selectDictionaryHit({
+      id: entry.id,
+      word: entry.word,
+      language: entry.language,
+      part_of_speech: null,
+      pronunciation: null,
+      summary: null,
+      source_table: "saved",
+      matched_by_prefix: false
+    });
+  };
+  const toggleFavorite = () => {
+    if (!dictionaryEntry) {
+      return;
+    }
+    const current: DictionarySavedEntry = {
+      id: dictionaryEntry.id,
+      word: dictionaryEntry.word,
+      language: dictionaryEntry.language
+    };
+    const key = savedKey(current);
+    setFavorites((previous) => {
+      const exists = previous.some((item) => savedKey(item) === key);
+      const next = exists
+        ? previous.filter((item) => savedKey(item) !== key)
+        : [current, ...previous].slice(0, 50);
+      writeStoredEntries(DICTIONARY_FAVORITES_KEY, next);
+      return next;
+    });
+  };
+  const copyText = async (text: string) => {
+    if (typeof navigator === "undefined" || !navigator.clipboard) {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      // no-op
+    }
+  };
 
   if (!dictionaryEnabled) {
     return (
@@ -142,6 +298,9 @@ export function DictionaryWorkspace() {
           <Typography variant="h6">Dictionary</Typography>
           <Typography variant="caption" color="text.secondary">
             db: {dbPath}
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            mode: {searchMode}
           </Typography>
           <TextField
             select
@@ -225,6 +384,30 @@ export function DictionaryWorkspace() {
               );
             })}
           </Stack>
+          {favorites.length > 0 ? (
+            <>
+              <Typography variant="subtitle2">Favorites</Typography>
+              <Stack spacing={0.5} className="max-h-[120px] overflow-y-auto pr-1">
+                {favorites.map((entry) => (
+                  <Button key={`fav:${savedKey(entry)}`} size="small" variant="text" className="!justify-start" onClick={() => openSavedEntry(entry)}>
+                    {entry.word}
+                  </Button>
+                ))}
+              </Stack>
+            </>
+          ) : null}
+          {history.length > 0 ? (
+            <>
+              <Typography variant="subtitle2">Recent</Typography>
+              <Stack spacing={0.5} className="max-h-[120px] overflow-y-auto pr-1">
+                {history.map((entry) => (
+                  <Button key={`hist:${savedKey(entry)}`} size="small" variant="text" className="!justify-start" onClick={() => openSavedEntry(entry)}>
+                    {entry.word}
+                  </Button>
+                ))}
+              </Stack>
+            </>
+          ) : null}
         </Stack>
       </Paper>
 
@@ -234,6 +417,21 @@ export function DictionaryWorkspace() {
         ) : (
           <Stack spacing={1.5}>
             <Typography variant="h5">{dictionaryEntry.word}</Typography>
+            <Stack direction="row" spacing={0.5}>
+              <IconButton size="small" onClick={toggleFavorite} aria-label="Toggle favorite">
+                {isFavorite ? <StarIcon fontSize="small" /> : <StarBorderIcon fontSize="small" />}
+              </IconButton>
+              <IconButton
+                size="small"
+                onClick={() => {
+                  const primary = orderedSenses[0]?.text ?? dictionaryEntry.word;
+                  void copyText(primary);
+                }}
+                aria-label="Copy definition"
+              >
+                <ContentCopyIcon fontSize="small" />
+              </IconButton>
+            </Stack>
             <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
               {dictionaryEntry.language ? (
                 <Typography variant="caption" className="rounded-md border border-current/15 px-1.5 py-0.5">
@@ -253,7 +451,12 @@ export function DictionaryWorkspace() {
             </Stack>
             {dictionaryEntry.pronunciation ? (
               <div>
-                <Typography variant="subtitle2">Pronunciation</Typography>
+                <Stack direction="row" spacing={1} alignItems="center">
+                  <Typography variant="subtitle2">Pronunciation (IPA)</Typography>
+                  <IconButton size="small" onClick={() => void copyText(dictionaryEntry.pronunciation ?? "")} aria-label="Copy pronunciation">
+                    <ContentCopyIcon fontSize="small" />
+                  </IconButton>
+                </Stack>
                 <Typography variant="body2">{dictionaryEntry.pronunciation}</Typography>
               </div>
             ) : null}
@@ -295,6 +498,40 @@ export function DictionaryWorkspace() {
                     <Typography key={note} variant="body2" color="text.secondary">
                       {note}
                     </Typography>
+                  ))}
+                </Stack>
+              </div>
+            ) : null}
+            {relationBuckets.synonyms.length > 0 ? (
+              <div>
+                <Typography variant="subtitle2">Synonyms</Typography>
+                <Typography variant="body2" color="text.secondary">{relationBuckets.synonyms.join(", ")}</Typography>
+              </div>
+            ) : null}
+            {relationBuckets.antonyms.length > 0 ? (
+              <div>
+                <Typography variant="subtitle2">Antonyms</Typography>
+                <Typography variant="body2" color="text.secondary">{relationBuckets.antonyms.join(", ")}</Typography>
+              </div>
+            ) : null}
+            {relationBuckets.translations.length > 0 ? (
+              <div>
+                <Typography variant="subtitle2">Translations</Typography>
+                <Typography variant="body2" color="text.secondary">{relationBuckets.translations.join(", ")}</Typography>
+              </div>
+            ) : null}
+            {relationBuckets.domains.length > 0 ? (
+              <div>
+                <Typography variant="subtitle2">Domain/Register</Typography>
+                <Typography variant="body2" color="text.secondary">{relationBuckets.domains.join(", ")}</Typography>
+              </div>
+            ) : null}
+            {relationBuckets.others.length > 0 ? (
+              <div>
+                <Typography variant="subtitle2">Related</Typography>
+                <Stack spacing={0.5}>
+                  {relationBuckets.others.slice(0, 24).map((item) => (
+                    <Typography key={item} variant="body2" color="text.secondary">{item}</Typography>
                   ))}
                 </Stack>
               </div>

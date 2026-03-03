@@ -1321,7 +1321,8 @@ export const useAppStore = create<AppState>((set, get) => {
       const result = await searchDictionary({
         query,
         language: state.dictionaryLanguage,
-        limit: state.runtimeConfig?.dictionary?.max_results ?? 100
+        limit: state.runtimeConfig?.dictionary?.max_results ?? 100,
+        mode: state.runtimeConfig?.dictionary?.search_mode ?? "prefix"
       });
       const firstHit = result.hits[0] ?? null;
       set({

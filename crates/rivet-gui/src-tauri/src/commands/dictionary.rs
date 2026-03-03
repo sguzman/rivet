@@ -29,7 +29,8 @@ struct DictionaryConfig {
   enabled:          Option<bool>,
   sqlite_path:      Option<String>,
   default_language: Option<String>,
-  max_results:      Option<u32>
+  max_results:      Option<u32>,
+  search_mode:      Option<String>
 }
 
 #[derive(Debug, Clone)]
@@ -37,7 +38,8 @@ struct DictionarySettings {
   enabled:          bool,
   sqlite_path:      std::path::PathBuf,
   default_language: Option<String>,
-  max_results:      u32
+  max_results:      u32,
+  search_mode:      String
 }
 
 #[derive(Debug, Clone)]
@@ -80,6 +82,25 @@ fn normalize_for_search(
   value: &str
 ) -> String {
   value.trim().to_ascii_lowercase()
+}
+
+fn normalize_search_mode(
+  value: Option<String>
+) -> String {
+  let Some(raw) = value else {
+    return "prefix".to_string();
+  };
+  let mode = raw
+    .trim()
+    .to_ascii_lowercase();
+  if mode == "exact"
+    || mode == "prefix"
+    || mode == "fuzzy"
+  {
+    mode
+  } else {
+    "prefix".to_string()
+  }
 }
 
 fn dedupe_strings(
@@ -396,6 +417,8 @@ fn resolve_dictionary_settings(
   let mut default_language = None;
   let mut max_results =
     DEFAULT_SEARCH_LIMIT;
+  let mut search_mode =
+    "prefix".to_string();
 
   if config_path.is_file() {
     let raw = std::fs::read_to_string(
@@ -447,6 +470,10 @@ fn resolve_dictionary_settings(
           MAX_SEARCH_LIMIT,
         );
       }
+      search_mode =
+        normalize_search_mode(
+          dictionary.search_mode
+        );
     }
   }
 
@@ -476,7 +503,8 @@ fn resolve_dictionary_settings(
     enabled,
     sqlite_path,
     default_language,
-    max_results
+    max_results,
+    search_mode
   })
 }
 
@@ -574,11 +602,24 @@ fn dictionary_search_native(
     args.language,
   )
   .or(settings.default_language.clone());
+  let search_mode =
+    normalize_search_mode(args.mode)
+      .trim()
+      .to_string();
   let limit = args
     .limit
     .unwrap_or(settings.max_results)
     .clamp(1, MAX_SEARCH_LIMIT);
-  let pattern = format!("{query}%");
+  let effective_mode = if search_mode
+    .is_empty()
+  {
+    settings.search_mode.clone()
+  } else {
+    search_mode
+  };
+  let exact = query.to_string();
+  let prefix = format!("{query}%");
+  let fuzzy = format!("%{query}%");
 
   let list_started = Instant::now();
   let mut list_stmt = conn.prepare(
@@ -595,8 +636,17 @@ fn dictionary_search_native(
                0 AS source_rank
         FROM pages p
         JOIN definitions d ON d.page_id = p.id
-        WHERE p.title LIKE ?1
-          AND (?2 IS NULL OR LOWER(d.language) = LOWER(?3))
+        WHERE (
+                (?1 = 'exact' AND LOWER(p.title) = LOWER(?2))
+             OR (?1 = 'prefix' AND p.title LIKE ?3)
+             OR (?1 = 'fuzzy' AND (p.title LIKE ?4 OR EXISTS(
+                  SELECT 1 FROM definitions d3
+                  WHERE d3.page_id = p.id
+                    AND d3.language = d.language
+                    AND d3.normalized_text LIKE ?4
+                )))
+              )
+          AND (?5 IS NULL OR LOWER(d.language) = LOWER(?5))
         GROUP BY p.id, p.title, d.language
       ),
       alias_hits AS (
@@ -612,8 +662,12 @@ fn dictionary_search_native(
                1 AS source_rank
         FROM lemma_aliases la
         JOIN definitions d ON d.page_id = la.page_id
-        WHERE la.alias LIKE ?4
-          AND (?5 IS NULL OR LOWER(COALESCE(la.language, d.language)) = LOWER(?6))
+        WHERE (
+                (?1 = 'exact' AND LOWER(la.alias) = LOWER(?2))
+             OR (?1 = 'prefix' AND la.alias LIKE ?3)
+             OR (?1 = 'fuzzy' AND (la.alias LIKE ?4 OR la.normalized_alias LIKE ?4))
+              )
+          AND (?5 IS NULL OR LOWER(COALESCE(la.language, d.language)) = LOWER(?5))
         GROUP BY la.page_id, la.alias, COALESCE(la.language, d.language)
       ),
       merged AS (
@@ -624,17 +678,16 @@ fn dictionary_search_native(
       SELECT page_id, word, language, summary
       FROM merged
       ORDER BY source_rank ASC, word COLLATE NOCASE ASC
-      LIMIT ?7"
+      LIMIT ?6"
   )?;
 
   let rows = list_stmt
     .query_map(
       params![
-        pattern,
-        language,
-        language,
-        pattern,
-        language,
+        effective_mode,
+        exact,
+        prefix,
+        fuzzy,
         language,
         i64::from(limit),
       ],
@@ -663,8 +716,17 @@ fn dictionary_search_native(
                d.language AS language
         FROM pages p
         JOIN definitions d ON d.page_id = p.id
-        WHERE p.title LIKE ?1
-          AND (?2 IS NULL OR LOWER(d.language) = LOWER(?3))
+        WHERE (
+                (?1 = 'exact' AND LOWER(p.title) = LOWER(?2))
+             OR (?1 = 'prefix' AND p.title LIKE ?3)
+             OR (?1 = 'fuzzy' AND (p.title LIKE ?4 OR EXISTS(
+                  SELECT 1 FROM definitions d3
+                  WHERE d3.page_id = p.id
+                    AND d3.language = d.language
+                    AND d3.normalized_text LIKE ?4
+                )))
+              )
+          AND (?5 IS NULL OR LOWER(d.language) = LOWER(?5))
         GROUP BY p.id, p.title, d.language
       ),
       alias_hits AS (
@@ -673,8 +735,12 @@ fn dictionary_search_native(
                COALESCE(la.language, d.language) AS language
         FROM lemma_aliases la
         JOIN definitions d ON d.page_id = la.page_id
-        WHERE la.alias LIKE ?4
-          AND (?5 IS NULL OR LOWER(COALESCE(la.language, d.language)) = LOWER(?6))
+        WHERE (
+                (?1 = 'exact' AND LOWER(la.alias) = LOWER(?2))
+             OR (?1 = 'prefix' AND la.alias LIKE ?3)
+             OR (?1 = 'fuzzy' AND (la.alias LIKE ?4 OR la.normalized_alias LIKE ?4))
+              )
+          AND (?5 IS NULL OR LOWER(COALESCE(la.language, d.language)) = LOWER(?5))
         GROUP BY la.page_id, la.alias, COALESCE(la.language, d.language)
       ),
       merged AS (
@@ -684,11 +750,10 @@ fn dictionary_search_native(
       )
       SELECT COUNT(1) FROM merged",
     params![
-      pattern,
-      language,
-      language,
-      pattern,
-      language,
+      effective_mode,
+      exact,
+      prefix,
+      fuzzy,
       language,
     ],
     |row| row.get(0),
@@ -1006,7 +1071,8 @@ pub async fn dictionary_search(
           query: normalize_for_search(
             &args.query,
           ),
-          limit: args.limit
+          limit: args.limit,
+          mode: args.mode
         },
         &request_id,
       )
@@ -1090,9 +1156,12 @@ pub async fn dictionary_entry(
 }
 
 #[cfg(test)]
-mod tests {
+mod dictionary_tests {
   use super::{
+    RelationBuckets,
+    classify_relation_type,
     dedupe_strings,
+    normalize_search_mode,
     normalized_language
   };
 
@@ -1127,6 +1196,56 @@ mod tests {
         "Alpha".to_string(),
         "Beta".to_string()
       ]
+    );
+  }
+
+  #[test]
+  fn normalize_search_mode_defaults_to_prefix()
+  {
+    assert_eq!(
+      normalize_search_mode(None),
+      "prefix".to_string()
+    );
+    assert_eq!(
+      normalize_search_mode(Some(
+        "nope".to_string()
+      )),
+      "prefix".to_string()
+    );
+    assert_eq!(
+      normalize_search_mode(Some(
+        "fuzzy".to_string()
+      )),
+      "fuzzy".to_string()
+    );
+  }
+
+  #[test]
+  fn classify_relation_type_buckets_synonym()
+  {
+    let mut buckets =
+      RelationBuckets {
+        pronunciation: vec![],
+        part_of_speech: vec![],
+        etymology: vec![],
+        examples: vec![],
+        notes: vec![],
+        metadata: vec![]
+      };
+    classify_relation_type(
+      "synonym",
+      "anchor",
+      &mut buckets,
+    );
+    assert_eq!(buckets.notes.len(), 1);
+    assert_eq!(buckets.metadata.len(), 1);
+    assert_eq!(
+      buckets.metadata[0].relation_type,
+      "synonym"
+    );
+    assert_eq!(
+      buckets.metadata[0].target,
+      "anchor"
     );
   }
 }

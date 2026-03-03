@@ -95,6 +95,7 @@ All commands support an optional `request_id` argument for correlation logging.
   - `language: string | null`
   - `query: string`
   - `limit: number | null`
+  - `mode: "exact" | "prefix" | "fuzzy" | null`
 - Response:
   - `query: string`
   - `language: string | null`

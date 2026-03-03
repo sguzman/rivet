@@ -249,6 +249,7 @@ enabled = true
 sqlite_path = "/win/linux/data/wiktionary/wiktionary.sqlite"
 default_language = "en"
 max_results = 100
+search_mode = "prefix" # exact | prefix | fuzzy
 
 [integration.legacy] # DOCUMENTATION-ONLY
 # These are still tolerated as migration compatibility:

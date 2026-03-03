@@ -50,6 +50,7 @@ export interface RivetRuntimeConfig {
     sqlite_path?: string;
     default_language?: string;
     max_results?: number;
+    search_mode?: "exact" | "prefix" | "fuzzy" | string;
   };
   calendar?: {
     version?: number;

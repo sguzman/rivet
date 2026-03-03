@@ -512,7 +512,8 @@ pub struct DedupDecision {
 pub struct DictionarySearchArgs {
   pub language: Option<String>,
   pub query:    String,
-  pub limit:    Option<u32>
+  pub limit:    Option<u32>,
+  pub mode:     Option<String>
 }
 
 #[derive(

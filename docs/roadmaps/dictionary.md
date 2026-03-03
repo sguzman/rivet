@@ -18,11 +18,11 @@
 
 - [x] Confirm real dictionary DB path in config.
 - [x] Current local file `wiktionary.sqlite` exists but is empty (0 bytes), with no tables/schema.
-- [ ] Blocked unknowns until real DB is available:
-- [ ] table names
-- [ ] field names/types
-- [ ] indexing strategy
-- [ ] relation between language, lemma, pronunciation, and senses
+- [x] Blocked unknowns until real DB is available:
+- [x] table names
+- [x] field names/types
+- [x] indexing strategy
+- [x] relation between language, lemma, pronunciation, and senses
 
 ## 2. Data-Contract Discovery (First Required Milestone)
 
@@ -32,11 +32,11 @@
 - [x] `PRAGMA table_info(...)`
 - [x] `PRAGMA index_list(...)`
 - [x] sample records for 10 words across 3 languages
-- [ ] Identify canonical entry sections to render:
-- [ ] pronunciation
-- [ ] part of speech
-- [ ] etymology / usage / examples (exact fields TBD from schema)
-- [ ] definitions/senses
+- [x] Identify canonical entry sections to render:
+- [x] pronunciation
+- [x] part of speech
+- [x] etymology / usage / examples (exact fields TBD from schema)
+- [x] definitions/senses
 - [x] Write `docs/dictionary-data-contract.md` with:
 - [x] exact SQL queries
 - [x] nullable field behavior
@@ -51,7 +51,7 @@
 - [x] `sqlite_path = "..."` (absolute or workspace-relative)
 - [x] `default_language = "en"`
 - [x] `max_results = 100`
-- [ ] `search_mode = "prefix"` (future: `fts`, `fuzzy`)
+- [x] `search_mode = "prefix"` (future: `fts`, `fuzzy`)
 - [x] Expose effective dictionary config through existing `config_snapshot`.
 - [x] Add startup validation in Tauri backend:
 - [x] path exists
@@ -81,7 +81,7 @@
 - [x] query length (not full query at info level)
 - [x] result count
 - [x] DB duration ms
-- [ ] Add schema/contract tests for DTO serialization.
+- [x] Add schema/contract tests for DTO serialization.
 
 ## 5. Frontend UI Phase (New Tab)
 
@@ -96,7 +96,7 @@
 - [x] loading/error state
 - [x] results and selected entry
 - [x] Add API client methods in `web/api/tauri.ts` with zod validation.
-- [ ] Keyboard UX:
+- [x] Keyboard UX:
 - [x] `Cmd/Ctrl+5` to open Dictionary tab
 - [x] arrow keys to navigate result list
 - [x] `Enter` to open selected entry
@@ -112,27 +112,27 @@
 ## 6. Search and Relevance Upgrades (Full Feature Track)
 
 - [x] Phase 1: exact + prefix search with indexed columns.
-- [ ] Phase 2: typo tolerance/fuzzy ranking (Levenshtein/trigram depending on schema support).
+- [x] Phase 2: typo tolerance/fuzzy ranking (Levenshtein/trigram depending on schema support).
 - [ ] Phase 3: morphology helpers:
 - [ ] stemming/lemmatization fallback
-- [ ] inflected-form redirect to lemma
-- [ ] Phase 4: multi-language cross-links (translations, related terms).
+- [x] inflected-form redirect to lemma
+- [x] Phase 4: multi-language cross-links (translations, related terms).
 - [ ] Optional phase: SQLite FTS virtual table integration if dataset supports it.
 
 ## 7. Advanced Dictionary Features
 
-- [ ] Pronunciation enrichments:
-- [ ] IPA display
+- [x] Pronunciation enrichments:
+- [x] IPA display
 - [ ] syllabification
 - [ ] optional audio link/button (if dataset has URLs)
-- [ ] Usage enrichments:
-- [ ] examples
-- [ ] synonyms/antonyms
-- [ ] domain/register labels
-- [ ] User productivity extras:
-- [ ] search history
-- [ ] pinned/favorite entries
-- [ ] copy definition/IPA actions
+- [x] Usage enrichments:
+- [x] examples
+- [x] synonyms/antonyms
+- [x] domain/register labels
+- [x] User productivity extras:
+- [x] search history
+- [x] pinned/favorite entries
+- [x] copy definition/IPA actions
 - [ ] open definition in split-pane with Tasks tab (future)
 
 ## 8. Logging, Diagnostics, and Safety
@@ -153,7 +153,7 @@
 ## 9. Testing and Verification
 
 - [ ] Rust:
-- [ ] unit tests for query adapters and DTO mapping
+- [x] unit tests for query adapters and DTO mapping
 - [ ] integration tests against fixture DB
 - [ ] command contract tests
 - [ ] Frontend:
@@ -174,15 +174,15 @@
 ## 10. Delivery Plan
 
 - [x] Milestone A (MVP): tab + language select + search + definition view.
-- [ ] Milestone B: improved relevance + better lexical section rendering.
-- [ ] Milestone C: favorites/history + pronunciation/usage enhancements.
+- [x] Milestone B: improved relevance + better lexical section rendering.
+- [x] Milestone C: favorites/history + pronunciation/usage enhancements.
 - [ ] Milestone D: optional FTS/fuzzy + translation/cross-link features.
 
 ## 11. Open Items to Resolve Before Coding
 
-- [ ] Provide populated SQLite file (or dump) for schema mapping.
-- [ ] Confirm expected third section besides pronunciation + definition (likely POS/etymology/usage).
-- [ ] Decide default behavior when dictionary config is missing or invalid:
+- [x] Provide populated SQLite file (or dump) for schema mapping.
+- [x] Confirm expected third section besides pronunciation + definition (likely POS/etymology/usage).
+- [x] Decide default behavior when dictionary config is missing or invalid:
 - [ ] hide tab
-- [ ] or show disabled tab with setup guidance
+- [x] or show disabled tab with setup guidance
 - [x] Decide whether dictionary feature is always-on or behind `[ui.features.dictionary]`.

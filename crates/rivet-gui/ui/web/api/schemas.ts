@@ -261,6 +261,13 @@ export const DictionarySearchResultSchema = z.object({
   warnings: z.array(z.string())
 });
 
+export const DictionarySearchArgsSchema = z.object({
+  language: z.string().nullable(),
+  query: z.string(),
+  limit: z.number().int().min(1).max(500).nullable(),
+  mode: z.string().nullable()
+});
+
 export const DictionarySenseSchema = z.object({
   order: z.number().int().min(1),
   text: z.string()
@@ -343,7 +350,8 @@ export const RivetRuntimeConfigSchema = z.object({
     enabled: z.boolean().optional(),
     sqlite_path: z.string().optional(),
     default_language: z.string().optional(),
-    max_results: z.number().int().optional()
+    max_results: z.number().int().optional(),
+    search_mode: z.string().optional()
   }).passthrough().optional(),
   calendar: z.object({
     version: z.number().int().optional(),
