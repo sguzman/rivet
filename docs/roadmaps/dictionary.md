@@ -26,22 +26,22 @@
 
 ## 2. Data-Contract Discovery (First Required Milestone)
 
-- [ ] Run schema audit on populated DB:
-- [ ] `.tables`
-- [ ] `.schema`
-- [ ] `PRAGMA table_info(...)`
-- [ ] `PRAGMA index_list(...)`
-- [ ] sample records for 10 words across 3 languages
+- [x] Run schema audit on populated DB:
+- [x] `.tables`
+- [x] `.schema`
+- [x] `PRAGMA table_info(...)`
+- [x] `PRAGMA index_list(...)`
+- [x] sample records for 10 words across 3 languages
 - [ ] Identify canonical entry sections to render:
 - [ ] pronunciation
 - [ ] part of speech
 - [ ] etymology / usage / examples (exact fields TBD from schema)
 - [ ] definitions/senses
-- [ ] Write `docs/dictionary-data-contract.md` with:
-- [ ] exact SQL queries
-- [ ] nullable field behavior
-- [ ] search behavior (prefix/exact/fuzzy)
-- [ ] performance baseline queries
+- [x] Write `docs/dictionary-data-contract.md` with:
+- [x] exact SQL queries
+- [x] nullable field behavior
+- [x] search behavior (prefix/exact/fuzzy)
+- [x] performance baseline queries
 
 ## 3. Config and Runtime Wiring
 
@@ -64,7 +64,7 @@
 - [x] Add read-only dictionary data module in `src-tauri`:
 - [x] connection lifecycle
 - [x] prepared statements
-- [ ] query timeout/error handling
+- [x] query timeout/error handling
 - [x] Add commands:
 - [x] `dictionary_languages() -> string[]`
 - [x] `dictionary_search({ language, query, limit, cursor? }) -> DictionarySearchResult`
@@ -72,9 +72,9 @@
 - [x] Add shared DTOs in `rivet_gui_shared`:
 - [x] `DictionarySearchHit`
 - [x] `DictionaryEntry`
-- [ ] `DictionarySense`
-- [ ] `DictionaryPronunciation`
-- [ ] `DictionaryMeta`
+- [x] `DictionarySense`
+- [x] `DictionaryPronunciation`
+- [x] `DictionaryMeta`
 - [x] Add tracing spans/fields:
 - [x] `request_id`
 - [x] `language`
@@ -98,11 +98,11 @@
 - [x] Add API client methods in `web/api/tauri.ts` with zod validation.
 - [ ] Keyboard UX:
 - [x] `Cmd/Ctrl+5` to open Dictionary tab
-- [ ] arrow keys to navigate result list
-- [ ] `Enter` to open selected entry
+- [x] arrow keys to navigate result list
+- [x] `Enter` to open selected entry
 - [x] Render strategy for entry detail:
 - [x] clear section headers
-- [ ] ordered senses
+- [x] ordered senses
 - [x] compact typography for dense lexical data
 - [x] Explicit empty states:
 - [x] no DB configured
@@ -140,7 +140,7 @@
 - [x] Backend tracing events:
 - [x] config load/validation
 - [x] query start/success/failure
-- [ ] slow query warning threshold
+- [x] slow query warning threshold
 - [x] Frontend logs:
 - [x] search start/debounce/submit
 - [x] entry open latency

@@ -571,7 +571,53 @@ pub struct DictionaryEntry {
   pub pronunciation:  Option<String>,
   pub etymology:      Option<String>,
   pub definitions:    Vec<String>,
+  #[serde(default)]
+  pub senses: Vec<DictionarySense>,
+  #[serde(default)]
+  pub pronunciations:
+    Vec<DictionaryPronunciation>,
   pub examples:       Vec<String>,
   pub notes:          Vec<String>,
+  #[serde(default)]
+  pub metadata: Vec<DictionaryMeta>,
   pub source_table:   String
+}
+
+#[derive(
+  Debug,
+  Clone,
+  Serialize,
+  Deserialize,
+  PartialEq,
+  Eq,
+)]
+pub struct DictionarySense {
+  pub order: u32,
+  pub text:  String
+}
+
+#[derive(
+  Debug,
+  Clone,
+  Serialize,
+  Deserialize,
+  PartialEq,
+  Eq,
+)]
+pub struct DictionaryPronunciation {
+  pub text:   String,
+  pub system: Option<String>
+}
+
+#[derive(
+  Debug,
+  Clone,
+  Serialize,
+  Deserialize,
+  PartialEq,
+  Eq,
+)]
+pub struct DictionaryMeta {
+  pub relation_type: String,
+  pub target:        String
 }

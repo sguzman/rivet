@@ -338,7 +338,25 @@ export interface DictionaryEntry {
   pronunciation: string | null;
   etymology: string | null;
   definitions: string[];
+  senses: DictionarySense[];
+  pronunciations: DictionaryPronunciation[];
   examples: string[];
   notes: string[];
+  metadata: DictionaryMeta[];
   source_table: string;
+}
+
+export interface DictionarySense {
+  order: number;
+  text: string;
+}
+
+export interface DictionaryPronunciation {
+  text: string;
+  system: string | null;
+}
+
+export interface DictionaryMeta {
+  relation_type: string;
+  target: string;
 }

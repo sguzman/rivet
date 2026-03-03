@@ -261,6 +261,21 @@ export const DictionarySearchResultSchema = z.object({
   warnings: z.array(z.string())
 });
 
+export const DictionarySenseSchema = z.object({
+  order: z.number().int().min(1),
+  text: z.string()
+});
+
+export const DictionaryPronunciationSchema = z.object({
+  text: z.string(),
+  system: z.string().nullable()
+});
+
+export const DictionaryMetaSchema = z.object({
+  relation_type: z.string(),
+  target: z.string()
+});
+
 export const DictionaryEntrySchema = z.object({
   id: z.number().int().nullable(),
   word: z.string(),
@@ -269,8 +284,11 @@ export const DictionaryEntrySchema = z.object({
   pronunciation: z.string().nullable(),
   etymology: z.string().nullable(),
   definitions: z.array(z.string()),
+  senses: z.array(DictionarySenseSchema),
+  pronunciations: z.array(DictionaryPronunciationSchema),
   examples: z.array(z.string()),
   notes: z.array(z.string()),
+  metadata: z.array(DictionaryMetaSchema),
   source_table: z.string()
 });
 

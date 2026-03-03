@@ -314,11 +314,33 @@ function ensureMockDictionarySeeded(): DictionaryEntry[] {
         "A metal pin used to fasten plates or sheets permanently.",
         "A fixed point or anchor in a process."
       ],
+      senses: [
+        {
+          order: 1,
+          text: "A metal pin used to fasten plates or sheets permanently."
+        },
+        {
+          order: 2,
+          text: "A fixed point or anchor in a process."
+        }
+      ],
+      pronunciations: [
+        {
+          text: "/ˈrɪv.ɪt/",
+          system: "ipa"
+        }
+      ],
       examples: [
         "The steel plates were joined with rivets."
       ],
       notes: [
         "Common in mechanical and aerospace contexts."
+      ],
+      metadata: [
+        {
+          relation_type: "part_of_speech",
+          target: "noun"
+        }
       ],
       source_table: "mock_dictionary"
     },
@@ -332,10 +354,28 @@ function ensureMockDictionarySeeded(): DictionaryEntry[] {
       definitions: [
         "A piece of work to be done."
       ],
+      senses: [
+        {
+          order: 1,
+          text: "A piece of work to be done."
+        }
+      ],
+      pronunciations: [
+        {
+          text: "/tæsk/",
+          system: "ipa"
+        }
+      ],
       examples: [
         "She completed the highest-priority task first."
       ],
       notes: [],
+      metadata: [
+        {
+          relation_type: "part_of_speech",
+          target: "noun"
+        }
+      ],
       source_table: "mock_dictionary"
     }
   ];
@@ -1149,7 +1189,7 @@ async function invokeCommand<R>(command: string, args?: unknown): Promise<R> {
           },
           dictionary: {
             enabled: true,
-            sqlite_path: "wiktionary.sqlite",
+            sqlite_path: "/win/linux/data/wiktionary/wiktionary.sqlite",
             default_language: "en",
             max_results: 100
           }

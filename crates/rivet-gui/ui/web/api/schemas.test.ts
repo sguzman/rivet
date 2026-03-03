@@ -11,6 +11,8 @@ import {
   ContactsListResultSchema,
   ContactsMergeResultSchema,
   ContactsMergeUndoResultSchema,
+  DictionaryEntrySchema,
+  DictionarySearchResultSchema,
   ExternalCalendarSourceSchema,
   ExternalCalendarSyncResultSchema,
   RivetRuntimeConfigSchema,
@@ -241,5 +243,60 @@ describe("tauri command contract schemas", () => {
 
     expect(RivetRuntimeConfigSchema.parse(config)).toMatchObject(config);
     expect(TagSchemaSchema.parse(tags)).toMatchObject(tags);
+  });
+
+  it("accepts dictionary search and entry payloads", () => {
+    const search = {
+      query: "rivet",
+      language: "en",
+      hits: [
+        {
+          id: 10,
+          word: "rivet",
+          language: "en",
+          part_of_speech: "noun",
+          pronunciation: "/ˈrɪv.ɪt/",
+          summary: "A metal pin used to fasten.",
+          source_table: "pages/definitions/lemma_aliases",
+          matched_by_prefix: true
+        }
+      ],
+      total: 1,
+      truncated: false,
+      warnings: []
+    };
+    const entry = {
+      id: 10,
+      word: "rivet",
+      language: "en",
+      part_of_speech: "noun",
+      pronunciation: "/ˈrɪv.ɪt/",
+      etymology: "From Middle French rivet.",
+      definitions: ["A metal pin used to fasten."],
+      senses: [
+        {
+          order: 1,
+          text: "A metal pin used to fasten."
+        }
+      ],
+      pronunciations: [
+        {
+          text: "/ˈrɪv.ɪt/",
+          system: "ipa"
+        }
+      ],
+      examples: ["The plate was fixed with rivets."],
+      notes: ["synonym: fastener"],
+      metadata: [
+        {
+          relation_type: "synonym",
+          target: "fastener"
+        }
+      ],
+      source_table: "pages/definitions/relations/lemma_aliases"
+    };
+
+    expect(DictionarySearchResultSchema.parse(search)).toEqual(search);
+    expect(DictionaryEntrySchema.parse(entry)).toEqual(entry);
   });
 });

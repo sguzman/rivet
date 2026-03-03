@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import type { KeyboardEvent } from "react";
 
 import Alert from "@mui/material/Alert";
 import Button from "@mui/material/Button";
@@ -31,6 +32,7 @@ export function DictionaryWorkspace() {
     selectDictionaryHit
   } = useDictionaryWorkspaceSlice();
   const [searchInput, setSearchInput] = useState(dictionaryQuery);
+  const [cursorIndex, setCursorIndex] = useState(0);
 
   useEffect(() => {
     void loadDictionaryLanguages();
@@ -39,6 +41,26 @@ export function DictionaryWorkspace() {
   useEffect(() => {
     setSearchInput(dictionaryQuery);
   }, [dictionaryQuery]);
+
+  useEffect(() => {
+    if (dictionaryResults.length === 0) {
+      setCursorIndex(0);
+      return;
+    }
+    if (cursorIndex >= dictionaryResults.length) {
+      setCursorIndex(dictionaryResults.length - 1);
+    }
+  }, [cursorIndex, dictionaryResults]);
+
+  useEffect(() => {
+    if (dictionaryResults.length === 0) {
+      return;
+    }
+    const selectedIndex = dictionaryResults.findIndex((hit) => hit.id !== null && hit.id === dictionarySelectedId);
+    if (selectedIndex >= 0) {
+      setCursorIndex(selectedIndex);
+    }
+  }, [dictionaryResults, dictionarySelectedId]);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -57,6 +79,53 @@ export function DictionaryWorkspace() {
   const displayLanguage = dictionaryLanguage ?? "__all__";
 
   const firstWarning = useMemo(() => dictionaryWarnings[0] ?? null, [dictionaryWarnings]);
+  const orderedSenses = useMemo(() => {
+    if (!dictionaryEntry) {
+      return [];
+    }
+    if (dictionaryEntry.senses.length > 0) {
+      return [...dictionaryEntry.senses].sort((left, right) => left.order - right.order);
+    }
+    return dictionaryEntry.definitions.map((text, index) => ({ order: index + 1, text }));
+  }, [dictionaryEntry]);
+
+  const handleSearchKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (dictionaryResults.length === 0) {
+      return;
+    }
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setCursorIndex((previous) => {
+        const next = Math.min(dictionaryResults.length - 1, previous + 1);
+        const hit = dictionaryResults[next];
+        if (hit) {
+          void selectDictionaryHit(hit);
+        }
+        return next;
+      });
+      return;
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setCursorIndex((previous) => {
+        const next = Math.max(0, previous - 1);
+        const hit = dictionaryResults[next];
+        if (hit) {
+          void selectDictionaryHit(hit);
+        }
+        return next;
+      });
+      return;
+    }
+    if (event.key === "Enter") {
+      const hit = dictionaryResults[cursorIndex];
+      if (!hit) {
+        return;
+      }
+      event.preventDefault();
+      void selectDictionaryHit(hit);
+    }
+  };
 
   if (!dictionaryEnabled) {
     return (
@@ -99,6 +168,7 @@ export function DictionaryWorkspace() {
             size="small"
             value={searchInput}
             onChange={(event) => setSearchInput(event.target.value)}
+            onKeyDown={handleSearchKeyDown}
             placeholder="type to search..."
           />
           <Stack direction="row" spacing={1}>
@@ -137,7 +207,7 @@ export function DictionaryWorkspace() {
             {!hasResults && searchInput.trim().length > 0 ? (
               <Alert severity="info">No dictionary results for this query.</Alert>
             ) : null}
-            {dictionaryResults.map((hit) => {
+            {dictionaryResults.map((hit, index) => {
               const active = hit.id !== null && dictionarySelectedId === hit.id;
               const key = `${hit.id ?? "none"}:${hit.word}:${hit.language ?? ""}`;
               return (
@@ -148,6 +218,7 @@ export function DictionaryWorkspace() {
                     void selectDictionaryHit(hit);
                   }}
                   className="!justify-start"
+                  color={index === cursorIndex ? "secondary" : "primary"}
                 >
                   <span className="truncate">{hit.word}</span>
                 </Button>
@@ -192,13 +263,13 @@ export function DictionaryWorkspace() {
                 <Typography variant="body2">{dictionaryEntry.etymology}</Typography>
               </div>
             ) : null}
-            {dictionaryEntry.definitions.length > 0 ? (
+            {orderedSenses.length > 0 ? (
               <div>
                 <Typography variant="subtitle2">Definitions</Typography>
                 <ol className="m-0 list-decimal pl-5">
-                  {dictionaryEntry.definitions.map((definition) => (
-                    <li key={definition} className="mb-1">
-                      <Typography variant="body2">{definition}</Typography>
+                  {orderedSenses.map((sense) => (
+                    <li key={`${sense.order}:${sense.text}`} className="mb-1">
+                      <Typography variant="body2">{sense.text}</Typography>
                     </li>
                   ))}
                 </ol>

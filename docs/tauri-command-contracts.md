@@ -113,6 +113,16 @@ All commands support an optional `request_id` argument for correlation logging.
   - `word: string | null`
 - Response:
   - `DictionaryEntry | null`
+  - `DictionaryEntry` fields include:
+    - `id`, `word`, `language`
+    - `part_of_speech`, `pronunciation`, `etymology`
+    - `definitions: string[]`
+    - `senses: { order: number, text: string }[]`
+    - `pronunciations: { text: string, system: string | null }[]`
+    - `examples: string[]`
+    - `notes: string[]`
+    - `metadata: { relation_type: string, target: string }[]`
+    - `source_table: string`
 - Errors:
   - string message for lookup validation/query failures.
 
