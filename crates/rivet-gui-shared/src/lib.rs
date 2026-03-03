@@ -622,3 +622,106 @@ pub struct DictionaryMeta {
   pub relation_type: String,
   pub target:        String
 }
+
+#[cfg(test)]
+mod dictionary_contract_tests {
+  use super::{
+    DictionaryEntry,
+    DictionarySearchArgs,
+    DictionarySearchResult
+  };
+
+  #[test]
+  fn dictionary_search_args_mode_roundtrip()
+   {
+    let payload = serde_json::json!({
+      "language": "en",
+      "query": "anchor",
+      "limit": 25,
+      "mode": "fuzzy"
+    });
+    let args: DictionarySearchArgs =
+      serde_json::from_value(
+        payload.clone()
+      )
+      .expect(
+        "deserialize search args"
+      );
+    assert_eq!(
+      args.mode.as_deref(),
+      Some("fuzzy")
+    );
+
+    let back =
+      serde_json::to_value(&args)
+        .expect(
+          "serialize search args"
+        );
+    assert_eq!(back, payload);
+  }
+
+  #[test]
+  fn dictionary_entry_defaults_optional_collections()
+   {
+    let payload = serde_json::json!({
+      "id": 42,
+      "word": "anchor",
+      "language": "en",
+      "part_of_speech": "noun",
+      "pronunciation": "/ˈæŋ.kɚ/",
+      "etymology": null,
+      "definitions": ["A heavy object"],
+      "examples": [],
+      "notes": [],
+      "source_table": "pages/definitions"
+    });
+    let entry: DictionaryEntry =
+      serde_json::from_value(payload)
+        .expect(
+          "deserialize dictionary \
+           entry"
+        );
+    assert!(entry.senses.is_empty());
+    assert!(
+      entry.pronunciations.is_empty()
+    );
+    assert!(entry.metadata.is_empty());
+  }
+
+  #[test]
+  fn dictionary_search_result_contract_roundtrip()
+   {
+    let payload = serde_json::json!({
+      "query": "anchor",
+      "language": "en",
+      "hits": [{
+        "id": 42,
+        "word": "anchor",
+        "language": "en",
+        "part_of_speech": "noun",
+        "pronunciation": "/ˈæŋ.kɚ/",
+        "summary": "A heavy object",
+        "source_table": "pages",
+        "matched_by_prefix": true
+      }],
+      "total": 1,
+      "truncated": false,
+      "warnings": []
+    });
+    let result: DictionarySearchResult =
+      serde_json::from_value(
+        payload.clone()
+      )
+      .expect(
+        "deserialize dictionary \
+         search result"
+      );
+    let back =
+      serde_json::to_value(&result)
+        .expect(
+          "serialize dictionary \
+           search result"
+        );
+    assert_eq!(back, payload);
+  }
+}

@@ -1157,13 +1157,148 @@ pub async fn dictionary_entry(
 
 #[cfg(test)]
 mod dictionary_tests {
+  use std::{
+    fs,
+    path::PathBuf,
+    time::{
+      SystemTime,
+      UNIX_EPOCH
+    }
+  };
+
   use super::{
+    DictionarySettings,
     RelationBuckets,
     classify_relation_type,
+    dictionary_entry_native,
+    dictionary_languages_native,
+    dictionary_search_native,
     dedupe_strings,
+    ensure_required_schema,
     normalize_search_mode,
     normalized_language
   };
+  use rivet_gui_shared::{
+    DictionaryEntryArgs,
+    DictionarySearchArgs
+  };
+  use rusqlite::Connection;
+
+  fn fixture_db_path() -> PathBuf {
+    let nonce = SystemTime::now()
+      .duration_since(UNIX_EPOCH)
+      .expect("valid unix time")
+      .as_nanos();
+    std::env::temp_dir()
+      .join(format!(
+        "rivet-dictionary-test-{nonce}.sqlite"
+      ))
+  }
+
+  fn build_fixture_db() -> (PathBuf, Connection)
+  {
+    let path = fixture_db_path();
+    let conn = Connection::open(&path)
+      .expect("open fixture sqlite");
+    conn.execute_batch(
+      "
+      CREATE TABLE pages (
+        id INTEGER PRIMARY KEY,
+        title TEXT NOT NULL
+      );
+      CREATE TABLE definitions (
+        id INTEGER PRIMARY KEY,
+        page_id INTEGER NOT NULL,
+        language TEXT NOT NULL,
+        def_order INTEGER NOT NULL,
+        definition_text TEXT NOT NULL,
+        normalized_text TEXT
+      );
+      CREATE TABLE relations (
+        id INTEGER PRIMARY KEY,
+        page_id INTEGER NOT NULL,
+        language TEXT NOT NULL,
+        relation_type TEXT NOT NULL,
+        rel_order INTEGER NOT NULL,
+        target_term TEXT NOT NULL
+      );
+      CREATE TABLE lemma_aliases (
+        id INTEGER PRIMARY KEY,
+        page_id INTEGER NOT NULL,
+        alias TEXT NOT NULL,
+        language TEXT,
+        normalized_alias TEXT
+      );
+      ",
+    )
+    .expect("create fixture schema");
+
+    conn.execute(
+      "INSERT INTO pages (id, title) VALUES (?1, ?2)",
+      rusqlite::params![1_i64, "anchor"],
+    )
+    .expect("insert page anchor");
+    conn.execute(
+      "INSERT INTO pages (id, title) VALUES (?1, ?2)",
+      rusqlite::params![2_i64, "anchored"],
+    )
+    .expect("insert page anchored");
+    conn.execute(
+      "INSERT INTO pages (id, title) VALUES (?1, ?2)",
+      rusqlite::params![3_i64, "ancla"],
+    )
+    .expect("insert page ancla");
+
+    conn.execute(
+      "INSERT INTO definitions (id, page_id, language, def_order, definition_text, normalized_text) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+      rusqlite::params![1_i64, 1_i64, "en", 1_i64, "A heavy object used to secure a vessel.", "a heavy object used to secure a vessel"],
+    )
+    .expect("insert definition en anchor");
+    conn.execute(
+      "INSERT INTO definitions (id, page_id, language, def_order, definition_text, normalized_text) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+      rusqlite::params![2_i64, 2_i64, "en", 1_i64, "Past tense of anchor.", "past tense of anchor"],
+    )
+    .expect("insert definition en anchored");
+    conn.execute(
+      "INSERT INTO definitions (id, page_id, language, def_order, definition_text, normalized_text) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+      rusqlite::params![3_i64, 3_i64, "es", 1_i64, "Objeto pesado para fijar una embarcación.", "objeto pesado para fijar una embarcacion"],
+    )
+    .expect("insert definition es ancla");
+
+    conn.execute(
+      "INSERT INTO relations (id, page_id, language, relation_type, rel_order, target_term) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+      rusqlite::params![1_i64, 1_i64, "en", "pronunciation_ipa", 1_i64, "/ˈæŋ.kɚ/"],
+    )
+    .expect("insert relation pronunciation");
+    conn.execute(
+      "INSERT INTO relations (id, page_id, language, relation_type, rel_order, target_term) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+      rusqlite::params![2_i64, 1_i64, "en", "part_of_speech", 2_i64, "noun"],
+    )
+    .expect("insert relation pos");
+    conn.execute(
+      "INSERT INTO relations (id, page_id, language, relation_type, rel_order, target_term) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+      rusqlite::params![3_i64, 1_i64, "en", "synonym", 3_i64, "grapnel"],
+    )
+    .expect("insert relation synonym");
+
+    conn.execute(
+      "INSERT INTO lemma_aliases (id, page_id, alias, language, normalized_alias) VALUES (?1, ?2, ?3, ?4, ?5)",
+      rusqlite::params![1_i64, 1_i64, "anchors", "en", "anchors"],
+    )
+    .expect("insert alias anchors");
+
+    (path, conn)
+  }
+
+  fn fixture_settings(path: &std::path::Path) -> DictionarySettings {
+    DictionarySettings {
+      enabled: true,
+      sqlite_path: path.to_path_buf(),
+      default_language: Some("en".to_string()),
+      max_results: 100,
+      search_mode: "prefix".to_string(),
+    }
+  }
 
   #[test]
   fn normalized_language_handles_all() {
@@ -1247,5 +1382,131 @@ mod dictionary_tests {
       buckets.metadata[0].target,
       "anchor"
     );
+  }
+
+  #[test]
+  fn integration_fixture_languages_search_and_entry() {
+    let (path, conn) = build_fixture_db();
+    ensure_required_schema(&conn)
+      .expect("fixture schema valid");
+    let settings = fixture_settings(&path);
+
+    let languages =
+      dictionary_languages_native(
+        &settings,
+        &conn,
+      )
+      .expect("list languages");
+    assert_eq!(
+      languages,
+      vec![
+        "en".to_string(),
+        "es".to_string()
+      ]
+    );
+
+    let search =
+      dictionary_search_native(
+        &settings,
+        &conn,
+        DictionarySearchArgs {
+          language: Some("en".to_string()),
+          query: "anch".to_string(),
+          limit: Some(10),
+          mode: Some("prefix".to_string()),
+        },
+        &None,
+      )
+      .expect("search fixture");
+    assert!(!search.hits.is_empty());
+    assert!(
+      search
+        .hits
+        .iter()
+        .any(|hit| hit.word == "anchor")
+    );
+
+    let entry =
+      dictionary_entry_native(
+        &settings,
+        &conn,
+        DictionaryEntryArgs {
+          id: Some(1),
+          word: None,
+          language: Some("en".to_string()),
+        },
+        &None,
+      )
+      .expect("load entry")
+      .expect("entry present");
+    assert_eq!(entry.word, "anchor");
+    assert_eq!(
+      entry.pronunciation.as_deref(),
+      Some("/ˈæŋ.kɚ/")
+    );
+    assert_eq!(
+      entry.part_of_speech.as_deref(),
+      Some("noun")
+    );
+    assert!(
+      entry
+        .metadata
+        .iter()
+        .any(|m| m.relation_type == "synonym")
+    );
+
+    drop(conn);
+    let _ = fs::remove_file(path);
+  }
+
+  #[test]
+  fn integration_fixture_supports_alias_and_fuzzy() {
+    let (path, conn) = build_fixture_db();
+    ensure_required_schema(&conn)
+      .expect("fixture schema valid");
+    let settings = fixture_settings(&path);
+
+    let alias_hit =
+      dictionary_search_native(
+        &settings,
+        &conn,
+        DictionarySearchArgs {
+          language: Some("en".to_string()),
+          query: "anchors".to_string(),
+          limit: Some(5),
+          mode: Some("exact".to_string()),
+        },
+        &None,
+      )
+      .expect("exact alias search");
+    assert_eq!(alias_hit.total, 1);
+    assert_eq!(
+      alias_hit.hits[0].id,
+      Some(1)
+    );
+
+    let fuzzy =
+      dictionary_search_native(
+        &settings,
+        &conn,
+        DictionarySearchArgs {
+          language: Some("en".to_string()),
+          query: "secure a vessel"
+            .to_string(),
+          limit: Some(5),
+          mode: Some("fuzzy".to_string()),
+        },
+        &None,
+      )
+      .expect("fuzzy search");
+    assert!(
+      fuzzy
+        .hits
+        .iter()
+        .any(|hit| hit.id == Some(1))
+    );
+
+    drop(conn);
+    let _ = fs::remove_file(path);
   }
 }

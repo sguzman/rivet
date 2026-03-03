@@ -108,6 +108,21 @@ test("calendar smoke: add external calendar source", async ({ page }) => {
   await expect(page.getByText("refresh:15m")).toBeVisible();
 });
 
+test("dictionary smoke: open tab, select language, search, open entry", async ({ page }) => {
+  await page.getByRole("tab", { name: "Dictionary" }).click();
+  await expect(page.getByRole("heading", { name: "Dictionary" })).toBeVisible();
+
+  await page.getByLabel("Language").click();
+  await page.getByRole("option", { name: "en" }).click();
+
+  await page.getByLabel("Search word").fill("rivet");
+  await page.getByRole("button", { name: "Search" }).click();
+
+  await expect(page.getByRole("button", { name: /rivet/i }).first()).toBeVisible();
+  await page.getByRole("button", { name: /rivet/i }).first().click();
+  await expect(page.getByText("Definitions")).toBeVisible();
+});
+
 test("theme smoke: toggle persists across reload", async ({ page }) => {
   const startsNight = e2eTheme === "night" || e2eTheme === "dark";
   const clickLabel = startsNight ? "Day" : "Night";

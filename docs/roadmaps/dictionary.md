@@ -154,17 +154,17 @@
 
 - [ ] Rust:
 - [x] unit tests for query adapters and DTO mapping
-- [ ] integration tests against fixture DB
-- [ ] command contract tests
+- [x] integration tests against fixture DB
+- [x] command contract tests
 - [ ] Frontend:
-- [ ] selector/filter behavior tests
-- [ ] workspace rendering tests
-- [ ] keyboard navigation tests
+- [x] selector/filter behavior tests
+- [x] workspace rendering tests
+- [x] keyboard navigation tests
 - [ ] E2E smoke:
-- [ ] open tab
-- [ ] select language
-- [ ] search word
-- [ ] open entry
+- [x] open tab
+- [x] select language
+- [x] search word
+- [x] open entry
 - [x] Build gates:
 - [x] `cargo build`
 - [x] `cargo check -p rivet_gui_tauri`
