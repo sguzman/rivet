@@ -19,6 +19,7 @@ import { DiagnosticsPanel } from "../components/DiagnosticsPanel";
 import { SettingsDialog } from "../components/SettingsDialog";
 import { CalendarWorkspace } from "../features/calendar/CalendarWorkspace";
 import { ContactsWorkspace } from "../features/contacts/ContactsWorkspace";
+import { DictionaryWorkspace } from "../features/dictionary/DictionaryWorkspace";
 import { KanbanWorkspace } from "../features/kanban/KanbanWorkspace";
 import { TasksWorkspace } from "../features/tasks/TasksWorkspace";
 import { logger } from "../lib/logger";
@@ -27,6 +28,7 @@ import { useDiagnosticsSlice, useSettingsSlice, useShellSlice } from "../store/s
 const TasksWorkspaceMemo = memo(TasksWorkspace);
 const KanbanWorkspaceMemo = memo(KanbanWorkspace);
 const CalendarWorkspaceMemo = memo(CalendarWorkspace);
+const DictionaryWorkspaceMemo = memo(DictionaryWorkspace);
 const ContactsWorkspaceMemo = memo(ContactsWorkspace);
 
 export function AppShell() {
@@ -69,11 +71,13 @@ export function AppShell() {
     tasks: boolean;
     kanban: boolean;
     calendar: boolean;
+    dictionary: boolean;
     contacts: boolean;
   }>({
     tasks: true,
     kanban: false,
     calendar: false,
+    dictionary: false,
     contacts: false
   });
 
@@ -86,6 +90,7 @@ export function AppShell() {
   const isDevMode = runtimeMode === "dev";
   const verboseRenderProfiling = String(import.meta.env.VITE_RIVET_PROFILE_VERBOSE ?? "").trim() === "1";
   const contactsFeatureEnabled = runtimeConfig?.ui?.features?.contacts ?? true;
+  const dictionaryFeatureEnabled = runtimeConfig?.ui?.features?.dictionary ?? true;
   const themeIconMode = themeFollowSystem ? systemThemeMode : themeMode;
   const onProfilerRender = useCallback<ProfilerOnRenderCallback>(
     (id, phase, actualDuration, baseDuration) => {
@@ -118,8 +123,12 @@ export function AppShell() {
   useEffect(() => {
     if (!contactsFeatureEnabled && activeTab === "contacts") {
       setActiveTab("tasks");
+      return;
     }
-  }, [activeTab, contactsFeatureEnabled, setActiveTab]);
+    if (!dictionaryFeatureEnabled && activeTab === "dictionary") {
+      setActiveTab("tasks");
+    }
+  }, [activeTab, contactsFeatureEnabled, dictionaryFeatureEnabled, setActiveTab]);
 
   useEffect(() => {
     scanDueNotifications();
@@ -173,6 +182,14 @@ export function AppShell() {
         return;
       }
       if (isMeta && key === "4") {
+        if (!dictionaryFeatureEnabled) {
+          return;
+        }
+        event.preventDefault();
+        setActiveTab("dictionary");
+        return;
+      }
+      if (isMeta && key === "5") {
         if (!contactsFeatureEnabled) {
           return;
         }
@@ -190,7 +207,7 @@ export function AppShell() {
 
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [activeTab, closeSettings, contactsFeatureEnabled, openAddTaskDialog, openSettings, setActiveTab, settingsOpen]);
+  }, [activeTab, closeSettings, contactsFeatureEnabled, dictionaryFeatureEnabled, openAddTaskDialog, openSettings, setActiveTab, settingsOpen]);
 
   return (
     <div className="flex h-screen min-h-screen flex-col overflow-hidden">
@@ -202,13 +219,14 @@ export function AppShell() {
           </Typography>
           <Tabs
             value={activeTab}
-            onChange={(_, value: string) => setActiveTab(value as "tasks" | "kanban" | "calendar" | "contacts")}
+            onChange={(_, value: string) => setActiveTab(value as "tasks" | "kanban" | "calendar" | "dictionary" | "contacts")}
             textColor="primary"
             indicatorColor="primary"
           >
             <Tab value="tasks" label="Tasks" />
             <Tab value="kanban" label="Kanban" />
             <Tab value="calendar" label="Calendar" />
+            {dictionaryFeatureEnabled ? <Tab value="dictionary" label="Dictionary" /> : null}
             {contactsFeatureEnabled ? <Tab value="contacts" label="Contacts" /> : null}
           </Tabs>
           <div className="ml-auto" />
@@ -277,6 +295,13 @@ export function AppShell() {
           <div className={activeTab === "calendar" ? "h-full" : "hidden h-full"} aria-hidden={activeTab !== "calendar"}>
             <Profiler id="calendar.workspace" onRender={onProfilerRender}>
               <CalendarWorkspaceMemo />
+            </Profiler>
+          </div>
+        ) : null}
+        {dictionaryFeatureEnabled && mountedTabs.dictionary ? (
+          <div className={activeTab === "dictionary" ? "h-full" : "hidden h-full"} aria-hidden={activeTab !== "dictionary"}>
+            <Profiler id="dictionary.workspace" onRender={onProfilerRender}>
+              <DictionaryWorkspaceMemo />
             </Profiler>
           </div>
         ) : null}

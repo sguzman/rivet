@@ -1,6 +1,7 @@
 include!("commands/common.rs");
 include!("commands/config.rs");
 include!("commands/tasks.rs");
+include!("commands/dictionary.rs");
 include!("commands/contacts.rs");
 include!("commands/window.rs");
 include!(

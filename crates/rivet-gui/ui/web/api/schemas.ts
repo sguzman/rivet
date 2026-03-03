@@ -241,6 +241,39 @@ export const ExternalCalendarCacheEntrySchema = z.object({
 
 export const ExternalCalendarCacheEntryArraySchema = z.array(ExternalCalendarCacheEntrySchema);
 
+export const DictionarySearchHitSchema = z.object({
+  id: z.number().int().nullable(),
+  word: z.string(),
+  language: z.string().nullable(),
+  part_of_speech: z.string().nullable(),
+  pronunciation: z.string().nullable(),
+  summary: z.string().nullable(),
+  source_table: z.string(),
+  matched_by_prefix: z.boolean()
+});
+
+export const DictionarySearchResultSchema = z.object({
+  query: z.string(),
+  language: z.string().nullable(),
+  hits: z.array(DictionarySearchHitSchema),
+  total: z.number().int().min(0),
+  truncated: z.boolean(),
+  warnings: z.array(z.string())
+});
+
+export const DictionaryEntrySchema = z.object({
+  id: z.number().int().nullable(),
+  word: z.string(),
+  language: z.string().nullable(),
+  part_of_speech: z.string().nullable(),
+  pronunciation: z.string().nullable(),
+  etymology: z.string().nullable(),
+  definitions: z.array(z.string()),
+  examples: z.array(z.string()),
+  notes: z.array(z.string()),
+  source_table: z.string()
+});
+
 export const TagKeySchema = z.object({
   id: z.string(),
   label: z.string().optional(),
@@ -282,7 +315,17 @@ export const RivetRuntimeConfigSchema = z.object({
     theme: z.object({
       mode: z.string().optional(),
       follow_system: z.boolean().optional()
+    }).passthrough().optional(),
+    features: z.object({
+      contacts: z.boolean().optional(),
+      dictionary: z.boolean().optional()
     }).passthrough().optional()
+  }).passthrough().optional(),
+  dictionary: z.object({
+    enabled: z.boolean().optional(),
+    sqlite_path: z.string().optional(),
+    default_language: z.string().optional(),
+    max_results: z.number().int().optional()
   }).passthrough().optional(),
   calendar: z.object({
     version: z.number().int().optional(),

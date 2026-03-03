@@ -42,7 +42,14 @@ export interface RivetRuntimeConfig {
     };
     features?: {
       contacts?: boolean;
+      dictionary?: boolean;
     };
+  };
+  dictionary?: {
+    enabled?: boolean;
+    sqlite_path?: string;
+    default_language?: string;
+    max_results?: number;
   };
   calendar?: {
     version?: number;

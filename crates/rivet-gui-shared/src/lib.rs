@@ -505,3 +505,73 @@ pub struct DedupDecision {
   pub actor:              String,
   pub decided_at:         String
 }
+
+#[derive(
+  Debug, Clone, Serialize, Deserialize,
+)]
+pub struct DictionarySearchArgs {
+  pub language: Option<String>,
+  pub query:    String,
+  pub limit:    Option<u32>
+}
+
+#[derive(
+  Debug, Clone, Serialize, Deserialize,
+)]
+pub struct DictionaryEntryArgs {
+  pub id:       Option<i64>,
+  pub language: Option<String>,
+  pub word:     Option<String>
+}
+
+#[derive(
+  Debug,
+  Clone,
+  Serialize,
+  Deserialize,
+  PartialEq,
+  Eq,
+)]
+pub struct DictionarySearchHit {
+  pub id:                Option<i64>,
+  pub word:              String,
+  pub language:          Option<String>,
+  pub part_of_speech:    Option<String>,
+  pub pronunciation:     Option<String>,
+  pub summary:           Option<String>,
+  pub source_table:      String,
+  pub matched_by_prefix: bool
+}
+
+#[derive(
+  Debug, Clone, Serialize, Deserialize,
+)]
+pub struct DictionarySearchResult {
+  pub query:     String,
+  pub language:  Option<String>,
+  pub hits: Vec<DictionarySearchHit>,
+  pub total:     u64,
+  pub truncated: bool,
+  pub warnings:  Vec<String>
+}
+
+#[derive(
+  Debug,
+  Clone,
+  Serialize,
+  Deserialize,
+  PartialEq,
+  Eq,
+)]
+pub struct DictionaryEntry {
+  pub id:             Option<i64>,
+  pub word:           String,
+  pub language:       Option<String>,
+  pub part_of_speech: Option<String>,
+  pub pronunciation:  Option<String>,
+  pub etymology:      Option<String>,
+  pub definitions:    Vec<String>,
+  pub examples:       Vec<String>,
+  pub notes:          Vec<String>,
+  pub source_table:   String
+}

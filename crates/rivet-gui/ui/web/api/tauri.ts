@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { z } from "zod";
 import type { ZodType } from "zod";
 
 import { logger, setLoggerBridge } from "../lib/logger";
@@ -15,6 +16,8 @@ import {
   ContactsListResultSchema,
   ContactsMergeResultSchema,
   ContactsMergeUndoResultSchema,
+  DictionaryEntrySchema,
+  DictionarySearchResultSchema,
   ExternalCalendarCacheEntryArraySchema,
   ExternalCalendarSourceSchema,
   ExternalCalendarSyncResultSchema,
@@ -49,6 +52,10 @@ import type {
   ContactsMergeResult,
   ContactsMergeUndoArgs,
   ContactsMergeUndoResult,
+  DictionaryEntry,
+  DictionaryEntryArgs,
+  DictionarySearchArgs,
+  DictionarySearchResult,
   ExternalCalendarCacheEntry,
   ExternalCalendarSource,
   ExternalCalendarSyncResult,
@@ -64,6 +71,7 @@ const MOCK_TASKS_KEY = "rivet.mock.tasks";
 const MOCK_CONTACTS_KEY = "rivet.mock.contacts";
 const MOCK_CONTACTS_DEDUPE_DECISIONS_KEY = "rivet.mock.contacts.dedupe.decisions";
 const MOCK_CONTACTS_MERGE_UNDO_KEY = "rivet.mock.contacts.merge.undo";
+const MOCK_DICTIONARY_DATA_KEY = "rivet.mock.dictionary.entries";
 const DEFAULT_TIMEOUT_MS = 30_000;
 const EXTERNAL_CALENDAR_TIMEOUT_MS = 90_000;
 const DEFAULT_TASK_QUERY: TasksListArgs = {
@@ -78,6 +86,11 @@ const DEFAULT_CONTACTS_QUERY: ContactsListArgs = {
   cursor: null,
   source: null,
   updated_after: null
+};
+const DEFAULT_DICTIONARY_QUERY: DictionarySearchArgs = {
+  language: null,
+  query: "",
+  limit: 100
 };
 
 export interface CommandFailureRecord {
@@ -163,6 +176,10 @@ function parseStoredContacts(): ContactDto[] {
   return parseWithSchema("mock.contacts", readLocalStorageJson(MOCK_CONTACTS_KEY), ContactDtoArraySchema);
 }
 
+function parseStoredDictionaryEntries(): DictionaryEntry[] {
+  return parseWithSchema("mock.dictionary.entries", readLocalStorageJson(MOCK_DICTIONARY_DATA_KEY), z.array(DictionaryEntrySchema));
+}
+
 type DedupeDecisionMap = Record<string, string>;
 type MockMergeUndoEntry = {
   undo_id: string;
@@ -215,6 +232,10 @@ function writeStoredTasks(tasks: TaskDto[]): void {
 
 function writeStoredContacts(contacts: ContactDto[]): void {
   writeStorageJson(MOCK_CONTACTS_KEY, contacts);
+}
+
+function writeStoredDictionaryEntries(entries: DictionaryEntry[]): void {
+  writeStorageJson(MOCK_DICTIONARY_DATA_KEY, entries);
 }
 
 function writeStoredDedupeDecisions(decisions: DedupeDecisionMap): void {
@@ -274,6 +295,52 @@ function makeMockContact(input: ContactCreate): ContactDto {
     created_at: now,
     updated_at: now
   };
+}
+
+function ensureMockDictionarySeeded(): DictionaryEntry[] {
+  const current = parseStoredDictionaryEntries();
+  if (current.length > 0) {
+    return current;
+  }
+  const seeded: DictionaryEntry[] = [
+    {
+      id: 1,
+      word: "rivet",
+      language: "en",
+      part_of_speech: "noun",
+      pronunciation: "/ˈrɪv.ɪt/",
+      etymology: "From Middle French rivet.",
+      definitions: [
+        "A metal pin used to fasten plates or sheets permanently.",
+        "A fixed point or anchor in a process."
+      ],
+      examples: [
+        "The steel plates were joined with rivets."
+      ],
+      notes: [
+        "Common in mechanical and aerospace contexts."
+      ],
+      source_table: "mock_dictionary"
+    },
+    {
+      id: 2,
+      word: "task",
+      language: "en",
+      part_of_speech: "noun",
+      pronunciation: "/tæsk/",
+      etymology: null,
+      definitions: [
+        "A piece of work to be done."
+      ],
+      examples: [
+        "She completed the highest-priority task first."
+      ],
+      notes: [],
+      source_table: "mock_dictionary"
+    }
+  ];
+  writeStoredDictionaryEntries(seeded);
+  return seeded;
 }
 
 function contactSearchMatches(contact: ContactDto, query: string): boolean {
@@ -999,6 +1066,71 @@ async function invokeCommand<R>(command: string, args?: unknown): Promise<R> {
           undo_id: entry?.undo_id ?? ""
         } as R;
       }
+      case "dictionary_languages": {
+        const entries = ensureMockDictionarySeeded();
+        const languages = Array.from(new Set(entries.map((entry) => entry.language ?? "").filter((entry) => entry.trim().length > 0)))
+          .sort((left, right) => left.localeCompare(right));
+        return languages as R;
+      }
+      case "dictionary_search": {
+        const payload = (args ?? DEFAULT_DICTIONARY_QUERY) as DictionarySearchArgs;
+        const entries = ensureMockDictionarySeeded();
+        const query = (payload.query ?? "").trim().toLowerCase();
+        const language = (payload.language ?? "").trim().toLowerCase();
+        const limit = Math.max(1, Math.min(500, payload.limit ?? 100));
+        const filtered = entries.filter((entry) => {
+          if (language && (entry.language ?? "").toLowerCase() !== language) {
+            return false;
+          }
+          if (!query) {
+            return true;
+          }
+          return entry.word.toLowerCase().includes(query);
+        });
+        const hits = filtered.slice(0, limit).map((entry) => ({
+          id: entry.id,
+          word: entry.word,
+          language: entry.language,
+          part_of_speech: entry.part_of_speech,
+          pronunciation: entry.pronunciation,
+          summary: entry.definitions[0] ?? null,
+          source_table: entry.source_table,
+          matched_by_prefix: query.length > 0 ? entry.word.toLowerCase().startsWith(query) : false
+        }));
+        return {
+          query: payload.query ?? "",
+          language: payload.language ?? null,
+          hits,
+          total: filtered.length,
+          truncated: filtered.length > hits.length,
+          warnings: []
+        } as R;
+      }
+      case "dictionary_entry": {
+        const payload = args as DictionaryEntryArgs;
+        const entries = ensureMockDictionarySeeded();
+        const language = (payload.language ?? "").trim().toLowerCase();
+        const word = (payload.word ?? "").trim().toLowerCase();
+        const found = entries.find((entry) => {
+          if (typeof payload.id === "number" && entry.id === payload.id) {
+            if (!language) {
+              return true;
+            }
+            return (entry.language ?? "").toLowerCase() === language;
+          }
+          if (word.length === 0) {
+            return false;
+          }
+          if (entry.word.toLowerCase() !== word) {
+            return false;
+          }
+          if (!language) {
+            return true;
+          }
+          return (entry.language ?? "").toLowerCase() === language;
+        }) ?? null;
+        return found as R;
+      }
       case "config_snapshot": {
         return {
           mode: "dev",
@@ -1011,8 +1143,15 @@ async function invokeCommand<R>(command: string, args?: unknown): Promise<R> {
           },
           ui: {
             features: {
-              contacts: true
+              contacts: true,
+              dictionary: true
             }
+          },
+          dictionary: {
+            enabled: true,
+            sqlite_path: "wiktionary.sqlite",
+            default_language: "en",
+            max_results: 100
           }
         } as R;
       }
@@ -1217,6 +1356,24 @@ export async function importExternalCalendarCached(source: ExternalCalendarSourc
   };
   const response = await invokeCommand<unknown>("external_calendar_import_cached", payload);
   return parseWithSchema("external_calendar_import_cached response", response, ExternalCalendarSyncResultSchema);
+}
+
+export async function listDictionaryLanguages(): Promise<string[]> {
+  const response = await invokeCommand<unknown>("dictionary_languages");
+  return parseWithSchema("dictionary_languages response", response, z.array(z.string()));
+}
+
+export async function searchDictionary(args: DictionarySearchArgs): Promise<DictionarySearchResult> {
+  const response = await invokeCommand<unknown>("dictionary_search", args);
+  return parseWithSchema("dictionary_search response", response, DictionarySearchResultSchema);
+}
+
+export async function loadDictionaryEntry(args: DictionaryEntryArgs): Promise<DictionaryEntry | null> {
+  const response = await invokeCommand<unknown>("dictionary_entry", args);
+  if (response == null) {
+    return null;
+  }
+  return parseWithSchema("dictionary_entry response", response, DictionaryEntrySchema);
 }
 
 export async function loadConfigSnapshot(): Promise<RivetRuntimeConfig> {

@@ -134,3 +134,25 @@ export function useCalendarWorkspaceSlice() {
     importExternalCalendarFromCache: state.importExternalCalendarFromCache
   })));
 }
+
+export function useDictionaryWorkspaceSlice() {
+  return useAppStore(useShallow((state) => ({
+    runtimeConfig: state.runtimeConfig,
+    dictionaryLanguages: state.dictionaryLanguages,
+    dictionaryLanguage: state.dictionaryLanguage,
+    dictionaryQuery: state.dictionaryQuery,
+    dictionaryLoading: state.dictionaryLoading,
+    dictionaryError: state.dictionaryError,
+    dictionaryResults: state.dictionaryResults,
+    dictionaryTotal: state.dictionaryTotal,
+    dictionaryTruncated: state.dictionaryTruncated,
+    dictionaryWarnings: state.dictionaryWarnings,
+    dictionaryEntry: state.dictionaryEntry,
+    dictionarySelectedId: state.dictionarySelectedId,
+    loadDictionaryLanguages: state.loadDictionaryLanguages,
+    setDictionaryLanguage: state.setDictionaryLanguage,
+    setDictionaryQuery: state.setDictionaryQuery,
+    searchDictionaryEntries: state.searchDictionaryEntries,
+    selectDictionaryHit: state.selectDictionaryHit
+  })));
+}

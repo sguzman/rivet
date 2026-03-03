@@ -80,6 +80,42 @@ All commands support an optional `request_id` argument for correlation logging.
 - Errors:
   - string message from backend delete failure.
 
+### `dictionary_languages`
+
+- Request:
+  - no `args`
+- Response:
+  - `string[]` language identifiers present in dictionary DB.
+- Errors:
+  - string message when dictionary config/DB/schema is missing or invalid.
+
+### `dictionary_search`
+
+- Request `args`:
+  - `language: string | null`
+  - `query: string`
+  - `limit: number | null`
+- Response:
+  - `query: string`
+  - `language: string | null`
+  - `hits: DictionarySearchHit[]`
+  - `total: number`
+  - `truncated: boolean`
+  - `warnings: string[]`
+- Errors:
+  - string message for dictionary lookup or schema mismatch failures.
+
+### `dictionary_entry`
+
+- Request `args`:
+  - `id: number | null`
+  - `language: string | null`
+  - `word: string | null`
+- Response:
+  - `DictionaryEntry | null`
+- Errors:
+  - string message for lookup validation/query failures.
+
 ### `external_calendar_sync`
 
 - Request `args`:

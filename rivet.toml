@@ -186,6 +186,10 @@ default_workspace_tab = "tasks"
 default_calendar_view = "month"
 calendar_unaffiliated_color = "#7f8691"
 
+[ui.features] # ACTIVE
+contacts = true
+dictionary = true
+
 [ui.theme] # ACTIVE
 mode = "day"
 follow_system = false
@@ -239,6 +243,12 @@ default_logs_rel = "logs"
 [integration.tags_schema] # DOCUMENTATION-ONLY
 source_file = "crates/rivet-gui/ui/assets/tags.toml"
 schema_version = 1
+
+[dictionary] # ACTIVE (dictionary tab + sqlite-backed lookup)
+enabled = true
+sqlite_path = "wiktionary.sqlite"
+default_language = "en"
+max_results = 100
 
 [integration.legacy] # DOCUMENTATION-ONLY
 # These are still tolerated as migration compatibility:

@@ -11,11 +11,14 @@ import {
   healthCheck,
   importExternalCalendarCached,
   importExternalCalendarIcs,
+  listDictionaryLanguages,
   listExternalCalendarCache,
   listTasks,
+  loadDictionaryEntry,
   loadConfigSnapshot,
   loadTagSchemaSnapshot,
   setCommandFailureSink,
+  searchDictionary,
   syncExternalCalendar,
   uncompleteTask,
   updateTask
@@ -80,7 +83,7 @@ import {
 } from "../lib/tags";
 import { buildTaskFacets, filterTasks } from "./selectors";
 import type { RivetRuntimeConfig, TagSchema } from "../types/config";
-import type { ExternalCalendarCacheEntry, ExternalCalendarSource, TaskCreate, TaskDto, TaskPatch } from "../types/core";
+import type { DictionaryEntry, DictionarySearchHit, ExternalCalendarCacheEntry, ExternalCalendarSource, TaskCreate, TaskDto, TaskPatch } from "../types/core";
 import type { AddTaskDialogContext, DueFilter, DueNotificationConfig, PriorityFilter, RecurrenceDraft, StatusFilter, TaskFilters, ThemeMode, WorkspaceTab } from "../types/ui";
 
 function readStorageString(key: string): string | null {
@@ -116,7 +119,7 @@ function saveThemeMode(mode: ThemeMode): void {
 
 function loadWorkspaceTab(): WorkspaceTab {
   const raw = readStorageString(WORKSPACE_TAB_STORAGE_KEY);
-  if (raw === "kanban" || raw === "calendar" || raw === "contacts") {
+  if (raw === "kanban" || raw === "calendar" || raw === "dictionary" || raw === "contacts") {
     return raw;
   }
   return "tasks";
@@ -200,6 +203,17 @@ function runtimeDueConfig(runtimeConfig: RivetRuntimeConfig | null, fallback: Du
   });
 }
 
+function normalizedLanguage(value: string | null | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === "*" || trimmed.toLowerCase() === "all") {
+    return null;
+  }
+  return trimmed;
+}
+
 interface AppState {
   bootstrapped: boolean;
   activeTab: WorkspaceTab;
@@ -228,6 +242,17 @@ interface AppState {
   externalCalendars: ExternalCalendarSource[];
   externalCalendarBusy: boolean;
   externalCalendarLastSync: string | null;
+  dictionaryLanguages: string[];
+  dictionaryLanguage: string | null;
+  dictionaryQuery: string;
+  dictionaryLoading: boolean;
+  dictionaryError: string | null;
+  dictionaryResults: DictionarySearchHit[];
+  dictionaryTotal: number;
+  dictionaryTruncated: boolean;
+  dictionaryWarnings: string[];
+  dictionaryEntry: DictionaryEntry | null;
+  dictionarySelectedId: number | null;
   settingsOpen: boolean;
   dueNotificationConfig: DueNotificationConfig;
   dueNotificationPermission: DueNotificationPermission;
@@ -294,6 +319,12 @@ interface AppState {
   importExternalCalendarFile: (file: File) => Promise<void>;
   listExternalCalendarCachedEntries: () => Promise<ExternalCalendarCacheEntry[]>;
   importExternalCalendarFromCache: (cacheEntry: ExternalCalendarCacheEntry) => Promise<void>;
+
+  loadDictionaryLanguages: () => Promise<void>;
+  setDictionaryLanguage: (language: string | null) => void;
+  setDictionaryQuery: (query: string) => void;
+  searchDictionaryEntries: () => Promise<void>;
+  selectDictionaryHit: (hit: DictionarySearchHit | null) => Promise<void>;
 
   openSettings: () => void;
   closeSettings: () => void;
@@ -373,6 +404,17 @@ export const useAppStore = create<AppState>((set, get) => {
   externalCalendars: initialExternalCalendars,
   externalCalendarBusy: false,
   externalCalendarLastSync: null,
+  dictionaryLanguages: [],
+  dictionaryLanguage: null,
+  dictionaryQuery: "",
+  dictionaryLoading: false,
+  dictionaryError: null,
+  dictionaryResults: [],
+  dictionaryTotal: 0,
+  dictionaryTruncated: false,
+  dictionaryWarnings: [],
+  dictionaryEntry: null,
+  dictionarySelectedId: null,
   settingsOpen: false,
   dueNotificationConfig: initialDueNotificationConfig,
   dueNotificationPermission: initialDueNotificationPermission,
@@ -388,10 +430,14 @@ export const useAppStore = create<AppState>((set, get) => {
 
     try {
       await healthCheck();
-      const [tasks, runtimeConfig, tagSchema] = await Promise.all([
+      const [tasks, runtimeConfig, tagSchema, dictionaryLanguages] = await Promise.all([
         listTasks(),
         loadConfigSnapshot(),
-        loadTagSchemaSnapshot()
+        loadTagSchemaSnapshot(),
+        listDictionaryLanguages().catch((error) => {
+          logger.warn("dictionary.languages.bootstrap", String(error));
+          return [] as string[];
+        })
       ]);
       const effective = resolveCalendarConfig(runtimeConfig);
       const today = todayInTimezone(effective.timezone);
@@ -399,6 +445,10 @@ export const useAppStore = create<AppState>((set, get) => {
       const resolvedDueConfig = runtimeDueConfig(runtimeConfig, get().dueNotificationConfig);
       const resolvedThemeMode = runtimeThemeMode(runtimeConfig) ?? get().themeMode;
       const resolvedFollowSystem = runtimeThemeFollowSystem(runtimeConfig);
+      const configuredDictionaryLanguage = normalizedLanguage(runtimeConfig?.dictionary?.default_language ?? null);
+      const resolvedDictionaryLanguage = configuredDictionaryLanguage
+        ?? dictionaryLanguages[0]
+        ?? null;
 
       saveKanbanBoards(get().kanbanBoards);
       saveActiveKanbanBoardId(get().activeKanbanBoardId);
@@ -420,7 +470,9 @@ export const useAppStore = create<AppState>((set, get) => {
         themeFollowSystem: resolvedFollowSystem,
         dueNotificationConfig: resolvedDueConfig,
         calendarFocusDateIso: calendarDateToIso(today),
-        dueNotificationPermission: browserDueNotificationPermission()
+        dueNotificationPermission: browserDueNotificationPermission(),
+        dictionaryLanguages,
+        dictionaryLanguage: resolvedDictionaryLanguage
       });
       logger.info("app.bootstrap.done", `tasks=${tasks.length} timezone=${effective.timezone}`);
     } catch (error) {
@@ -1209,6 +1261,131 @@ export const useAppStore = create<AppState>((set, get) => {
         externalCalendarLastSync: `Cached import failed for ${cacheEntry.name}: ${message}`
       });
       logger.error("external_calendar.cache_import.error", `${cacheEntry.cache_id}: ${message}`);
+    }
+  },
+
+  async loadDictionaryLanguages() {
+    logger.info("dictionary.languages.load.start", "loading available dictionary languages");
+    set({ dictionaryLoading: true, dictionaryError: null });
+    try {
+      const languages = await listDictionaryLanguages();
+      const selected = normalizedLanguage(get().dictionaryLanguage)
+        ?? normalizedLanguage(get().runtimeConfig?.dictionary?.default_language ?? null)
+        ?? languages[0]
+        ?? null;
+      set({
+        dictionaryLoading: false,
+        dictionaryLanguages: languages,
+        dictionaryLanguage: selected
+      });
+      logger.info("dictionary.languages.load.done", `count=${languages.length}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      set({ dictionaryLoading: false, dictionaryError: message });
+      logger.error("dictionary.languages.load.error", message);
+    }
+  },
+
+  setDictionaryLanguage(language) {
+    const normalized = normalizedLanguage(language);
+    set({ dictionaryLanguage: normalized });
+    logger.info("dictionary.language.set", normalized ?? "(all)");
+  },
+
+  setDictionaryQuery(query) {
+    set({ dictionaryQuery: query });
+  },
+
+  async searchDictionaryEntries() {
+    const state = get();
+    const query = state.dictionaryQuery.trim();
+    if (!query) {
+      set({
+        dictionaryResults: [],
+        dictionaryEntry: null,
+        dictionarySelectedId: null,
+        dictionaryTotal: 0,
+        dictionaryTruncated: false,
+        dictionaryWarnings: [],
+        dictionaryError: null
+      });
+      return;
+    }
+
+    set({
+      dictionaryLoading: true,
+      dictionaryError: null
+    });
+    logger.info("dictionary.search.start", `query_len=${query.length} language=${state.dictionaryLanguage ?? "(all)"}`);
+    try {
+      const result = await searchDictionary({
+        query,
+        language: state.dictionaryLanguage,
+        limit: state.runtimeConfig?.dictionary?.max_results ?? 100
+      });
+      const firstHit = result.hits[0] ?? null;
+      set({
+        dictionaryLoading: false,
+        dictionaryResults: result.hits,
+        dictionaryTotal: result.total,
+        dictionaryTruncated: result.truncated,
+        dictionaryWarnings: result.warnings,
+        dictionarySelectedId: firstHit?.id ?? null,
+        dictionaryEntry: null
+      });
+
+      if (firstHit) {
+        await get().selectDictionaryHit(firstHit);
+      }
+      logger.info("dictionary.search.done", `hits=${result.hits.length} total=${result.total}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      set({
+        dictionaryLoading: false,
+        dictionaryError: message,
+        dictionaryResults: [],
+        dictionaryTotal: 0,
+        dictionaryTruncated: false,
+        dictionaryWarnings: [],
+        dictionarySelectedId: null,
+        dictionaryEntry: null
+      });
+      logger.error("dictionary.search.error", message);
+    }
+  },
+
+  async selectDictionaryHit(hit) {
+    if (!hit) {
+      set({
+        dictionarySelectedId: null,
+        dictionaryEntry: null
+      });
+      return;
+    }
+    set({
+      dictionarySelectedId: hit.id ?? null,
+      dictionaryLoading: true,
+      dictionaryError: null
+    });
+    logger.debug("dictionary.entry.load.start", `${hit.word}:${hit.language ?? "(all)"}`);
+    try {
+      const entry = await loadDictionaryEntry({
+        id: hit.id,
+        language: hit.language ?? get().dictionaryLanguage,
+        word: hit.word
+      });
+      set({
+        dictionaryLoading: false,
+        dictionaryEntry: entry
+      });
+      logger.debug("dictionary.entry.load.done", hit.word);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      set({
+        dictionaryLoading: false,
+        dictionaryError: message
+      });
+      logger.error("dictionary.entry.load.error", `${hit.word}: ${message}`);
     }
   },
 

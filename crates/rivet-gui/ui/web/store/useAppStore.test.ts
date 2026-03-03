@@ -10,10 +10,13 @@ const mocks = vi.hoisted(() => ({
   healthCheckMock: vi.fn(),
   importExternalCalendarCachedMock: vi.fn(),
   importExternalCalendarIcsMock: vi.fn(),
+  listDictionaryLanguagesMock: vi.fn(),
   listExternalCalendarCacheMock: vi.fn(),
   listTasksMock: vi.fn(),
+  loadDictionaryEntryMock: vi.fn(),
   loadConfigSnapshotMock: vi.fn(),
   loadTagSchemaSnapshotMock: vi.fn(),
+  searchDictionaryMock: vi.fn(),
   setCommandFailureSinkMock: vi.fn(),
   syncExternalCalendarMock: vi.fn(),
   uncompleteTaskMock: vi.fn(),
@@ -28,10 +31,13 @@ vi.mock("../api/tauri", () => ({
   healthCheck: mocks.healthCheckMock,
   importExternalCalendarCached: mocks.importExternalCalendarCachedMock,
   importExternalCalendarIcs: mocks.importExternalCalendarIcsMock,
+  listDictionaryLanguages: mocks.listDictionaryLanguagesMock,
   listExternalCalendarCache: mocks.listExternalCalendarCacheMock,
   listTasks: mocks.listTasksMock,
+  loadDictionaryEntry: mocks.loadDictionaryEntryMock,
   loadConfigSnapshot: mocks.loadConfigSnapshotMock,
   loadTagSchemaSnapshot: mocks.loadTagSchemaSnapshotMock,
+  searchDictionary: mocks.searchDictionaryMock,
   setCommandFailureSink: mocks.setCommandFailureSinkMock,
   syncExternalCalendar: mocks.syncExternalCalendarMock,
   uncompleteTask: mocks.uncompleteTaskMock,
@@ -81,10 +87,13 @@ describe("useAppStore modal and save regressions", () => {
     mocks.healthCheckMock.mockReset();
     mocks.importExternalCalendarCachedMock.mockReset();
     mocks.importExternalCalendarIcsMock.mockReset();
+    mocks.listDictionaryLanguagesMock.mockReset();
     mocks.listExternalCalendarCacheMock.mockReset();
     mocks.listTasksMock.mockReset();
+    mocks.loadDictionaryEntryMock.mockReset();
     mocks.loadConfigSnapshotMock.mockReset();
     mocks.loadTagSchemaSnapshotMock.mockReset();
+    mocks.searchDictionaryMock.mockReset();
     mocks.syncExternalCalendarMock.mockReset();
     mocks.uncompleteTaskMock.mockReset();
     mocks.updateTaskMock.mockReset();
@@ -252,12 +261,13 @@ describe("useAppStore modal and save regressions", () => {
     mocks.loadConfigSnapshotMock.mockResolvedValueOnce({
       mode: "dev",
       app: { mode: "dev" },
-      ui: { features: { contacts: true } }
+      ui: { features: { contacts: true, dictionary: true } }
     });
     mocks.loadTagSchemaSnapshotMock.mockResolvedValueOnce({
       version: 1,
       keys: [{ id: "kanban", values: ["todo", "working", "finished"] }]
     });
+    mocks.listDictionaryLanguagesMock.mockResolvedValueOnce(["en", "es"]);
 
     await useAppStore.getState().bootstrap();
 
@@ -273,6 +283,8 @@ describe("useAppStore modal and save regressions", () => {
     expect(useAppStore.getState().activeTab).toBe("kanban");
     current.setActiveTab("calendar");
     expect(useAppStore.getState().activeTab).toBe("calendar");
+    current.setActiveTab("dictionary");
+    expect(useAppStore.getState().activeTab).toBe("dictionary");
     current.setActiveTab("contacts");
     expect(useAppStore.getState().activeTab).toBe("contacts");
   });

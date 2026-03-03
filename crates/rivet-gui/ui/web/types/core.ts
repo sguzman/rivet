@@ -297,3 +297,48 @@ export interface ExternalCalendarCacheEntry {
   cached_at: string;
   kind: string;
 }
+
+export interface DictionarySearchArgs {
+  language: string | null;
+  query: string;
+  limit: number | null;
+}
+
+export interface DictionaryEntryArgs {
+  id: number | null;
+  language: string | null;
+  word: string | null;
+}
+
+export interface DictionarySearchHit {
+  id: number | null;
+  word: string;
+  language: string | null;
+  part_of_speech: string | null;
+  pronunciation: string | null;
+  summary: string | null;
+  source_table: string;
+  matched_by_prefix: boolean;
+}
+
+export interface DictionarySearchResult {
+  query: string;
+  language: string | null;
+  hits: DictionarySearchHit[];
+  total: number;
+  truncated: boolean;
+  warnings: string[];
+}
+
+export interface DictionaryEntry {
+  id: number | null;
+  word: string;
+  language: string | null;
+  part_of_speech: string | null;
+  pronunciation: string | null;
+  etymology: string | null;
+  definitions: string[];
+  examples: string[];
+  notes: string[];
+  source_table: string;
+}
