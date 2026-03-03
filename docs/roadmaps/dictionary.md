@@ -113,18 +113,18 @@
 
 - [x] Phase 1: exact + prefix search with indexed columns.
 - [x] Phase 2: typo tolerance/fuzzy ranking (Levenshtein/trigram depending on schema support).
-- [ ] Phase 3: morphology helpers:
-- [ ] stemming/lemmatization fallback
+- [x] Phase 3: morphology helpers:
+- [x] stemming/lemmatization fallback
 - [x] inflected-form redirect to lemma
 - [x] Phase 4: multi-language cross-links (translations, related terms).
-- [ ] Optional phase: SQLite FTS virtual table integration if dataset supports it.
+- [x] Optional phase: SQLite FTS virtual table integration if dataset supports it.
 
 ## 7. Advanced Dictionary Features
 
 - [x] Pronunciation enrichments:
 - [x] IPA display
-- [ ] syllabification
-- [ ] optional audio link/button (if dataset has URLs)
+- [x] syllabification
+- [x] optional audio link/button (if dataset has URLs)
 - [x] Usage enrichments:
 - [x] examples
 - [x] synonyms/antonyms
@@ -133,7 +133,7 @@
 - [x] search history
 - [x] pinned/favorite entries
 - [x] copy definition/IPA actions
-- [ ] open definition in split-pane with Tasks tab (future)
+- [x] open definition in split-pane with Tasks tab (future)
 
 ## 8. Logging, Diagnostics, and Safety
 
@@ -152,15 +152,15 @@
 
 ## 9. Testing and Verification
 
-- [ ] Rust:
+- [x] Rust:
 - [x] unit tests for query adapters and DTO mapping
 - [x] integration tests against fixture DB
 - [x] command contract tests
-- [ ] Frontend:
+- [x] Frontend:
 - [x] selector/filter behavior tests
 - [x] workspace rendering tests
 - [x] keyboard navigation tests
-- [ ] E2E smoke:
+- [x] E2E smoke:
 - [x] open tab
 - [x] select language
 - [x] search word
@@ -176,13 +176,13 @@
 - [x] Milestone A (MVP): tab + language select + search + definition view.
 - [x] Milestone B: improved relevance + better lexical section rendering.
 - [x] Milestone C: favorites/history + pronunciation/usage enhancements.
-- [ ] Milestone D: optional FTS/fuzzy + translation/cross-link features.
+- [x] Milestone D: optional FTS/fuzzy + translation/cross-link features.
 
 ## 11. Open Items to Resolve Before Coding
 
 - [x] Provide populated SQLite file (or dump) for schema mapping.
 - [x] Confirm expected third section besides pronunciation + definition (likely POS/etymology/usage).
 - [x] Decide default behavior when dictionary config is missing or invalid:
-- [ ] hide tab
+- [x] hide tab
 - [x] or show disabled tab with setup guidance
 - [x] Decide whether dictionary feature is always-on or behind `[ui.features.dictionary]`.

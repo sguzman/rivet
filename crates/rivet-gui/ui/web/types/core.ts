@@ -302,7 +302,7 @@ export interface DictionarySearchArgs {
   language: string | null;
   query: string;
   limit: number | null;
-  mode: "exact" | "prefix" | "fuzzy" | string | null;
+  mode: "exact" | "prefix" | "fuzzy" | "fts" | string | null;
 }
 
 export interface DictionaryEntryArgs {

@@ -95,7 +95,7 @@ All commands support an optional `request_id` argument for correlation logging.
   - `language: string | null`
   - `query: string`
   - `limit: number | null`
-  - `mode: "exact" | "prefix" | "fuzzy" | null`
+  - `mode: "exact" | "prefix" | "fuzzy" | "fts" | null`
 - Response:
   - `query: string`
   - `language: string | null`
@@ -103,6 +103,7 @@ All commands support an optional `request_id` argument for correlation logging.
   - `total: number`
   - `truncated: boolean`
   - `warnings: string[]`
+  - `warnings` may include fallback details, for example morphology fallback candidates or FTS fallback to fuzzy mode.
 - Errors:
   - string message for dictionary lookup or schema mismatch failures.
 

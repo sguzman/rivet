@@ -172,6 +172,8 @@ export function DictionaryWorkspace() {
     const antonyms: string[] = [];
     const translations: string[] = [];
     const domains: string[] = [];
+    const syllabification: string[] = [];
+    const audio: string[] = [];
     const others: string[] = [];
     const metadata = dictionaryEntry?.metadata ?? [];
     for (const item of metadata) {
@@ -185,11 +187,15 @@ export function DictionaryWorkspace() {
         translations.push(target);
       } else if (relationType.includes("domain") || relationType.includes("register")) {
         domains.push(target);
+      } else if (relationType.includes("syllab")) {
+        syllabification.push(target);
+      } else if (relationType.includes("audio") || relationType.includes("sound") || relationType.includes("pronunciation_url")) {
+        audio.push(target);
       } else {
         others.push(`${item.relation_type}: ${target}`);
       }
     }
-    return { synonyms, antonyms, translations, domains, others };
+    return { synonyms, antonyms, translations, domains, syllabification, audio, others };
   }, [dictionaryEntry]);
   const isFavorite = useMemo(() => {
     if (!dictionaryEntry) {
@@ -282,6 +288,12 @@ export function DictionaryWorkspace() {
       // no-op
     }
   };
+  const openTasksSplit = () => {
+    window.dispatchEvent(new Event("rivet:dictionary-open-tasks-split"));
+  };
+  const closeTasksSplit = () => {
+    window.dispatchEvent(new Event("rivet:dictionary-close-tasks-split"));
+  };
 
   if (!dictionaryEnabled) {
     return (
@@ -351,6 +363,12 @@ export function DictionaryWorkspace() {
               }}
             >
               Clear
+            </Button>
+            <Button variant="outlined" size="small" onClick={openTasksSplit}>
+              Split with Tasks
+            </Button>
+            <Button variant="text" size="small" onClick={closeTasksSplit}>
+              Exit Split
             </Button>
           </Stack>
 
@@ -524,6 +542,30 @@ export function DictionaryWorkspace() {
               <div>
                 <Typography variant="subtitle2">Domain/Register</Typography>
                 <Typography variant="body2" color="text.secondary">{relationBuckets.domains.join(", ")}</Typography>
+              </div>
+            ) : null}
+            {relationBuckets.syllabification.length > 0 ? (
+              <div>
+                <Typography variant="subtitle2">Syllabification</Typography>
+                <Typography variant="body2" color="text.secondary">{relationBuckets.syllabification.join(" | ")}</Typography>
+              </div>
+            ) : null}
+            {relationBuckets.audio.length > 0 ? (
+              <div>
+                <Typography variant="subtitle2">Audio</Typography>
+                <Stack spacing={0.5}>
+                  {relationBuckets.audio.slice(0, 12).map((item) => {
+                    const url = item.trim();
+                    const looksLikeUrl = /^https?:\/\//i.test(url);
+                    return looksLikeUrl ? (
+                      <a key={url} href={url} target="_blank" rel="noreferrer" className="text-sm text-sky-700 underline">
+                        {url}
+                      </a>
+                    ) : (
+                      <Typography key={url} variant="body2" color="text.secondary">{url}</Typography>
+                    );
+                  })}
+                </Stack>
               </div>
             ) : null}
             {relationBuckets.others.length > 0 ? (

@@ -23,6 +23,103 @@ const DEFAULT_SEARCH_LIMIT: u32 = 100;
 const MAX_SEARCH_LIMIT: u32 = 500;
 const SQLITE_BUSY_TIMEOUT_SECS: u64 = 2;
 const SLOW_QUERY_WARN_MS: u128 = 250;
+const SEARCH_LIST_SQL: &str =
+  "WITH title_hits AS (
+      SELECT p.id AS page_id,
+             p.title AS word,
+             d.language AS language,
+             (SELECT d2.definition_text
+              FROM definitions d2
+              WHERE d2.page_id = p.id
+                AND d2.language = d.language
+              ORDER BY d2.def_order ASC
+              LIMIT 1) AS summary,
+             0 AS source_rank
+      FROM pages p
+      JOIN definitions d ON d.page_id = p.id
+      WHERE (
+              (?1 = 'exact' AND LOWER(p.title) = LOWER(?2))
+           OR (?1 = 'prefix' AND p.title LIKE ?3)
+           OR (?1 = 'fuzzy' AND (p.title LIKE ?4 OR EXISTS(
+                SELECT 1 FROM definitions d3
+                WHERE d3.page_id = p.id
+                  AND d3.language = d.language
+                  AND d3.normalized_text LIKE ?4
+              )))
+            )
+        AND (?5 IS NULL OR LOWER(d.language) = LOWER(?5))
+      GROUP BY p.id, p.title, d.language
+    ),
+    alias_hits AS (
+      SELECT la.page_id AS page_id,
+             la.alias AS word,
+             COALESCE(la.language, d.language) AS language,
+             (SELECT d2.definition_text
+              FROM definitions d2
+              WHERE d2.page_id = la.page_id
+                AND d2.language = COALESCE(la.language, d.language)
+              ORDER BY d2.def_order ASC
+              LIMIT 1) AS summary,
+             1 AS source_rank
+      FROM lemma_aliases la
+      JOIN definitions d ON d.page_id = la.page_id
+      WHERE (
+              (?1 = 'exact' AND LOWER(la.alias) = LOWER(?2))
+           OR (?1 = 'prefix' AND la.alias LIKE ?3)
+           OR (?1 = 'fuzzy' AND (la.alias LIKE ?4 OR la.normalized_alias LIKE ?4))
+            )
+        AND (?5 IS NULL OR LOWER(COALESCE(la.language, d.language)) = LOWER(?5))
+      GROUP BY la.page_id, la.alias, COALESCE(la.language, d.language)
+    ),
+    merged AS (
+      SELECT page_id, word, language, summary, source_rank FROM title_hits
+      UNION
+      SELECT page_id, word, language, summary, source_rank FROM alias_hits
+    )
+    SELECT page_id, word, language, summary
+    FROM merged
+    ORDER BY source_rank ASC, word COLLATE NOCASE ASC
+    LIMIT ?6";
+const SEARCH_COUNT_SQL: &str =
+  "WITH title_hits AS (
+      SELECT p.id AS page_id,
+             p.title AS word,
+             d.language AS language
+      FROM pages p
+      JOIN definitions d ON d.page_id = p.id
+      WHERE (
+              (?1 = 'exact' AND LOWER(p.title) = LOWER(?2))
+           OR (?1 = 'prefix' AND p.title LIKE ?3)
+           OR (?1 = 'fuzzy' AND (p.title LIKE ?4 OR EXISTS(
+                SELECT 1 FROM definitions d3
+                WHERE d3.page_id = p.id
+                  AND d3.language = d.language
+                  AND d3.normalized_text LIKE ?4
+              )))
+            )
+        AND (?5 IS NULL OR LOWER(d.language) = LOWER(?5))
+      GROUP BY p.id, p.title, d.language
+    ),
+    alias_hits AS (
+      SELECT la.page_id AS page_id,
+             la.alias AS word,
+             COALESCE(la.language, d.language) AS language
+      FROM lemma_aliases la
+      JOIN definitions d ON d.page_id = la.page_id
+      WHERE (
+              (?1 = 'exact' AND LOWER(la.alias) = LOWER(?2))
+           OR (?1 = 'prefix' AND la.alias LIKE ?3)
+           OR (?1 = 'fuzzy' AND (la.alias LIKE ?4 OR la.normalized_alias LIKE ?4))
+            )
+        AND (?5 IS NULL OR LOWER(COALESCE(la.language, d.language)) = LOWER(?5))
+      GROUP BY la.page_id, la.alias, COALESCE(la.language, d.language)
+    ),
+    merged AS (
+      SELECT page_id, word, language FROM title_hits
+      UNION
+      SELECT page_id, word, language FROM alias_hits
+    )
+    SELECT COUNT(1) FROM merged";
 
 #[derive(Debug, serde::Deserialize)]
 struct DictionaryConfig {
@@ -96,11 +193,70 @@ fn normalize_search_mode(
   if mode == "exact"
     || mode == "prefix"
     || mode == "fuzzy"
+    || mode == "fts"
   {
     mode
   } else {
     "prefix".to_string()
   }
+}
+
+fn lemma_candidates(
+  query: &str
+) -> Vec<String> {
+  let token =
+    query.trim().to_ascii_lowercase();
+  if token.len() < 4 {
+    return vec![];
+  }
+  let mut out = Vec::<String>::new();
+  if token.ends_with("ies")
+    && token.len() > 4
+  {
+    out.push(format!(
+      "{}y",
+      &token[..token.len() - 3]
+    ));
+  }
+  if token.ends_with("es")
+    && token.len() > 4
+  {
+    out.push(
+      token[..token.len() - 2].to_string()
+    );
+  }
+  if token.ends_with('s')
+    && token.len() > 3
+  {
+    out.push(
+      token[..token.len() - 1].to_string()
+    );
+  }
+  if token.ends_with("ing")
+    && token.len() > 5
+  {
+    let stem =
+      token[..token.len() - 3].to_string();
+    out.push(stem.clone());
+    if let Some(last) = stem.chars().last()
+    {
+      out.push(format!("{stem}{last}"));
+    }
+    out.push(format!("{stem}e"));
+  }
+  if token.ends_with("ed")
+    && token.len() > 4
+  {
+    let stem =
+      token[..token.len() - 2].to_string();
+    out.push(stem.clone());
+    out.push(format!("{stem}e"));
+  }
+  out.retain(|candidate| {
+    !candidate.is_empty()
+      && candidate != &token
+  });
+  dedupe_strings(out)
 }
 
 fn dedupe_strings(
@@ -576,6 +732,165 @@ fn dictionary_languages_native(
   Ok(values)
 }
 
+fn detect_fts_table(
+  conn: &Connection
+) -> anyhow::Result<Option<&'static str>> {
+  if table_exists(
+    conn,
+    "definitions_fts",
+  )? {
+    return Ok(Some("definitions_fts"));
+  }
+  if table_exists(
+    conn,
+    "lemma_aliases_fts",
+  )? {
+    return Ok(Some("lemma_aliases_fts"));
+  }
+  if table_exists(conn, "pages_fts")? {
+    return Ok(Some("pages_fts"));
+  }
+  Ok(None)
+}
+
+fn run_search_hits(
+  conn: &Connection,
+  mode: &str,
+  query: &str,
+  language: &Option<String>,
+  limit: u32
+) -> anyhow::Result<Vec<NativeHit>> {
+  let exact = query.to_string();
+  let prefix = format!("{query}%");
+  let fuzzy = format!("%{query}%");
+  let mut stmt =
+    conn.prepare(SEARCH_LIST_SQL)?;
+  let rows = stmt
+    .query_map(
+      params![
+        mode,
+        exact,
+        prefix,
+        fuzzy,
+        language,
+        i64::from(limit),
+      ],
+      |row| {
+        Ok(NativeHit {
+          page_id: row.get(0)?,
+          word: row.get(1)?,
+          language: row.get(2)?,
+          summary:
+            row.get::<_, Option<String>>(3)?,
+        })
+      },
+    )?
+    .collect::<Result<Vec<_>, _>>()?;
+  Ok(rows)
+}
+
+fn run_search_count(
+  conn: &Connection,
+  mode: &str,
+  query: &str,
+  language: &Option<String>
+) -> anyhow::Result<i64> {
+  let exact = query.to_string();
+  let prefix = format!("{query}%");
+  let fuzzy = format!("%{query}%");
+  let total: i64 = conn.query_row(
+    SEARCH_COUNT_SQL,
+    params![
+      mode,
+      exact,
+      prefix,
+      fuzzy,
+      language,
+    ],
+    |row| row.get(0),
+  )?;
+  Ok(total)
+}
+
+fn run_fts_hits(
+  conn: &Connection,
+  table: &str,
+  query: &str,
+  language: &Option<String>,
+  limit: u32
+) -> anyhow::Result<Vec<NativeHit>> {
+  let sql = if table == "definitions_fts" {
+    "SELECT d.page_id, p.title, d.language,
+            (SELECT d2.definition_text
+             FROM definitions d2
+             WHERE d2.page_id = d.page_id
+               AND d2.language = d.language
+             ORDER BY d2.def_order ASC
+             LIMIT 1) AS summary
+     FROM definitions_fts f
+     JOIN definitions d ON d.id = f.rowid
+     JOIN pages p ON p.id = d.page_id
+     WHERE definitions_fts MATCH ?1
+       AND (?2 IS NULL OR LOWER(d.language) = LOWER(?2))
+     GROUP BY d.page_id, p.title, d.language
+     ORDER BY p.title COLLATE NOCASE ASC
+     LIMIT ?3"
+  } else if table == "lemma_aliases_fts" {
+    "SELECT la.page_id, la.alias, COALESCE(la.language, d.language),
+            (SELECT d2.definition_text
+             FROM definitions d2
+             WHERE d2.page_id = la.page_id
+               AND d2.language = COALESCE(la.language, d.language)
+             ORDER BY d2.def_order ASC
+             LIMIT 1) AS summary
+     FROM lemma_aliases_fts f
+     JOIN lemma_aliases la ON la.id = f.rowid
+     JOIN definitions d ON d.page_id = la.page_id
+     WHERE lemma_aliases_fts MATCH ?1
+       AND (?2 IS NULL OR LOWER(COALESCE(la.language, d.language)) = LOWER(?2))
+     GROUP BY la.page_id, la.alias, COALESCE(la.language, d.language)
+     ORDER BY la.alias COLLATE NOCASE ASC
+     LIMIT ?3"
+  } else {
+    "SELECT p.id, p.title, d.language,
+            (SELECT d2.definition_text
+             FROM definitions d2
+             WHERE d2.page_id = p.id
+               AND d2.language = d.language
+             ORDER BY d2.def_order ASC
+             LIMIT 1) AS summary
+     FROM pages_fts f
+     JOIN pages p ON p.id = f.rowid
+     JOIN definitions d ON d.page_id = p.id
+     WHERE pages_fts MATCH ?1
+       AND (?2 IS NULL OR LOWER(d.language) = LOWER(?2))
+     GROUP BY p.id, p.title, d.language
+     ORDER BY p.title COLLATE NOCASE ASC
+     LIMIT ?3"
+  };
+
+  let mut stmt = conn.prepare(sql)?;
+  let rows = stmt
+    .query_map(
+      params![
+        query,
+        language,
+        i64::from(limit),
+      ],
+      |row| {
+        Ok(NativeHit {
+          page_id: row.get(0)?,
+          word: row.get(1)?,
+          language: row.get(2)?,
+          summary:
+            row.get::<_, Option<String>>(3)?,
+        })
+      },
+    )?
+    .collect::<Result<Vec<_>, _>>()?;
+  Ok(rows)
+}
+
 fn dictionary_search_native(
   settings: &DictionarySettings,
   conn: &Connection,
@@ -617,90 +932,57 @@ fn dictionary_search_native(
   } else {
     search_mode
   };
-  let exact = query.to_string();
-  let prefix = format!("{query}%");
-  let fuzzy = format!("%{query}%");
+  let mut warnings = Vec::<String>::new();
 
   let list_started = Instant::now();
-  let mut list_stmt = conn.prepare(
-    "WITH title_hits AS (
-        SELECT p.id AS page_id,
-               p.title AS word,
-               d.language AS language,
-               (SELECT d2.definition_text
-                FROM definitions d2
-                WHERE d2.page_id = p.id
-                  AND d2.language = d.language
-                ORDER BY d2.def_order ASC
-                LIMIT 1) AS summary,
-               0 AS source_rank
-        FROM pages p
-        JOIN definitions d ON d.page_id = p.id
-        WHERE (
-                (?1 = 'exact' AND LOWER(p.title) = LOWER(?2))
-             OR (?1 = 'prefix' AND p.title LIKE ?3)
-             OR (?1 = 'fuzzy' AND (p.title LIKE ?4 OR EXISTS(
-                  SELECT 1 FROM definitions d3
-                  WHERE d3.page_id = p.id
-                    AND d3.language = d.language
-                    AND d3.normalized_text LIKE ?4
-                )))
-              )
-          AND (?5 IS NULL OR LOWER(d.language) = LOWER(?5))
-        GROUP BY p.id, p.title, d.language
-      ),
-      alias_hits AS (
-        SELECT la.page_id AS page_id,
-               la.alias AS word,
-               COALESCE(la.language, d.language) AS language,
-               (SELECT d2.definition_text
-                FROM definitions d2
-                WHERE d2.page_id = la.page_id
-                  AND d2.language = COALESCE(la.language, d.language)
-                ORDER BY d2.def_order ASC
-                LIMIT 1) AS summary,
-               1 AS source_rank
-        FROM lemma_aliases la
-        JOIN definitions d ON d.page_id = la.page_id
-        WHERE (
-                (?1 = 'exact' AND LOWER(la.alias) = LOWER(?2))
-             OR (?1 = 'prefix' AND la.alias LIKE ?3)
-             OR (?1 = 'fuzzy' AND (la.alias LIKE ?4 OR la.normalized_alias LIKE ?4))
-              )
-          AND (?5 IS NULL OR LOWER(COALESCE(la.language, d.language)) = LOWER(?5))
-        GROUP BY la.page_id, la.alias, COALESCE(la.language, d.language)
-      ),
-      merged AS (
-        SELECT page_id, word, language, summary, source_rank FROM title_hits
-        UNION
-        SELECT page_id, word, language, summary, source_rank FROM alias_hits
-      )
-      SELECT page_id, word, language, summary
-      FROM merged
-      ORDER BY source_rank ASC, word COLLATE NOCASE ASC
-      LIMIT ?6"
-  )?;
-
-  let rows = list_stmt
-    .query_map(
-      params![
-        effective_mode,
-        exact,
-        prefix,
-        fuzzy,
-        language,
-        i64::from(limit),
-      ],
-      |row| {
-        Ok(NativeHit {
-          page_id: row.get(0)?,
-          word: row.get(1)?,
-          language: row.get(2)?,
-          summary: row.get::<_, Option<String>>(3)?,
-        })
-      },
+  let mut rows = if effective_mode == "fts" {
+    match detect_fts_table(conn)? {
+      Some(table) => {
+        match run_fts_hits(
+          conn,
+          table,
+          query,
+          &language,
+          limit,
+        ) {
+          Ok(payload) => payload,
+          Err(err) => {
+            warnings.push(format!(
+              "fts query unavailable ({err}); falling back to fuzzy search"
+            ));
+            run_search_hits(
+              conn,
+              "fuzzy",
+              query,
+              &language,
+              limit,
+            )?
+          }
+        }
+      }
+      None => {
+        warnings.push(
+          "fts mode requested but no fts virtual table found; falling back to fuzzy search"
+            .to_string(),
+        );
+        run_search_hits(
+          conn,
+          "fuzzy",
+          query,
+          &language,
+          limit,
+        )?
+      }
+    }
+  } else {
+    run_search_hits(
+      conn,
+      &effective_mode,
+      query,
+      &language,
+      limit,
     )?
-    .collect::<Result<Vec<_>, _>>()?;
+  };
   log_if_slow(
     "search.list",
     list_started,
@@ -709,61 +991,81 @@ fn dictionary_search_native(
   );
 
   let count_started = Instant::now();
-  let total: i64 = conn.query_row(
-    "WITH title_hits AS (
-        SELECT p.id AS page_id,
-               p.title AS word,
-               d.language AS language
-        FROM pages p
-        JOIN definitions d ON d.page_id = p.id
-        WHERE (
-                (?1 = 'exact' AND LOWER(p.title) = LOWER(?2))
-             OR (?1 = 'prefix' AND p.title LIKE ?3)
-             OR (?1 = 'fuzzy' AND (p.title LIKE ?4 OR EXISTS(
-                  SELECT 1 FROM definitions d3
-                  WHERE d3.page_id = p.id
-                    AND d3.language = d.language
-                    AND d3.normalized_text LIKE ?4
-                )))
-              )
-          AND (?5 IS NULL OR LOWER(d.language) = LOWER(?5))
-        GROUP BY p.id, p.title, d.language
-      ),
-      alias_hits AS (
-        SELECT la.page_id AS page_id,
-               la.alias AS word,
-               COALESCE(la.language, d.language) AS language
-        FROM lemma_aliases la
-        JOIN definitions d ON d.page_id = la.page_id
-        WHERE (
-                (?1 = 'exact' AND LOWER(la.alias) = LOWER(?2))
-             OR (?1 = 'prefix' AND la.alias LIKE ?3)
-             OR (?1 = 'fuzzy' AND (la.alias LIKE ?4 OR la.normalized_alias LIKE ?4))
-              )
-          AND (?5 IS NULL OR LOWER(COALESCE(la.language, d.language)) = LOWER(?5))
-        GROUP BY la.page_id, la.alias, COALESCE(la.language, d.language)
-      ),
-      merged AS (
-        SELECT page_id, word, language FROM title_hits
-        UNION
-        SELECT page_id, word, language FROM alias_hits
-      )
-      SELECT COUNT(1) FROM merged",
-    params![
-      effective_mode,
-      exact,
-      prefix,
-      fuzzy,
-      language,
-    ],
-    |row| row.get(0),
-  )?;
+  let mut total: i64 =
+    if effective_mode == "fts" {
+      rows.len() as i64
+    } else {
+      run_search_count(
+        conn,
+        &effective_mode,
+        query,
+        &language,
+      )?
+    };
   log_if_slow(
     "search.count",
     count_started,
     request_id,
     "count merged hits",
   );
+
+  if rows.is_empty() {
+    let candidates = lemma_candidates(query);
+    if !candidates.is_empty() {
+      let fallback_started =
+        Instant::now();
+      let mut fallback_rows =
+        Vec::<NativeHit>::new();
+      for candidate in &candidates {
+        let candidate_hits =
+          run_search_hits(
+            conn,
+            "exact",
+            candidate,
+            &language,
+            limit,
+          )?;
+        for hit in candidate_hits {
+          let exists = fallback_rows.iter().any(
+            |entry| {
+              entry.page_id == hit.page_id
+                && entry
+                  .language
+                  .eq_ignore_ascii_case(
+                    &hit.language
+                  )
+            },
+          );
+          if exists {
+            continue;
+          }
+          fallback_rows.push(hit);
+          if fallback_rows.len() >= limit as usize
+          {
+            break;
+          }
+        }
+        if fallback_rows.len() >= limit as usize
+        {
+          break;
+        }
+      }
+      if !fallback_rows.is_empty() {
+        warnings.push(format!(
+          "no direct matches; applied morphology fallback candidates: {}",
+          candidates.join(", ")
+        ));
+        total = fallback_rows.len() as i64;
+        rows = fallback_rows;
+      }
+      log_if_slow(
+        "search.morphology_fallback",
+        fallback_started,
+        request_id,
+        "lemma candidate search",
+      );
+    }
+  }
 
   let enrich_started = Instant::now();
   let mut hits = Vec::<DictionarySearchHit>::new();
@@ -788,7 +1090,8 @@ fn dictionary_search_native(
       summary: row.summary,
       source_table: "pages/definitions/lemma_aliases"
         .to_string(),
-      matched_by_prefix: true,
+      matched_by_prefix: effective_mode
+        == "prefix",
     });
   }
   log_if_slow(
@@ -804,7 +1107,7 @@ fn dictionary_search_native(
     total: total.max(0) as u64,
     truncated: total.max(0) as u64 > hits.len() as u64,
     hits,
-    warnings: vec![],
+    warnings,
   })
 }
 
@@ -1175,6 +1478,7 @@ mod dictionary_tests {
     dictionary_search_native,
     dedupe_strings,
     ensure_required_schema,
+    lemma_candidates,
     normalize_search_mode,
     normalized_language
   };
@@ -1353,6 +1657,24 @@ mod dictionary_tests {
       )),
       "fuzzy".to_string()
     );
+    assert_eq!(
+      normalize_search_mode(Some(
+        "fts".to_string()
+      )),
+      "fts".to_string()
+    );
+  }
+
+  #[test]
+  fn lemma_candidates_reduces_inflections()
+  {
+    let candidates =
+      lemma_candidates("anchoring");
+    assert!(
+      candidates
+        .iter()
+        .any(|candidate| candidate == "anchor")
+    );
   }
 
   #[test]
@@ -1504,6 +1826,37 @@ mod dictionary_tests {
         .hits
         .iter()
         .any(|hit| hit.id == Some(1))
+    );
+    let morphology =
+      dictionary_search_native(
+        &settings,
+        &conn,
+        DictionarySearchArgs {
+          language: Some("en".to_string()),
+          query: "anchoring".to_string(),
+          limit: Some(5),
+          mode: Some("prefix".to_string()),
+        },
+        &None,
+      )
+      .expect(
+        "morphology fallback search"
+      );
+    assert!(
+      morphology
+        .hits
+        .iter()
+        .any(|hit| hit.id == Some(1))
+    );
+    assert!(
+      morphology
+        .warnings
+        .iter()
+        .any(|warning| {
+          warning.contains(
+            "morphology fallback"
+          )
+        })
     );
 
     drop(conn);

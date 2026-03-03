@@ -19,6 +19,7 @@ export function useShellSlice() {
     createTask: state.createTask,
     loading: state.loading,
     runtimeConfig: state.runtimeConfig,
+    dictionaryLanguages: state.dictionaryLanguages,
     tagSchema: state.tagSchema,
     tagColorMap: state.tagColorMap,
     kanbanBoards: state.kanbanBoards

@@ -351,7 +351,8 @@ export const RivetRuntimeConfigSchema = z.object({
     sqlite_path: z.string().optional(),
     default_language: z.string().optional(),
     max_results: z.number().int().optional(),
-    search_mode: z.string().optional()
+    search_mode: z.string().optional(),
+    hide_when_unavailable: z.boolean().optional()
   }).passthrough().optional(),
   calendar: z.object({
     version: z.number().int().optional(),

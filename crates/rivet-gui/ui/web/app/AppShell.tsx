@@ -47,6 +47,7 @@ export function AppShell() {
     createTask,
     loading,
     runtimeConfig,
+    dictionaryLanguages,
     tagSchema,
     tagColorMap,
     kanbanBoards
@@ -67,6 +68,7 @@ export function AppShell() {
   const { commandFailures, clearCommandFailures } = useDiagnosticsSlice();
 
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  const [dictionaryTaskSplitOpen, setDictionaryTaskSplitOpen] = useState(false);
   const [mountedTabs, setMountedTabs] = useState<{
     tasks: boolean;
     kanban: boolean;
@@ -90,7 +92,10 @@ export function AppShell() {
   const isDevMode = runtimeMode === "dev";
   const verboseRenderProfiling = String(import.meta.env.VITE_RIVET_PROFILE_VERBOSE ?? "").trim() === "1";
   const contactsFeatureEnabled = runtimeConfig?.ui?.features?.contacts ?? true;
-  const dictionaryFeatureEnabled = runtimeConfig?.ui?.features?.dictionary ?? true;
+  const dictionaryHideWhenUnavailable = runtimeConfig?.dictionary?.hide_when_unavailable ?? false;
+  const dictionaryAvailable = dictionaryLanguages.length > 0;
+  const dictionaryFeatureEnabled = (runtimeConfig?.ui?.features?.dictionary ?? true)
+    && (!dictionaryHideWhenUnavailable || dictionaryAvailable);
   const themeIconMode = themeFollowSystem ? systemThemeMode : themeMode;
   const onProfilerRender = useCallback<ProfilerOnRenderCallback>(
     (id, phase, actualDuration, baseDuration) => {
@@ -119,6 +124,25 @@ export function AppShell() {
       [activeTab]: true
     }));
   }, [activeTab]);
+
+  useEffect(() => {
+    const openSplit = () => {
+      setMountedTabs((previous) => ({ ...previous, dictionary: true, tasks: true }));
+      setActiveTab("dictionary");
+      setDictionaryTaskSplitOpen(true);
+      logger.info("dictionary.split.open", "dictionary/tasks split view enabled");
+    };
+    const closeSplit = () => {
+      setDictionaryTaskSplitOpen(false);
+      logger.info("dictionary.split.close", "dictionary/tasks split view disabled");
+    };
+    window.addEventListener("rivet:dictionary-open-tasks-split", openSplit);
+    window.addEventListener("rivet:dictionary-close-tasks-split", closeSplit);
+    return () => {
+      window.removeEventListener("rivet:dictionary-open-tasks-split", openSplit);
+      window.removeEventListener("rivet:dictionary-close-tasks-split", closeSplit);
+    };
+  }, [setActiveTab]);
 
   useEffect(() => {
     if (!contactsFeatureEnabled && activeTab === "contacts") {
@@ -301,7 +325,18 @@ export function AppShell() {
         {dictionaryFeatureEnabled && mountedTabs.dictionary ? (
           <div className={activeTab === "dictionary" ? "h-full" : "hidden h-full"} aria-hidden={activeTab !== "dictionary"}>
             <Profiler id="dictionary.workspace" onRender={onProfilerRender}>
-              <DictionaryWorkspaceMemo />
+              {dictionaryTaskSplitOpen ? (
+                <div className="grid h-full min-h-0 grid-cols-[minmax(0,1fr)_minmax(440px,48%)] gap-3 p-3">
+                  <div className="min-h-0 overflow-hidden rounded-md border border-current/10">
+                    <DictionaryWorkspaceMemo />
+                  </div>
+                  <div className="min-h-0 overflow-hidden rounded-md border border-current/10">
+                    <TasksWorkspaceMemo />
+                  </div>
+                </div>
+              ) : (
+                <DictionaryWorkspaceMemo />
+              )}
             </Profiler>
           </div>
         ) : null}
