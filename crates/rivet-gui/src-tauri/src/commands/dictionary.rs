@@ -23,6 +23,7 @@ const DEFAULT_SEARCH_LIMIT: u32 = 100;
 const MAX_SEARCH_LIMIT: u32 = 500;
 const SQLITE_BUSY_TIMEOUT_SECS: u64 = 2;
 const SLOW_QUERY_WARN_MS: u128 = 250;
+const SQLITE_CACHE_SIZE_KIB: i64 = 16 * 1024;
 const SEARCH_LIST_SQL: &str =
   "WITH title_hits AS (
       SELECT p.id AS page_id,
@@ -554,6 +555,28 @@ fn open_dictionary_connection(
     .with_context(|| {
       format!(
         "failed to enforce query_only mode for dictionary DB at {}",
+        path.display()
+      )
+    })?;
+
+  // Keep temp structures on disk and bound page cache usage for very large dictionary DBs.
+  conn
+    .pragma_update(None, "temp_store", "FILE")
+    .with_context(|| {
+      format!(
+        "failed to enforce temp_store=FILE for dictionary DB at {}",
+        path.display()
+      )
+    })?;
+  conn
+    .pragma_update(
+      None,
+      "cache_size",
+      format!("-{SQLITE_CACHE_SIZE_KIB}"),
+    )
+    .with_context(|| {
+      format!(
+        "failed to set cache_size for dictionary DB at {}",
         path.display()
       )
     })?;
