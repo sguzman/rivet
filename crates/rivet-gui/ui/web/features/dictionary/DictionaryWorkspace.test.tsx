@@ -121,7 +121,7 @@ describe("DictionaryWorkspace", () => {
     expect(selectDictionaryHit).toHaveBeenCalled();
   });
 
-  it("applies language changes and triggers search when query is present", () => {
+  it("applies language changes without auto search", () => {
     const setDictionaryLanguage = vi.fn();
     const searchDictionaryEntries = vi.fn().mockResolvedValue(undefined);
     mockSlice.mockReturnValue({
@@ -140,6 +140,27 @@ describe("DictionaryWorkspace", () => {
     fireEvent.click(screen.getByRole("option", { name: "es" }));
 
     expect(setDictionaryLanguage).toHaveBeenCalledWith("es");
-    expect(searchDictionaryEntries).toHaveBeenCalled();
+    expect(searchDictionaryEntries).not.toHaveBeenCalled();
+  });
+
+  it("runs search only when Search button is clicked", () => {
+    const setDictionaryQuery = vi.fn();
+    const searchDictionaryEntries = vi.fn().mockResolvedValue(undefined);
+    mockSlice.mockReturnValue({
+      ...defaultSlice,
+      dictionaryQuery: "",
+      setDictionaryQuery,
+      searchDictionaryEntries
+    });
+
+    render(<DictionaryWorkspace />);
+
+    const input = screen.getAllByLabelText("Search word")[0];
+    fireEvent.change(input, { target: { value: "rat" } });
+    expect(searchDictionaryEntries).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Search" }));
+    expect(setDictionaryQuery).toHaveBeenCalledWith("rat");
+    expect(searchDictionaryEntries).toHaveBeenCalledTimes(1);
   });
 });

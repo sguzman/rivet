@@ -124,17 +124,6 @@ export function DictionaryWorkspace() {
   }, [dictionaryResults, dictionarySelectedId]);
 
   useEffect(() => {
-    const timeout = window.setTimeout(() => {
-      setDictionaryQuery(searchInput);
-      if (searchInput.trim().length === 0) {
-        return;
-      }
-      void searchDictionaryEntries();
-    }, 180);
-    return () => window.clearTimeout(timeout);
-  }, [searchInput, searchDictionaryEntries, setDictionaryQuery]);
-
-  useEffect(() => {
     if (!dictionaryEntry) {
       return;
     }
@@ -322,9 +311,6 @@ export function DictionaryWorkspace() {
             onChange={(event) => {
               const next = event.target.value === "__all__" ? null : event.target.value;
               setDictionaryLanguage(next);
-              if (searchInput.trim().length > 0) {
-                void searchDictionaryEntries();
-              }
             }}
           >
             <MenuItem value="__all__">All Languages</MenuItem>
