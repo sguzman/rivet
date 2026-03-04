@@ -176,6 +176,82 @@ fn normalized_language(
   })
 }
 
+fn language_exists(
+  conn: &Connection,
+  language: &str
+) -> anyhow::Result<bool> {
+  let exists: i64 = conn.query_row(
+    "SELECT EXISTS(
+       SELECT 1 FROM definitions
+       WHERE LOWER(language) = LOWER(?1)
+       LIMIT 1
+     )",
+    params![language],
+    |row| row.get(0),
+  )?;
+  Ok(exists != 0)
+}
+
+fn map_iso_language(
+  token: &str
+) -> Option<&'static str> {
+  match token.trim().to_ascii_lowercase().as_str()
+  {
+    "en" => Some("English"),
+    "es" => Some("Spanish"),
+    "fr" => Some("French"),
+    "de" => Some("German"),
+    "it" => Some("Italian"),
+    "pt" => Some("Portuguese"),
+    "ru" => Some("Russian"),
+    "pl" => Some("Polish"),
+    "fi" => Some("Finnish"),
+    "nl" => Some("Dutch"),
+    "zh" => Some("Chinese"),
+    "ja" => Some("Japanese"),
+    "ko" => Some("Korean"),
+    "sv" => Some("Swedish"),
+    "tr" => Some("Turkish"),
+    "vi" => Some("Vietnamese"),
+    "la" => Some("Latin"),
+    _ => None,
+  }
+}
+
+fn resolve_language_filter(
+  conn: &Connection,
+  language: Option<String>
+) -> anyhow::Result<(
+  Option<String>,
+  Vec<String>,
+)> {
+  let Some(token) = language else {
+    return Ok((None, vec![]));
+  };
+  if language_exists(conn, &token)? {
+    return Ok((Some(token), vec![]));
+  }
+
+  let mut warnings = Vec::<String>::new();
+  if let Some(mapped) = map_iso_language(
+    &token
+  ) && language_exists(conn, mapped)?
+  {
+    warnings.push(format!(
+      "language filter `{token}` mapped to `{mapped}`"
+    ));
+    return Ok((
+      Some(mapped.to_string()),
+      warnings,
+    ));
+  }
+
+  warnings.push(format!(
+    "language filter `{token}` has no matches; falling back to all languages"
+  ));
+  Ok((None, warnings))
+}
+
 fn normalize_for_search(
   value: &str
 ) -> String {
@@ -936,10 +1012,18 @@ fn dictionary_search_native(
     });
   }
 
-  let language = normalized_language(
-    args.language,
-  )
-  .or(settings.default_language.clone());
+  let requested_language =
+    normalized_language(args.language)
+      .or(
+        settings.default_language.clone()
+      );
+  let (
+    language,
+    mut language_warnings,
+  ) = resolve_language_filter(
+    conn,
+    requested_language,
+  )?;
   let search_mode =
     normalize_search_mode(args.mode)
       .trim()
@@ -956,6 +1040,7 @@ fn dictionary_search_native(
     search_mode
   };
   let mut warnings = Vec::<String>::new();
+  warnings.append(&mut language_warnings);
 
   let list_started = Instant::now();
   let mut rows = if effective_mode == "fts" {
@@ -1143,6 +1228,13 @@ fn dictionary_entry_native(
   let requested_language =
     normalized_language(args.language)
       .or(settings.default_language.clone());
+  let (
+    requested_language,
+    _language_warnings,
+  ) = resolve_language_filter(
+    conn,
+    requested_language,
+  )?;
   let requested_word = args.word.and_then(
     |word| {
       let trimmed = word.trim();
@@ -1503,7 +1595,8 @@ mod dictionary_tests {
     ensure_required_schema,
     lemma_candidates,
     normalize_search_mode,
-    normalized_language
+    normalized_language,
+    resolve_language_filter
   };
   use rivet_gui_shared::{
     DictionaryEntryArgs,
@@ -1697,6 +1790,38 @@ mod dictionary_tests {
       candidates
         .iter()
         .any(|candidate| candidate == "anchor")
+    );
+  }
+
+  #[test]
+  fn resolve_language_filter_maps_iso_codes()
+  {
+    let conn = Connection::open_in_memory()
+      .expect("open memory db");
+    conn
+      .execute_batch(
+        "CREATE TABLE definitions (language TEXT NOT NULL);
+         INSERT INTO definitions(language) VALUES ('English');",
+      )
+      .expect(
+        "create language fixture"
+      );
+    let (resolved, warnings) =
+      resolve_language_filter(
+        &conn,
+        Some("en".to_string()),
+      )
+      .expect(
+        "resolve language filter"
+      );
+    assert_eq!(
+      resolved.as_deref(),
+      Some("English")
+    );
+    assert!(
+      warnings
+        .iter()
+        .any(|w| w.contains("mapped"))
     );
   }
 

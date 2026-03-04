@@ -214,6 +214,50 @@ function normalizedLanguage(value: string | null | undefined): string | null {
   return trimmed;
 }
 
+function mapIsoLanguageToken(value: string): string | null {
+  const token = value.trim().toLowerCase();
+  const map: Record<string, string> = {
+    en: "English",
+    es: "Spanish",
+    fr: "French",
+    de: "German",
+    it: "Italian",
+    pt: "Portuguese",
+    ru: "Russian",
+    pl: "Polish",
+    fi: "Finnish",
+    nl: "Dutch",
+    zh: "Chinese",
+    ja: "Japanese",
+    ko: "Korean",
+    sv: "Swedish",
+    tr: "Turkish",
+    vi: "Vietnamese",
+    la: "Latin"
+  };
+  return map[token] ?? null;
+}
+
+function resolveDictionaryLanguageSelection(
+  languages: string[],
+  preferred: string | null
+): string | null {
+  const normalizedPreferred = normalizedLanguage(preferred);
+  if (!normalizedPreferred) {
+    return languages[0] ?? null;
+  }
+  const exact = languages.find((language) => language.toLowerCase() === normalizedPreferred.toLowerCase());
+  if (exact) {
+    return exact;
+  }
+  const mapped = mapIsoLanguageToken(normalizedPreferred);
+  if (!mapped) {
+    return languages[0] ?? null;
+  }
+  const mappedMatch = languages.find((language) => language.toLowerCase() === mapped.toLowerCase());
+  return mappedMatch ?? languages[0] ?? null;
+}
+
 interface AppState {
   bootstrapped: boolean;
   activeTab: WorkspaceTab;
@@ -446,9 +490,7 @@ export const useAppStore = create<AppState>((set, get) => {
       const resolvedThemeMode = runtimeThemeMode(runtimeConfig) ?? get().themeMode;
       const resolvedFollowSystem = runtimeThemeFollowSystem(runtimeConfig);
       const configuredDictionaryLanguage = normalizedLanguage(runtimeConfig?.dictionary?.default_language ?? null);
-      const resolvedDictionaryLanguage = configuredDictionaryLanguage
-        ?? dictionaryLanguages[0]
-        ?? null;
+      const resolvedDictionaryLanguage = resolveDictionaryLanguageSelection(dictionaryLanguages, configuredDictionaryLanguage);
 
       saveKanbanBoards(get().kanbanBoards);
       saveActiveKanbanBoardId(get().activeKanbanBoardId);
@@ -1270,13 +1312,12 @@ export const useAppStore = create<AppState>((set, get) => {
     try {
       const languages = await listDictionaryLanguages();
       const selected = normalizedLanguage(get().dictionaryLanguage)
-        ?? normalizedLanguage(get().runtimeConfig?.dictionary?.default_language ?? null)
-        ?? languages[0]
-        ?? null;
+        ?? normalizedLanguage(get().runtimeConfig?.dictionary?.default_language ?? null);
+      const resolved = resolveDictionaryLanguageSelection(languages, selected);
       set({
         dictionaryLoading: false,
         dictionaryLanguages: languages,
-        dictionaryLanguage: selected
+        dictionaryLanguage: resolved
       });
       logger.info("dictionary.languages.load.done", `count=${languages.length}`);
     } catch (error) {
