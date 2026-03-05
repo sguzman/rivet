@@ -31,6 +31,8 @@ const RESERVED_CATALOG_IDS = new Set([
   "sprite",
   "styles",
   "style",
+  "tiles",
+  "tile",
   "catalog",
   "health"
 ]);

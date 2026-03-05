@@ -19,6 +19,9 @@ describe("map martin helpers", () => {
       styles: {
         path: "/styles"
       },
+      tiles: {
+        path: "/tiles"
+      },
       roads_us: {
         name: "US Roads",
         description: "USA road network",
