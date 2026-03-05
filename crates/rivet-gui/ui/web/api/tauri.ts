@@ -17,6 +17,7 @@ import {
   ContactsMergeResultSchema,
   ContactsMergeUndoResultSchema,
   DictionaryEntrySchema,
+  MapHealthResultSchema,
   DictionarySearchArgsSchema,
   DictionarySearchResultSchema,
   ExternalCalendarCacheEntryArraySchema,
@@ -55,6 +56,8 @@ import type {
   ContactsMergeUndoResult,
   DictionaryEntry,
   DictionaryEntryArgs,
+  MapHealthArgs,
+  MapHealthResult,
   DictionarySearchArgs,
   DictionarySearchResult,
   ExternalCalendarCacheEntry,
@@ -93,6 +96,10 @@ const DEFAULT_DICTIONARY_QUERY: DictionarySearchArgs = {
   query: "",
   limit: 100,
   mode: "prefix"
+};
+const DEFAULT_MAP_HEALTH_QUERY: MapHealthArgs = {
+  base_url: null,
+  timeout_ms: null
 };
 
 export interface CommandFailureRecord {
@@ -1173,6 +1180,19 @@ async function invokeCommand<R>(command: string, args?: unknown): Promise<R> {
         }) ?? null;
         return found as R;
       }
+      case "map_health": {
+        const payload = (args ?? DEFAULT_MAP_HEALTH_QUERY) as MapHealthArgs;
+        const baseUrl = payload.base_url?.trim() || "http://127.0.0.1:3002";
+        return {
+          base_url: baseUrl,
+          catalog_url: `${baseUrl.replace(/\/+$/, "")}/catalog`,
+          timeout_ms: payload.timeout_ms ?? 3000,
+          reachable: true,
+          status_code: 200,
+          catalog_sources: 1,
+          error: null
+        } as R;
+      }
       case "config_snapshot": {
         return {
           mode: "dev",
@@ -1186,8 +1206,18 @@ async function invokeCommand<R>(command: string, args?: unknown): Promise<R> {
           ui: {
             features: {
               contacts: true,
-              dictionary: true
+              dictionary: true,
+              map: true
             }
+          },
+          map: {
+            enabled: true,
+            martin_base_url: "http://127.0.0.1:3002",
+            default_center: [-102.2, 28.9],
+            default_zoom: 3.6,
+            min_zoom: 2,
+            max_zoom: 13,
+            hide_when_unavailable: false
           },
           dictionary: {
             enabled: true,
@@ -1429,6 +1459,11 @@ export async function loadDictionaryEntry(args: DictionaryEntryArgs): Promise<Di
     return null;
   }
   return parseWithSchema("dictionary_entry response", response, DictionaryEntrySchema);
+}
+
+export async function mapHealth(args: MapHealthArgs = DEFAULT_MAP_HEALTH_QUERY): Promise<MapHealthResult> {
+  const response = await invokeCommand<unknown>("map_health", args);
+  return parseWithSchema("map_health response", response, MapHealthResultSchema);
 }
 
 export async function loadConfigSnapshot(): Promise<RivetRuntimeConfig> {

@@ -195,6 +195,22 @@ Backend note:
 - Errors:
   - string message when file is missing or unreadable.
 
+### `map_health`
+
+- Request `args`:
+  - `base_url: string | null` (optional, defaults to `[map].martin_base_url` or `http://127.0.0.1:3002`)
+  - `timeout_ms: number | null` (optional, clamped to 250..30000)
+- Response:
+  - `base_url: string`
+  - `catalog_url: string`
+  - `timeout_ms: number`
+  - `reachable: boolean`
+  - `status_code: number | null`
+  - `catalog_sources: number`
+  - `error: string | null`
+- Errors:
+  - command-level errors are minimized; diagnostics are returned in `error` with `reachable = false`.
+
 ### `ui_log`
 
 - Request `args`:

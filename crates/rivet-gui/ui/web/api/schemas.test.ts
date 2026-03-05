@@ -15,6 +15,7 @@ import {
   DictionarySearchResultSchema,
   ExternalCalendarSourceSchema,
   ExternalCalendarSyncResultSchema,
+  MapHealthResultSchema,
   RivetRuntimeConfigSchema,
   TagSchemaSchema,
   TaskCreateSchema,
@@ -298,5 +299,18 @@ describe("tauri command contract schemas", () => {
 
     expect(DictionarySearchResultSchema.parse(search)).toEqual(search);
     expect(DictionaryEntrySchema.parse(entry)).toEqual(entry);
+  });
+
+  it("accepts map health payloads", () => {
+    const health = {
+      base_url: "http://127.0.0.1:3002",
+      catalog_url: "http://127.0.0.1:3002/catalog",
+      timeout_ms: 3000,
+      reachable: true,
+      status_code: 200,
+      catalog_sources: 2,
+      error: null
+    };
+    expect(MapHealthResultSchema.parse(health)).toEqual(health);
   });
 });

@@ -13,10 +13,10 @@ const mapMock = vi.hoisted(() => {
     setStyle: vi.fn(),
     fitBounds: vi.fn(),
     remove: vi.fn(),
-    handlers: new Map<string, Array<() => void>>()
+    handlers: new Map<string, Array<(event?: unknown) => void>>()
   };
   class MockMap {
-    on(event: string, handler: () => void) {
+    on(event: string, handler: (event?: unknown) => void) {
       const existing = state.handlers.get(event) ?? [];
       existing.push(handler);
       state.handlers.set(event, existing);
@@ -164,10 +164,12 @@ describe("MapWorkspace", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "+" }));
     fireEvent.click(screen.getByRole("button", { name: "-" }));
+    fireEvent.click(screen.getByRole("button", { name: "+" }));
+    fireEvent.click(screen.getByRole("button", { name: "-" }));
     fireEvent.click(screen.getByRole("button", { name: "Reset" }));
 
-    expect(mapMock.state.zoomIn).toHaveBeenCalledTimes(1);
-    expect(mapMock.state.zoomOut).toHaveBeenCalledTimes(1);
+    expect(mapMock.state.zoomIn).toHaveBeenCalledTimes(2);
+    expect(mapMock.state.zoomOut).toHaveBeenCalledTimes(2);
     expect(mapMock.state.jumpTo).toHaveBeenCalledTimes(1);
   });
 
@@ -178,6 +180,42 @@ describe("MapWorkspace", () => {
 
     await waitFor(() => {
       expect(screen.getByText(/Map load failed:/)).toBeTruthy();
+    });
+  });
+
+  it("shows no-tiles warning after tile errors", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation((input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.endsWith("/catalog")) {
+        return Promise.resolve(new Response(JSON.stringify({ mexico: { name: "Mexico" } }), { status: 200 }));
+      }
+      return Promise.resolve(new Response(JSON.stringify({
+        tilejson: "3.0.0",
+        tiles: ["http://127.0.0.1:3002/mexico/{z}/{x}/{y}.pbf"],
+        minzoom: 0,
+        maxzoom: 14,
+        bounds: [-118, 14, -86, 33],
+        vector_layers: [{ id: "roads" }]
+      }), { status: 200 }));
+    });
+
+    render(<MapWorkspace />);
+
+    await waitFor(() => expect(screen.getByText("state: ready")).toBeTruthy());
+
+    const emit = (event: string, payload?: unknown) => {
+      const handlers = mapMock.state.handlers.get(event) ?? [];
+      for (const handler of handlers) {
+        handler(payload);
+      }
+    };
+
+    emit("sourcedataloading");
+    emit("error", { error: new Error("tile missing") });
+    emit("idle");
+
+    await waitFor(() => {
+      expect(stableSlice.setMapLastError).toHaveBeenCalledWith("No tiles are available for the current viewport.");
     });
   });
 });

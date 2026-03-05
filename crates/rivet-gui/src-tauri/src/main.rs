@@ -518,6 +518,7 @@ fn main() {
         commands::config_snapshot,
         commands::config_apply_updates,
         commands::tag_schema_snapshot,
+        commands::map_health,
         commands::tasks_list,
         commands::task_add,
         commands::task_update,

@@ -37,7 +37,7 @@
 
 - [x] Use a WebGL map client suitable for vector/raster tile rendering (latest stable release at implementation time).
 - [x] Keep map rendering in frontend (UI) and avoid proxying tile bytes through Tauri backend.
-- [ ] Add a thin backend command only for health/diagnostics metadata if needed.
+- [x] Add a thin backend command only for health/diagnostics metadata if needed.
 - [x] Prefer source/layer config driven by Martin capabilities endpoint where feasible.
 - [x] Enforce strict separation between map view state and future search/routing state.
 
@@ -108,22 +108,22 @@
 
 ### Backend (if command hooks added)
 
-- [ ] Unit tests for map config parsing/validation.
-- [ ] Command tests for health-check payloads and error mapping.
+- [x] Unit tests for map config parsing/validation.
+- [x] Command tests for health-check payloads and error mapping.
 
 ### Manual/E2E
 
-- [ ] Start compose Martin and verify map tiles render in Map tab.
-- [ ] Confirm expected behavior when Martin is stopped.
-- [ ] Confirm panning outside US/Mexico coverage shows graceful no-data behavior.
-- [ ] Confirm pan/zoom remain responsive during sustained interaction.
+- [x] Start compose Martin and verify map tiles render in Map tab.
+- [x] Confirm expected behavior when Martin is stopped.
+- [x] Confirm panning outside US/Mexico coverage shows graceful no-data behavior.
+- [x] Confirm pan/zoom remain responsive during sustained interaction.
 
 ## 10. Rollout Phases
 
 - [x] Phase 1: map tab scaffold + static base map client wiring.
 - [x] Phase 2: dynamic Martin source discovery + robust error handling.
 - [x] Phase 3: performance tuning + tracing + test hardening.
-- [ ] Phase 4: polish UX copy and finalize docs.
+- [x] Phase 4: polish UX copy and finalize docs.
 
 ## 11. Documentation Updates
 

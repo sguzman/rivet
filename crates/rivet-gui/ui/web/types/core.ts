@@ -361,3 +361,18 @@ export interface DictionaryMeta {
   relation_type: string;
   target: string;
 }
+
+export interface MapHealthArgs {
+  base_url: string | null;
+  timeout_ms: number | null;
+}
+
+export interface MapHealthResult {
+  base_url: string;
+  catalog_url: string;
+  timeout_ms: number;
+  reachable: boolean;
+  status_code: number | null;
+  catalog_sources: number;
+  error: string | null;
+}

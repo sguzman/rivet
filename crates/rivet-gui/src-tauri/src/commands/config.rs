@@ -10,6 +10,30 @@ pub struct ConfigApplyArg {
   pub updates: Vec<ConfigEntryUpdateArg>
 }
 
+#[derive(
+  Debug,
+  Clone,
+  Deserialize,
+  Default,
+)]
+pub struct MapHealthArgs {
+  pub base_url:   Option<String>,
+  pub timeout_ms: Option<u64>
+}
+
+#[derive(
+  Debug, Clone, Serialize,
+)]
+pub struct MapHealthResult {
+  pub base_url:        String,
+  pub catalog_url:     String,
+  pub timeout_ms:      u64,
+  pub reachable:       bool,
+  pub status_code:     Option<u16>,
+  pub catalog_sources: usize,
+  pub error:           Option<String>
+}
+
 fn candidate_config_paths(
   rel_path: &str
 ) -> Vec<std::path::PathBuf> {
@@ -387,6 +411,200 @@ fn write_toml_updates(
   read_toml_snapshot(rel_path)
 }
 
+fn map_base_url_from_snapshot(
+  snapshot: &serde_json::Value
+) -> Option<String> {
+  snapshot
+    .get("map")
+    .and_then(|map| map.get("martin_base_url"))
+    .and_then(serde_json::Value::as_str)
+    .map(str::trim)
+    .filter(|text| !text.is_empty())
+    .map(ToOwned::to_owned)
+}
+
+fn normalize_map_base_url(
+  raw: &str
+) -> anyhow::Result<String> {
+  let parsed = reqwest::Url::parse(raw)
+    .map_err(anyhow::Error::new)?;
+  let scheme = parsed.scheme();
+  if scheme != "http" && scheme != "https"
+  {
+    anyhow::bail!(
+      "unsupported martin URL scheme: {}",
+      scheme
+    );
+  }
+  let mut normalized = parsed;
+  if normalized.path().ends_with('/') {
+    let trimmed = normalized
+      .path()
+      .trim_end_matches('/')
+      .to_string();
+    normalized.set_path(&trimmed);
+  }
+  Ok(normalized.to_string())
+}
+
+fn catalog_source_count(
+  value: &serde_json::Value
+) -> usize {
+  let root = value
+    .get("sources")
+    .filter(|entry| entry.is_object())
+    .unwrap_or(value);
+  let Some(map) = root.as_object() else {
+    return 0;
+  };
+  map.keys()
+    .filter(|key| key.as_str() != "sources")
+    .count()
+}
+
+async fn map_health_native(
+  args: &MapHealthArgs
+) -> MapHealthResult {
+  let base_candidate = args
+    .base_url
+    .as_deref()
+    .map(str::trim)
+    .filter(|text| !text.is_empty())
+    .map(ToOwned::to_owned)
+    .or_else(|| {
+      read_toml_snapshot("rivet.toml")
+        .ok()
+        .and_then(|snapshot| {
+          map_base_url_from_snapshot(
+            &snapshot
+          )
+        })
+    })
+    .unwrap_or_else(|| {
+      "http://127.0.0.1:3002".to_string()
+    });
+  let timeout_ms =
+    args.timeout_ms.unwrap_or(3_000).clamp(
+      250, 30_000,
+    );
+
+  let normalized = match normalize_map_base_url(
+    &base_candidate
+  ) {
+    | Ok(value) => value,
+    | Err(error) => {
+      return MapHealthResult {
+        base_url:        base_candidate,
+        catalog_url:     String::new(),
+        timeout_ms,
+        reachable:       false,
+        status_code:     None,
+        catalog_sources: 0,
+        error:           Some(error.to_string())
+      };
+    }
+  };
+
+  let catalog_url = format!(
+    "{}/catalog",
+    normalized.trim_end_matches('/'),
+  );
+  let client = match reqwest::Client::builder()
+    .timeout(std::time::Duration::from_millis(timeout_ms))
+    .build()
+  {
+    | Ok(client) => client,
+    | Err(error) => {
+      return MapHealthResult {
+        base_url:        normalized,
+        catalog_url,
+        timeout_ms,
+        reachable:       false,
+        status_code:     None,
+        catalog_sources: 0,
+        error:           Some(error.to_string())
+      };
+    }
+  };
+
+  let response =
+    match client.get(&catalog_url).send().await
+    {
+      | Ok(response) => response,
+      | Err(error) => {
+        return MapHealthResult {
+          base_url:        normalized,
+          catalog_url,
+          timeout_ms,
+          reachable:       false,
+          status_code:     None,
+          catalog_sources: 0,
+          error:           Some(error.to_string())
+        };
+      }
+    };
+
+  let status = response.status();
+  let status_code =
+    Some(status.as_u16());
+  if !status.is_success() {
+    return MapHealthResult {
+      base_url: normalized,
+      catalog_url,
+      timeout_ms,
+      reachable: false,
+      status_code,
+      catalog_sources: 0,
+      error: Some(format!("HTTP {}", status))
+    };
+  }
+
+  let payload_text =
+    match response.text().await {
+      | Ok(payload_text) => payload_text,
+      | Err(error) => {
+        return MapHealthResult {
+          base_url: normalized,
+          catalog_url,
+          timeout_ms,
+          reachable: false,
+          status_code,
+          catalog_sources: 0,
+          error: Some(error.to_string())
+        };
+      }
+    };
+  let payload = match serde_json::from_str::<
+    serde_json::Value,
+  >(&payload_text)
+  {
+    | Ok(payload) => payload,
+    | Err(error) => {
+      return MapHealthResult {
+        base_url: normalized,
+        catalog_url,
+        timeout_ms,
+        reachable: false,
+        status_code,
+        catalog_sources: 0,
+        error: Some(error.to_string())
+      };
+    }
+  };
+
+  MapHealthResult {
+    base_url: normalized,
+    catalog_url,
+    timeout_ms,
+    reachable: true,
+    status_code,
+    catalog_sources: catalog_source_count(
+      &payload,
+    ),
+    error: None
+  }
+}
+
 #[tauri::command]
 #[instrument(fields(request_id = ?request_id))]
 pub async fn config_snapshot(
@@ -428,4 +646,95 @@ pub async fn config_apply_updates(
     &args.updates,
   )
   .map_err(err_to_string)
+}
+
+#[tauri::command]
+#[instrument(skip(args), fields(request_id = ?request_id))]
+pub async fn map_health(
+  args: MapHealthArgs,
+  request_id: Option<String>
+) -> Result<MapHealthResult, String> {
+  tracing::info!(
+    request_id = ?request_id,
+    base_url = ?args.base_url,
+    timeout_ms = ?args.timeout_ms,
+    "map_health command invoked"
+  );
+  let result = map_health_native(&args).await;
+  tracing::info!(
+    request_id = ?request_id,
+    reachable = result.reachable,
+    status_code = ?result.status_code,
+    catalog_sources = result.catalog_sources,
+    error = ?result.error,
+    "map_health command completed"
+  );
+  Ok(result)
+}
+
+#[cfg(test)]
+mod config_tests {
+  use super::*;
+
+  #[test]
+  fn map_base_url_from_snapshot_reads_value()
+  {
+    let snapshot = serde_json::json!({
+      "map": {
+        "martin_base_url": "http://127.0.0.1:3002"
+      }
+    });
+    assert_eq!(
+      map_base_url_from_snapshot(
+        &snapshot
+      ),
+      Some("http://127.0.0.1:3002".to_string())
+    );
+  }
+
+  #[test]
+  fn catalog_source_count_handles_sources_field()
+  {
+    let wrapped = serde_json::json!({
+      "sources": {
+        "us": {"name": "United States"},
+        "mx": {"name": "Mexico"}
+      }
+    });
+    let flat = serde_json::json!({
+      "us": {"name": "United States"},
+      "mx": {"name": "Mexico"}
+    });
+    assert_eq!(catalog_source_count(&wrapped), 2);
+    assert_eq!(catalog_source_count(&flat), 2);
+  }
+
+  #[test]
+  fn normalize_map_base_url_rejects_non_http()
+  {
+    let error = normalize_map_base_url(
+      "file:///tmp/martin",
+    )
+    .expect_err(
+      "expected file URL to be rejected",
+    );
+    assert!(error
+      .to_string()
+      .contains("unsupported martin URL scheme"));
+  }
+
+  #[tokio::test]
+  async fn map_health_unreachable_maps_error()
+  {
+    let args = MapHealthArgs {
+      base_url: Some(
+        "http://127.0.0.1:9".to_string(),
+      ),
+      timeout_ms: Some(300)
+    };
+    let result = map_health_native(&args).await;
+    assert!(!result.reachable);
+    assert_eq!(result.catalog_sources, 0);
+    assert!(result.error.is_some());
+  }
 }

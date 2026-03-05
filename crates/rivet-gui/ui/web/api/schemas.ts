@@ -299,6 +299,16 @@ export const DictionaryEntrySchema = z.object({
   source_table: z.string()
 });
 
+export const MapHealthResultSchema = z.object({
+  base_url: z.string(),
+  catalog_url: z.string(),
+  timeout_ms: z.number().int().min(0),
+  reachable: z.boolean(),
+  status_code: z.number().int().nullable(),
+  catalog_sources: z.number().int().min(0),
+  error: z.string().nullable()
+});
+
 export const TagKeySchema = z.object({
   id: z.string(),
   label: z.string().optional(),
