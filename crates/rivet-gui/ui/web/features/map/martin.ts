@@ -24,6 +24,7 @@ export interface MartinTileJson {
 }
 
 const DEFAULT_FETCH_TIMEOUT_MS = 8_000;
+const RESERVED_CATALOG_IDS = new Set(["fonts", "font", "sprites", "sprite", "catalog", "health"]);
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -108,7 +109,7 @@ export function parseMartinCatalog(payload: unknown, baseUrl: string): MartinCat
       continue;
     }
     const id = key.trim();
-    if (!id) {
+    if (!id || RESERVED_CATALOG_IDS.has(id.toLowerCase())) {
       continue;
     }
 

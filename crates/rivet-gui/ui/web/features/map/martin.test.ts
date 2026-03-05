@@ -10,6 +10,12 @@ describe("map martin helpers", () => {
 
   it("parses catalog source entries", () => {
     const payload = {
+      fonts: {
+        path: "/fonts/{fontstack}/{range}.pbf"
+      },
+      sprites: {
+        path: "/sprite"
+      },
       roads_us: {
         name: "US Roads",
         description: "USA road network",

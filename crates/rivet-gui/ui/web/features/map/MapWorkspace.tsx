@@ -89,6 +89,7 @@ export function MapWorkspace() {
   const loadStartedAtRef = useRef<number>(0);
   const firstTileLoggedRef = useRef(false);
   const renderTimerRef = useRef<number | null>(null);
+  const lastApplyFailedForSourceRef = useRef<string | null>(null);
 
   const [sources, setSources] = useState<MartinCatalogSource[]>([]);
   const [selectedSourceId, setSelectedSourceId] = useState<string>("");
@@ -271,6 +272,9 @@ export function MapWorkspace() {
     if (!mapEnabled || !selectedSource) {
       return;
     }
+    if (lastApplyFailedForSourceRef.current === selectedSource.id) {
+      return;
+    }
 
     let cancelled = false;
     const applySource = async () => {
@@ -302,11 +306,13 @@ export function MapWorkspace() {
           tilejson.bounds ?? [-128.5, 14.0, -86.0, 33.8],
           { padding: 28, duration: 0, maxZoom: 7 }
         );
+        lastApplyFailedForSourceRef.current = null;
         setStatus("ready");
       } catch (error) {
         if (cancelled) {
           return;
         }
+        lastApplyFailedForSourceRef.current = selectedSource.id;
         const message = shortError(error);
         logger.error("map.source.apply.error", `${selectedSource.id}: ${message}`);
         setMapLastError(message);
