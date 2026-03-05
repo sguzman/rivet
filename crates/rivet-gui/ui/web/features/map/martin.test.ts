@@ -46,6 +46,29 @@ describe("map martin helpers", () => {
     });
   });
 
+  it("parses nested tiles catalog shape", () => {
+    const payload = {
+      tiles: {
+        mexico_z14: {
+          name: "Mexico z14",
+          description: "mexico tiles"
+        },
+        us_z14: {
+          name: "US z14",
+          description: "us tiles"
+        }
+      },
+      fonts: {},
+      sprites: {},
+      styles: {}
+    };
+
+    const parsed = parseMartinCatalog(payload, "http://127.0.0.1:3002");
+    expect(parsed).toHaveLength(2);
+    expect(parsed.map((entry) => entry.id).sort()).toEqual(["mexico_z14", "us_z14"]);
+    expect(parsed[0]?.tilejson_url).toMatch(/^http:\/\/127\.0\.0\.1:3002\//);
+  });
+
   it("parses TileJSON and vector layers", () => {
     const payload = {
       tilejson: "3.0.0",

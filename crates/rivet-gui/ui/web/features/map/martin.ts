@@ -64,6 +64,21 @@ function parseBounds(value: unknown): [number, number, number, number] | null {
   return [parsed[0], parsed[1], parsed[2], parsed[3]];
 }
 
+function looksLikeSourceMap(value: unknown): value is Record<string, unknown> {
+  if (!isObject(value)) {
+    return false;
+  }
+  for (const [key, entry] of Object.entries(value)) {
+    if (!key.trim()) {
+      continue;
+    }
+    if (isObject(entry)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function toAbsoluteUrl(baseUrl: string, value: string): string {
   try {
     return new URL(value, `${baseUrl}/`).toString();
@@ -111,7 +126,9 @@ export function normalizeMartinBaseUrl(raw: string | undefined | null): string {
 
 export function parseMartinCatalog(payload: unknown, baseUrl: string): MartinCatalogSource[] {
   const root = isObject(payload)
-    ? (isObject(payload.sources) ? payload.sources : payload)
+    ? (looksLikeSourceMap(payload.tiles)
+      ? payload.tiles
+      : (isObject(payload.sources) ? payload.sources : payload))
     : {};
 
   const sources: MartinCatalogSource[] = [];
