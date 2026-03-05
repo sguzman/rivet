@@ -29,6 +29,7 @@ const DEFAULT_PG_CONNECT_TIMEOUT_SECS: u64 = 10;
 const DEFAULT_PG_MAX_CONNECTION_RETRIES: u32 = 5;
 const DEFAULT_PG_RETRY_BACKOFF_MS: u64 = 750;
 const DEFAULT_POOL_MAX_SIZE: u32 = 8;
+const HOT_LOOKUP_LANGUAGES: [&str; 4] = ["English", "Spanish", "German", "French"];
 
 #[derive(Debug, serde::Deserialize, Clone)]
 struct DictionaryPostgresConfig {
@@ -135,6 +136,12 @@ fn normalized_language(value: Option<String>) -> Option<String> {
 
 fn normalize_for_search(value: &str) -> String {
   value.trim().to_ascii_lowercase()
+}
+
+fn is_hot_lookup_language(language: &str) -> bool {
+  HOT_LOOKUP_LANGUAGES
+    .iter()
+    .any(|entry| entry.eq_ignore_ascii_case(language.trim()))
 }
 
 fn normalize_sslmode(value: Option<String>) -> String {
@@ -651,6 +658,36 @@ fn detect_fts_table(client: &mut Client, schema: &str) -> anyhow::Result<Option<
   Ok(rows.first().map(|row| row.get::<_, String>(0)))
 }
 
+fn run_hot_lookup_hits(
+  client: &mut Client,
+  schema: &str,
+  language: &str,
+  normalized_term: &str,
+  limit: u32,
+) -> anyhow::Result<Vec<NativeHit>> {
+  let sql = format!(
+    "SELECT page_id, title, language, primary_definition
+     FROM {schema}.hot_lookup
+     WHERE language = $1
+       AND normalized_alias = $2
+     ORDER BY page_id ASC
+     LIMIT $3",
+    schema = quote_ident(schema),
+  );
+  let limit_i64 = i64::from(limit);
+  let rows = client.query(&sql, &[&language, &normalized_term, &limit_i64])?;
+  let mut out = Vec::<NativeHit>::new();
+  for row in rows {
+    out.push(NativeHit {
+      page_id: row.get(0),
+      word: row.get(1),
+      language: row.get(2),
+      summary: row.get(3),
+    });
+  }
+  Ok(out)
+}
+
 fn run_search_hits(
   client: &mut Client,
   schema: &str,
@@ -839,24 +876,77 @@ fn dictionary_search_native(
   let limit = args.limit.unwrap_or(settings.max_results).clamp(1, MAX_SEARCH_LIMIT);
   let fetch_limit = limit.saturating_add(1).clamp(1, MAX_SEARCH_LIMIT);
 
-  let list_started = Instant::now();
-  let mut rows = if effective_mode == "fts" {
-    match detect_fts_table(client, &settings.postgres.schema)? {
-      Some(table) => match run_fts_hits(client, &settings.postgres.schema, &table, query, &language, fetch_limit) {
-        Ok(payload) => payload,
-        Err(err) => {
-          warnings.push(format!("fts query unavailable ({err}); falling back to fuzzy search"));
-          run_search_hits(client, &settings.postgres.schema, "fuzzy", query, &language, fetch_limit)?
+  let mut lookup_source = "canonical";
+  let hot_started = Instant::now();
+  let mut rows = if let Some(language_name) = language.as_ref() {
+    if is_hot_lookup_language(language_name) {
+      match run_hot_lookup_hits(
+        client,
+        &settings.postgres.schema,
+        language_name,
+        query,
+        fetch_limit,
+      ) {
+        Ok(hits) if !hits.is_empty() => {
+          lookup_source = "hot";
+          tracing::debug!(
+            request_id = ?request_id,
+            lookup_source,
+            requested_language = language_name,
+            hit_count = hits.len(),
+            "dictionary hot lookup hit"
+          );
+          hits
         }
-      },
-      None => {
-        warnings.push("fts mode requested but no page_fts table found; falling back to fuzzy search".to_string());
-        run_search_hits(client, &settings.postgres.schema, "fuzzy", query, &language, fetch_limit)?
+        Ok(_) => {
+          tracing::debug!(
+            request_id = ?request_id,
+            lookup_source = "hot-miss",
+            requested_language = language_name,
+            "dictionary hot lookup miss; falling back to canonical"
+          );
+          Vec::new()
+        }
+        Err(err) => {
+          warnings.push(format!("hot lookup unavailable ({err}); using canonical fallback"));
+          tracing::warn!(
+            request_id = ?request_id,
+            lookup_source = "hot-error",
+            requested_language = language_name,
+            error = %err,
+            "dictionary hot lookup failed; falling back to canonical"
+          );
+          Vec::new()
+        }
       }
+    } else {
+      Vec::new()
     }
   } else {
-    run_search_hits(client, &settings.postgres.schema, &effective_mode, query, &language, fetch_limit)?
+    Vec::new()
   };
+  log_if_slow("search.hot_lookup", hot_started, request_id, "dictionary hot lookup");
+
+  let list_started = Instant::now();
+  if rows.is_empty() {
+    rows = if effective_mode == "fts" {
+      match detect_fts_table(client, &settings.postgres.schema)? {
+        Some(table) => match run_fts_hits(client, &settings.postgres.schema, &table, query, &language, fetch_limit) {
+          Ok(payload) => payload,
+          Err(err) => {
+            warnings.push(format!("fts query unavailable ({err}); falling back to fuzzy search"));
+            run_search_hits(client, &settings.postgres.schema, "fuzzy", query, &language, fetch_limit)?
+          }
+        }
+        None => {
+          warnings.push("fts mode requested but no page_fts table found; falling back to fuzzy search".to_string());
+          run_search_hits(client, &settings.postgres.schema, "fuzzy", query, &language, fetch_limit)?
+        }
+      }
+    } else {
+      run_search_hits(client, &settings.postgres.schema, &effective_mode, query, &language, fetch_limit)?
+    };
+  }
   log_if_slow("search.list", list_started, request_id, "dictionary search list query");
 
   let truncated = rows.len() > limit as usize;
@@ -921,6 +1011,13 @@ fn dictionary_search_native(
   if truncated {
     warnings.push("results truncated to configured limit; refine query for faster and more precise matches".to_string());
   }
+  tracing::debug!(
+    request_id = ?request_id,
+    lookup_source,
+    requested_language = ?language,
+    hit_count = hits.len(),
+    "dictionary search routing summary"
+  );
 
   Ok(DictionarySearchResult {
     query: query.to_string(),
