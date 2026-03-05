@@ -569,7 +569,9 @@ fn create_pool(settings: &DictionarySettings) -> anyhow::Result<PgPool> {
 fn dictionary_pool(settings: &DictionarySettings) -> anyhow::Result<PgPool> {
   let key = settings_key(settings);
   let cache = pool_cache();
-  let mut guard = cache.lock().expect("dictionary pool cache mutex poisoned");
+  let mut guard = cache
+    .lock()
+    .map_err(|_| anyhow::anyhow!("dictionary pool cache mutex poisoned"))?;
   if let Some(entry) = guard.as_ref() {
     if entry.key == key {
       return Ok(entry.pool.clone());
@@ -588,6 +590,16 @@ fn ensure_dictionary_ready() -> anyhow::Result<(DictionarySettings, PgPool)> {
   }
   let pool = dictionary_pool(&settings)?;
   Ok((settings, pool))
+}
+
+async fn run_dictionary_blocking<T, F>(operation: &'static str, task: F) -> anyhow::Result<T>
+where
+  T: Send + 'static,
+  F: FnOnce() -> anyhow::Result<T> + Send + 'static,
+{
+  tokio::task::spawn_blocking(task)
+    .await
+    .map_err(|join_err| anyhow::anyhow!("dictionary {operation} blocking task failed: {join_err}"))?
 }
 
 fn log_if_slow(label: &str, started: Instant, request_id: &Option<String>, detail: &str) {
@@ -1123,14 +1135,15 @@ pub async fn dictionary_languages(request_id: Option<String>) -> Result<Vec<Stri
   let started = Instant::now();
   tracing::info!(request_id = ?request_id, "dictionary_languages command invoked");
 
-  let result = (|| -> anyhow::Result<Vec<String>> {
+  let result = run_dictionary_blocking("languages", move || -> anyhow::Result<Vec<String>> {
     let (settings, pool) = ensure_dictionary_ready()?;
     let mut client = pool
       .get()
       .map_err(anyhow::Error::new)
       .context("failed to checkout dictionary postgres connection")?;
     dictionary_languages_native(&settings, &mut client)
-  })();
+  })
+  .await;
 
   let elapsed_ms = started.elapsed().as_millis();
   if let Err(err) = result.as_ref() {
@@ -1154,6 +1167,8 @@ pub async fn dictionary_search(
   request_id: Option<String>,
 ) -> Result<DictionarySearchResult, String> {
   let started = Instant::now();
+  let normalized_query = normalize_for_search(&args.query);
+  let request_id_for_query = request_id.clone();
   tracing::info!(
     request_id = ?request_id,
     query_len = args.query.len(),
@@ -1161,7 +1176,7 @@ pub async fn dictionary_search(
     "dictionary_search command invoked"
   );
 
-  let result = (|| -> anyhow::Result<DictionarySearchResult> {
+  let result = run_dictionary_blocking("search", move || -> anyhow::Result<DictionarySearchResult> {
     let (settings, pool) = ensure_dictionary_ready()?;
     let mut client = pool
       .get()
@@ -1172,13 +1187,14 @@ pub async fn dictionary_search(
       &mut client,
       DictionarySearchArgs {
         language: args.language,
-        query: normalize_for_search(&args.query),
+        query: normalized_query,
         limit: args.limit,
         mode: args.mode,
       },
-      &request_id,
+      &request_id_for_query,
     )
-  })();
+  })
+  .await;
 
   let elapsed_ms = started.elapsed().as_millis();
   if let Err(err) = result.as_ref() {
@@ -1204,15 +1220,17 @@ pub async fn dictionary_entry(
 ) -> Result<Option<DictionaryEntry>, String> {
   let started = Instant::now();
   tracing::info!(request_id = ?request_id, id = ?args.id, language = ?args.language, "dictionary_entry command invoked");
+  let request_id_for_query = request_id.clone();
 
-  let result = (|| -> anyhow::Result<Option<DictionaryEntry>> {
+  let result = run_dictionary_blocking("entry", move || -> anyhow::Result<Option<DictionaryEntry>> {
     let (settings, pool) = ensure_dictionary_ready()?;
     let mut client = pool
       .get()
       .map_err(anyhow::Error::new)
       .context("failed to checkout dictionary postgres connection")?;
-    dictionary_entry_native(&settings, &mut client, args, &request_id)
-  })();
+    dictionary_entry_native(&settings, &mut client, args, &request_id_for_query)
+  })
+  .await;
 
   let elapsed_ms = started.elapsed().as_millis();
   if let Err(err) = result.as_ref() {
