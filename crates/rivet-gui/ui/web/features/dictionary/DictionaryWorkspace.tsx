@@ -148,6 +148,15 @@ export function DictionaryWorkspace() {
   const searchMode = String(runtimeConfig?.dictionary?.search_mode ?? "prefix").trim().toLowerCase();
   const hasResults = dictionaryResults.length > 0;
   const displayLanguage = dictionaryLanguage ?? "__all__";
+  const languageMenuItems = useMemo(
+    () =>
+      dictionaryLanguages.map((language) => (
+        <MenuItem key={language} value={language}>
+          {language}
+        </MenuItem>
+      )),
+    [dictionaryLanguages]
+  );
 
   const firstWarning = useMemo(() => dictionaryWarnings[0] ?? null, [dictionaryWarnings]);
   const orderedSenses = useMemo(() => {
@@ -317,11 +326,7 @@ export function DictionaryWorkspace() {
             }}
           >
             <MenuItem value="__all__">All Languages</MenuItem>
-            {dictionaryLanguages.map((language) => (
-              <MenuItem key={language} value={language}>
-                {language}
-              </MenuItem>
-            ))}
+            {languageMenuItems}
           </TextField>
           <TextField
             label="Search word"
@@ -329,7 +334,7 @@ export function DictionaryWorkspace() {
             value={searchInput}
             onChange={(event) => setSearchInput(event.target.value)}
             onKeyDown={handleSearchKeyDown}
-            placeholder="type to search..."
+            placeholder="enter a word, then click Search"
           />
           <Stack direction="row" spacing={1}>
             <Button

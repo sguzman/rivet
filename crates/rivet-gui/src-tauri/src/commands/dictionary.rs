@@ -684,7 +684,7 @@ fn run_search_hits(
                    FROM {schema}.definitions d3
                    WHERE d3.page_id = p.id
                      AND d3.language = d.language
-                     AND COALESCE(d3.normalized_text, d3.definition_text) ILIKE $4
+                     AND d3.definition_text ILIKE $4
                  )
                ))
              )
@@ -692,7 +692,8 @@ fn run_search_hits(
        GROUP BY p.id, p.title, d.language
      ),
      alias_hits AS (
-       SELECT la.page_id AS page_id,
+       SELECT DISTINCT
+              la.page_id AS page_id,
               la.alias AS word,
               COALESCE(la.language, d.language) AS language,
               (
@@ -709,12 +710,9 @@ fn run_search_hits(
        WHERE (
               ($1 = 'exact' AND LOWER(la.alias) = LOWER($2))
            OR ($1 = 'prefix' AND la.alias ILIKE $3)
-           OR ($1 = 'fuzzy' AND (
-                 la.alias ILIKE $4 OR COALESCE(la.normalized_alias, la.alias) ILIKE $4
-               ))
+           OR ($1 = 'fuzzy' AND la.alias ILIKE $4)
              )
          AND ($5::TEXT IS NULL OR LOWER(COALESCE(la.language, d.language)) = LOWER($5::TEXT))
-       GROUP BY la.page_id, la.alias, COALESCE(la.language, d.language)
      ),
      merged AS (
        SELECT page_id, word, language, summary, source_rank FROM title_hits
@@ -768,7 +766,7 @@ fn run_search_count(
                    FROM {schema}.definitions d3
                    WHERE d3.page_id = p.id
                      AND d3.language = d.language
-                     AND COALESCE(d3.normalized_text, d3.definition_text) ILIKE $4
+                     AND d3.definition_text ILIKE $4
                  )
                ))
              )
@@ -785,7 +783,7 @@ fn run_search_count(
               ($1 = 'exact' AND LOWER(la.alias) = LOWER($2))
            OR ($1 = 'prefix' AND la.alias ILIKE $3)
            OR ($1 = 'fuzzy' AND (
-                 la.alias ILIKE $4 OR COALESCE(la.normalized_alias, la.alias) ILIKE $4
+                 la.alias ILIKE $4
                ))
              )
          AND ($5::TEXT IS NULL OR LOWER(COALESCE(la.language, d.language)) = LOWER($5::TEXT))
@@ -1147,7 +1145,13 @@ pub async fn dictionary_languages(request_id: Option<String>) -> Result<Vec<Stri
 
   let elapsed_ms = started.elapsed().as_millis();
   if let Err(err) = result.as_ref() {
-    tracing::error!(request_id = ?request_id, elapsed_ms, error = %err, "dictionary_languages command failed");
+    tracing::error!(
+      request_id = ?request_id,
+      elapsed_ms,
+      error = %err,
+      error_debug = ?err,
+      "dictionary_languages command failed"
+    );
   } else {
     tracing::info!(
       request_id = ?request_id,
@@ -1198,7 +1202,13 @@ pub async fn dictionary_search(
 
   let elapsed_ms = started.elapsed().as_millis();
   if let Err(err) = result.as_ref() {
-    tracing::error!(request_id = ?request_id, elapsed_ms, error = %err, "dictionary_search command failed");
+    tracing::error!(
+      request_id = ?request_id,
+      elapsed_ms,
+      error = %err,
+      error_debug = ?err,
+      "dictionary_search command failed"
+    );
   } else if let Ok(payload) = result.as_ref() {
     tracing::info!(
       request_id = ?request_id,
@@ -1234,7 +1244,13 @@ pub async fn dictionary_entry(
 
   let elapsed_ms = started.elapsed().as_millis();
   if let Err(err) = result.as_ref() {
-    tracing::error!(request_id = ?request_id, elapsed_ms, error = %err, "dictionary_entry command failed");
+    tracing::error!(
+      request_id = ?request_id,
+      elapsed_ms,
+      error = %err,
+      error_debug = ?err,
+      "dictionary_entry command failed"
+    );
   } else {
     tracing::debug!(
       request_id = ?request_id,
