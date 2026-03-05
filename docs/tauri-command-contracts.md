@@ -180,6 +180,8 @@ Backend note:
     - `map.default_zoom: number`
     - `map.min_zoom: number`
     - `map.max_zoom: number`
+    - `map.max_parallel_image_requests: number`
+    - `map.cancel_pending_tile_requests_while_zooming: boolean`
     - `map.hide_when_unavailable: boolean`
 - Errors:
   - string message when file is missing or unreadable.

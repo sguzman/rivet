@@ -316,4 +316,22 @@ describe("useAppStore modal and save regressions", () => {
     useAppStore.getState().clearCommandFailures();
     expect(useAppStore.getState().commandFailures).toHaveLength(0);
   });
+
+  it("persists map viewport and map error state across tab switches", () => {
+    const current = useAppStore.getState();
+    current.setMapViewport([-99.1332, 19.4326], 6.25);
+    current.setMapLastError("Martin unreachable");
+
+    expect(useAppStore.getState().mapViewportCenter).toEqual([-99.1332, 19.4326]);
+    expect(useAppStore.getState().mapViewportZoom).toBe(6.25);
+    expect(useAppStore.getState().mapLastError).toBe("Martin unreachable");
+
+    current.setActiveTab("map");
+    current.setActiveTab("tasks");
+    expect(useAppStore.getState().mapViewportCenter).toEqual([-99.1332, 19.4326]);
+    expect(useAppStore.getState().mapViewportZoom).toBe(6.25);
+
+    current.setMapLastError(null);
+    expect(useAppStore.getState().mapLastError).toBeNull();
+  });
 });

@@ -54,6 +54,8 @@ export interface RivetRuntimeConfig {
     default_zoom?: number;
     min_zoom?: number;
     max_zoom?: number;
+    max_parallel_image_requests?: number;
+    cancel_pending_tile_requests_while_zooming?: boolean;
     hide_when_unavailable?: boolean;
   };
   dictionary?: {

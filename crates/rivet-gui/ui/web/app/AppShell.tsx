@@ -136,9 +136,9 @@ export function AppShell() {
   useEffect(() => {
     logger.info(
       "map.config.effective",
-      `enabled=${mapFeatureEnabled} base_url=${mapBaseUrl} hide_when_unavailable=${mapHideWhenUnavailable}`
+      `enabled=${mapFeatureEnabled} base_url=${mapBaseUrl} hide_when_unavailable=${mapHideWhenUnavailable} max_parallel_image_requests=${runtimeConfig?.map?.max_parallel_image_requests ?? "(default)"}`
     );
-  }, [mapBaseUrl, mapFeatureEnabled, mapHideWhenUnavailable]);
+  }, [mapBaseUrl, mapFeatureEnabled, mapHideWhenUnavailable, runtimeConfig?.map?.max_parallel_image_requests]);
 
   useEffect(() => {
     const openSplit = () => {

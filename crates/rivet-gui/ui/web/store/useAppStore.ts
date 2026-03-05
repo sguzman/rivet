@@ -297,6 +297,9 @@ interface AppState {
   dictionaryWarnings: string[];
   dictionaryEntry: DictionaryEntry | null;
   dictionarySelectedId: number | null;
+  mapViewportCenter: [number, number] | null;
+  mapViewportZoom: number | null;
+  mapLastError: string | null;
   settingsOpen: boolean;
   dueNotificationConfig: DueNotificationConfig;
   dueNotificationPermission: DueNotificationPermission;
@@ -369,6 +372,8 @@ interface AppState {
   setDictionaryQuery: (query: string) => void;
   searchDictionaryEntries: () => Promise<void>;
   selectDictionaryHit: (hit: DictionarySearchHit | null) => Promise<void>;
+  setMapViewport: (center: [number, number], zoom: number) => void;
+  setMapLastError: (error: string | null) => void;
 
   openSettings: () => void;
   closeSettings: () => void;
@@ -459,6 +464,9 @@ export const useAppStore = create<AppState>((set, get) => {
   dictionaryWarnings: [],
   dictionaryEntry: null,
   dictionarySelectedId: null,
+  mapViewportCenter: null,
+  mapViewportZoom: null,
+  mapLastError: null,
   settingsOpen: false,
   dueNotificationConfig: initialDueNotificationConfig,
   dueNotificationPermission: initialDueNotificationPermission,
@@ -1428,6 +1436,23 @@ export const useAppStore = create<AppState>((set, get) => {
         dictionaryError: message
       });
       logger.error("dictionary.entry.load.error", `${hit.word}: ${message}`);
+    }
+  },
+
+  setMapViewport(center, zoom) {
+    const normalizedCenter: [number, number] = [center[0], center[1]];
+    const normalizedZoom = Number.isFinite(zoom) ? zoom : 0;
+    set({
+      mapViewportCenter: normalizedCenter,
+      mapViewportZoom: normalizedZoom
+    });
+    logger.debug("map.viewport.set", `lon=${normalizedCenter[0].toFixed(4)} lat=${normalizedCenter[1].toFixed(4)} zoom=${normalizedZoom.toFixed(2)}`);
+  },
+
+  setMapLastError(error) {
+    set({ mapLastError: error });
+    if (error) {
+      logger.warn("map.error.state", error);
     }
   },
 

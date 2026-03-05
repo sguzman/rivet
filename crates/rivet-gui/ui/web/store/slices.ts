@@ -160,6 +160,11 @@ export function useDictionaryWorkspaceSlice() {
 
 export function useMapWorkspaceSlice() {
   return useAppStore(useShallow((state) => ({
-    runtimeConfig: state.runtimeConfig
+    runtimeConfig: state.runtimeConfig,
+    mapViewportCenter: state.mapViewportCenter,
+    mapViewportZoom: state.mapViewportZoom,
+    mapLastError: state.mapLastError,
+    setMapViewport: state.setMapViewport,
+    setMapLastError: state.setMapLastError
   })));
 }

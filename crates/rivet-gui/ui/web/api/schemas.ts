@@ -355,6 +355,8 @@ export const RivetRuntimeConfigSchema = z.object({
     default_zoom: z.number().optional(),
     min_zoom: z.number().optional(),
     max_zoom: z.number().optional(),
+    max_parallel_image_requests: z.number().int().positive().optional(),
+    cancel_pending_tile_requests_while_zooming: z.boolean().optional(),
     hide_when_unavailable: z.boolean().optional()
   }).passthrough().optional(),
   dictionary: z.object({

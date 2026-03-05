@@ -199,6 +199,8 @@ default_center = [-102.2, 28.9]
 default_zoom = 3.6
 min_zoom = 2.0
 max_zoom = 13.0
+max_parallel_image_requests = 12
+cancel_pending_tile_requests_while_zooming = true
 hide_when_unavailable = false
 
 [ui.theme] # ACTIVE

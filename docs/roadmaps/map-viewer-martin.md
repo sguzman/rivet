@@ -67,7 +67,7 @@
 ## 6. Performance Plan
 
 - [x] Keep initial load lightweight (defer heavy style/layer setup until map ready).
-- [ ] Limit concurrent tile requests per zoom interaction where configurable.
+- [x] Limit concurrent tile requests per zoom interaction where configurable.
 - [x] Set conservative default min/max zoom to reduce unnecessary misses.
 - [x] Debounce high-frequency UI state updates from map events.
 - [x] Add trace spans and timing around:
@@ -83,7 +83,7 @@
 - [x] Emit startup log with effective Martin URL and map feature flags.
 - [x] Log user-visible connectivity failures with actionable diagnostics.
 - [x] Log tile source metadata summary at debug level.
-- [ ] Ensure dev mode writes logs to both stdout and file sinks.
+- [x] Ensure dev mode writes logs to both stdout and file sinks.
 
 ## 8. Config and Environment
 
@@ -102,8 +102,8 @@
 
 ### Frontend
 
-- [ ] Component tests for tab rendering and control interactions.
-- [ ] Store/state tests for viewport persistence and error states.
+- [x] Component tests for tab rendering and control interactions.
+- [x] Store/state tests for viewport persistence and error states.
 - [x] Mocked integration tests for Martin metadata success/failure.
 
 ### Backend (if command hooks added)
@@ -122,14 +122,14 @@
 
 - [x] Phase 1: map tab scaffold + static base map client wiring.
 - [x] Phase 2: dynamic Martin source discovery + robust error handling.
-- [ ] Phase 3: performance tuning + tracing + test hardening.
+- [x] Phase 3: performance tuning + tracing + test hardening.
 - [ ] Phase 4: polish UX copy and finalize docs.
 
 ## 11. Documentation Updates
 
 - [x] Add map tab notes to command/config docs where applicable.
-- [ ] Document local Martin startup expectations and troubleshooting.
-- [ ] Add quick validation guide (`docker compose up`, open Map tab, inspect logs).
+- [x] Document local Martin startup expectations and troubleshooting.
+- [x] Add quick validation guide (`docker compose up`, open Map tab, inspect logs).
 
 ## 12. Completion Criteria
 

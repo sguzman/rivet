@@ -54,7 +54,14 @@ interface TileStats {
 }
 
 export function MapWorkspace() {
-  const { runtimeConfig } = useMapWorkspaceSlice();
+  const {
+    runtimeConfig,
+    mapViewportCenter,
+    mapViewportZoom,
+    mapLastError,
+    setMapViewport,
+    setMapLastError
+  } = useMapWorkspaceSlice();
   const mapConfig = runtimeConfig?.map;
   const mapEnabled = mapConfig?.enabled ?? true;
   const martinBaseUrl = normalizeMartinBaseUrl(mapConfig?.martin_base_url);
@@ -62,6 +69,10 @@ export function MapWorkspace() {
   const defaultZoom = typeof mapConfig?.default_zoom === "number" ? mapConfig.default_zoom : DEFAULT_ZOOM;
   const minZoom = typeof mapConfig?.min_zoom === "number" ? mapConfig.min_zoom : DEFAULT_MIN_ZOOM;
   const maxZoom = typeof mapConfig?.max_zoom === "number" ? mapConfig.max_zoom : DEFAULT_MAX_ZOOM;
+  const maxParallelImageRequests = typeof mapConfig?.max_parallel_image_requests === "number"
+    ? mapConfig.max_parallel_image_requests
+    : null;
+  const cancelPendingTileRequestsWhileZooming = mapConfig?.cancel_pending_tile_requests_while_zooming ?? true;
   const configuredDefaultSource = typeof mapConfig?.default_source === "string" ? mapConfig.default_source.trim() : "";
 
   const mapHost = useMemo(() => {
@@ -128,6 +139,12 @@ export function MapWorkspace() {
       "map.init.start",
       `host=${mapHost} default_center=${defaultCenter[0].toFixed(4)},${defaultCenter[1].toFixed(4)} default_zoom=${defaultZoom}`
     );
+    const initialCenter = mapViewportCenter ?? defaultCenter;
+    const initialZoom = mapViewportZoom ?? defaultZoom;
+    if (typeof maxParallelImageRequests === "number" && Number.isFinite(maxParallelImageRequests) && maxParallelImageRequests > 0) {
+      maplibregl.setMaxParallelImageRequests(Math.round(maxParallelImageRequests));
+      logger.info("map.request.limit", `max_parallel_image_requests=${maplibregl.getMaxParallelImageRequests()}`);
+    }
     const map = new maplibregl.Map({
       container,
       style: {
@@ -144,11 +161,12 @@ export function MapWorkspace() {
           }
         ]
       },
-      center: defaultCenter,
-      zoom: defaultZoom,
+      center: initialCenter,
+      zoom: initialZoom,
       minZoom,
       maxZoom,
-      attributionControl: false
+      attributionControl: false,
+      cancelPendingTileRequestsWhileZooming
     });
 
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
@@ -167,6 +185,8 @@ export function MapWorkspace() {
         window.clearTimeout(renderTimerRef.current);
       }
       renderTimerRef.current = window.setTimeout(() => {
+        const center = map.getCenter();
+        setMapViewport([center.lng, center.lat], map.getZoom());
         updateViewportText();
       }, 120);
     });
@@ -195,6 +215,7 @@ export function MapWorkspace() {
       tileStatsRef.current.errors += 1;
       syncTileStats();
       const detail = event.error instanceof Error ? event.error.message : String(event.error);
+      setMapLastError(detail);
       logger.warn("map.tile.error", detail);
     });
 
@@ -203,13 +224,14 @@ export function MapWorkspace() {
       const noTiles = stats.requested > 0 && stats.loaded === 0 && stats.errors > 0;
       setNoTilesVisible(noTiles);
       if (noTiles) {
+        setMapLastError("No tiles are available for the current viewport.");
         logger.warn("map.tiles.none_visible", `requested=${stats.requested} errors=${stats.errors}`);
       }
     });
 
     mapRef.current = map;
     return map;
-  }, [defaultCenter, defaultZoom, mapHost, maxZoom, minZoom, resetTileStats, syncTileStats, updateViewportText]);
+  }, [cancelPendingTileRequestsWhileZooming, defaultCenter, defaultZoom, mapHost, mapViewportCenter, mapViewportZoom, maxParallelImageRequests, maxZoom, minZoom, resetTileStats, setMapLastError, setMapViewport, syncTileStats, updateViewportText]);
 
   const loadCatalog = useCallback(async () => {
     setStatus("loading");
@@ -230,12 +252,13 @@ export function MapWorkspace() {
     } catch (error) {
       const message = shortError(error);
       logger.error("map.martin.catalog.error", message);
+      setMapLastError(message);
       setSources([]);
       setSelectedSourceId("");
       setStatus("error");
       setErrorText(message);
     }
-  }, [configuredDefaultSource, martinBaseUrl]);
+  }, [configuredDefaultSource, martinBaseUrl, setMapLastError]);
 
   useEffect(() => {
     if (!mapEnabled) {
@@ -253,6 +276,7 @@ export function MapWorkspace() {
     const applySource = async () => {
       setStatus("loading");
       setErrorText(null);
+      setMapLastError(null);
       resetTileStats();
       try {
         const tilejson = await fetchMartinTileJson(selectedSource.tilejson_url);
@@ -260,6 +284,7 @@ export function MapWorkspace() {
           return;
         }
         setSelectedTileJson(tilejson);
+        setMapLastError(null);
 
         const map = ensureMapInstance();
         if (!map) {
@@ -284,6 +309,7 @@ export function MapWorkspace() {
         }
         const message = shortError(error);
         logger.error("map.source.apply.error", `${selectedSource.id}: ${message}`);
+        setMapLastError(message);
         setStatus("error");
         setErrorText(message);
       }
@@ -293,7 +319,7 @@ export function MapWorkspace() {
     return () => {
       cancelled = true;
     };
-  }, [ensureMapInstance, mapEnabled, resetTileStats, selectedSource]);
+  }, [ensureMapInstance, mapEnabled, resetTileStats, selectedSource, setMapLastError]);
 
   useEffect(() => {
     return () => {
@@ -366,6 +392,7 @@ export function MapWorkspace() {
 
         <Stack spacing={0.75}>
           {errorText ? <Alert severity="error">Map load failed: {errorText}</Alert> : null}
+          {!errorText && mapLastError ? <Alert severity="warning">Map warning: {mapLastError}</Alert> : null}
           {noTilesVisible ? <Alert severity="warning">No tiles are available for this zoom/area.</Alert> : null}
           <Typography variant="caption" color="text.secondary">
             source={selectedSource?.id ?? "(none)"}
