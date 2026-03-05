@@ -90,6 +90,8 @@ export function MapWorkspace() {
   const firstTileLoggedRef = useRef(false);
   const renderTimerRef = useRef<number | null>(null);
   const lastApplyFailedForSourceRef = useRef<string | null>(null);
+  const tileStatsSyncTimerRef = useRef<number | null>(null);
+  const lastTileErrorRef = useRef<string | null>(null);
 
   const [sources, setSources] = useState<MartinCatalogSource[]>([]);
   const [selectedSourceId, setSelectedSourceId] = useState<string>("");
@@ -125,6 +127,16 @@ export function MapWorkspace() {
   const syncTileStats = useCallback(() => {
     setTileStats({ ...tileStatsRef.current });
   }, []);
+
+  const scheduleTileStatsSync = useCallback(() => {
+    if (tileStatsSyncTimerRef.current !== null) {
+      return;
+    }
+    tileStatsSyncTimerRef.current = window.setTimeout(() => {
+      tileStatsSyncTimerRef.current = null;
+      syncTileStats();
+    }, 120);
+  }, [syncTileStats]);
 
   const ensureMapInstance = useCallback(() => {
     if (mapRef.current) {
@@ -194,7 +206,7 @@ export function MapWorkspace() {
 
     map.on("sourcedataloading", () => {
       tileStatsRef.current.requested += 1;
-      syncTileStats();
+      scheduleTileStatsSync();
     });
 
     map.on("sourcedata", (event) => {
@@ -209,14 +221,17 @@ export function MapWorkspace() {
           `elapsed_ms=${(performance.now() - loadStartedAtRef.current).toFixed(1)}`
         );
       }
-      syncTileStats();
+      scheduleTileStatsSync();
     });
 
     map.on("error", (event) => {
       tileStatsRef.current.errors += 1;
-      syncTileStats();
+      scheduleTileStatsSync();
       const detail = event.error instanceof Error ? event.error.message : String(event.error);
-      setMapLastError(detail);
+      if (lastTileErrorRef.current !== detail) {
+        lastTileErrorRef.current = detail;
+        setMapLastError(detail);
+      }
       logger.warn("map.tile.error", detail);
     });
 
@@ -232,7 +247,7 @@ export function MapWorkspace() {
 
     mapRef.current = map;
     return map;
-  }, [cancelPendingTileRequestsWhileZooming, defaultCenter, defaultZoom, mapHost, mapViewportCenter, mapViewportZoom, maxParallelImageRequests, maxZoom, minZoom, resetTileStats, setMapLastError, setMapViewport, syncTileStats, updateViewportText]);
+  }, [cancelPendingTileRequestsWhileZooming, defaultCenter, defaultZoom, mapHost, mapViewportCenter, mapViewportZoom, maxParallelImageRequests, maxZoom, minZoom, resetTileStats, scheduleTileStatsSync, setMapLastError, setMapViewport, updateViewportText]);
 
   const loadCatalog = useCallback(async () => {
     setStatus("loading");
@@ -281,6 +296,7 @@ export function MapWorkspace() {
       setStatus("loading");
       setErrorText(null);
       setMapLastError(null);
+      lastTileErrorRef.current = null;
       resetTileStats();
       try {
         const tilejson = await fetchMartinTileJson(selectedSource.tilejson_url);
@@ -331,6 +347,9 @@ export function MapWorkspace() {
     return () => {
       if (renderTimerRef.current !== null) {
         window.clearTimeout(renderTimerRef.current);
+      }
+      if (tileStatsSyncTimerRef.current !== null) {
+        window.clearTimeout(tileStatsSyncTimerRef.current);
       }
       mapRef.current?.remove();
       mapRef.current = null;
