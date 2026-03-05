@@ -92,6 +92,8 @@ export function MapWorkspace() {
   const lastApplyFailedForSourceRef = useRef<string | null>(null);
   const tileStatsSyncTimerRef = useRef<number | null>(null);
   const lastTileErrorRef = useRef<string | null>(null);
+  const appliedSourceKeyRef = useRef<string | null>(null);
+  const applyingSourceKeyRef = useRef<string | null>(null);
 
   const [sources, setSources] = useState<MartinCatalogSource[]>([]);
   const [selectedSourceId, setSelectedSourceId] = useState<string>("");
@@ -110,6 +112,10 @@ export function MapWorkspace() {
     () => sources.find((entry) => entry.id === selectedSourceId) ?? null,
     [selectedSourceId, sources]
   );
+  const selectedSourceTilejsonUrl = selectedSource?.tilejson_url ?? null;
+  const selectedSourceKey = selectedSource && selectedSourceTilejsonUrl
+    ? `${selectedSource.id}|${selectedSourceTilejsonUrl}`
+    : null;
 
   const updateViewportText = useCallback(() => {
     const map = mapRef.current;
@@ -256,6 +262,8 @@ export function MapWorkspace() {
     setStatus("loading");
     setErrorText(null);
     setSelectedTileJson(null);
+    appliedSourceKeyRef.current = null;
+    applyingSourceKeyRef.current = null;
     try {
       const catalog = await fetchMartinCatalog(martinBaseUrl);
       if (catalog.length === 0) {
@@ -287,7 +295,10 @@ export function MapWorkspace() {
   }, [loadCatalog, mapEnabled, refreshToken]);
 
   useEffect(() => {
-    if (!mapEnabled || !selectedSource) {
+    if (!mapEnabled || !selectedSource || !selectedSourceTilejsonUrl || !selectedSourceKey) {
+      return;
+    }
+    if (appliedSourceKeyRef.current === selectedSourceKey || applyingSourceKeyRef.current === selectedSourceKey) {
       return;
     }
     if (lastApplyFailedForSourceRef.current === selectedSource.id) {
@@ -295,6 +306,7 @@ export function MapWorkspace() {
     }
 
     let cancelled = false;
+    applyingSourceKeyRef.current = selectedSourceKey;
     const applySource = async () => {
       setStatus("loading");
       setErrorText(null);
@@ -302,7 +314,7 @@ export function MapWorkspace() {
       lastTileErrorRef.current = null;
       resetTileStats();
       try {
-        const tilejson = await fetchMartinTileJson(selectedSource.tilejson_url);
+        const tilejson = await fetchMartinTileJson(selectedSourceTilejsonUrl);
         if (cancelled) {
           return;
         }
@@ -326,6 +338,7 @@ export function MapWorkspace() {
           { padding: 28, duration: 0, maxZoom: 7 }
         );
         lastApplyFailedForSourceRef.current = null;
+        appliedSourceKeyRef.current = selectedSourceKey;
         setStatus("ready");
       } catch (error) {
         if (cancelled) {
@@ -337,14 +350,21 @@ export function MapWorkspace() {
         setMapLastError(message);
         setStatus("error");
         setErrorText(message);
+      } finally {
+        if (applyingSourceKeyRef.current === selectedSourceKey) {
+          applyingSourceKeyRef.current = null;
+        }
       }
     };
 
     void applySource();
     return () => {
       cancelled = true;
+      if (applyingSourceKeyRef.current === selectedSourceKey) {
+        applyingSourceKeyRef.current = null;
+      }
     };
-  }, [ensureMapInstance, mapEnabled, resetTileStats, selectedSource, setMapLastError]);
+  }, [ensureMapInstance, mapEnabled, resetTileStats, selectedSource, selectedSourceKey, selectedSourceTilejsonUrl, setMapLastError]);
 
   useEffect(() => {
     return () => {
