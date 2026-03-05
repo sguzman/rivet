@@ -13,8 +13,10 @@ chrono = "0.4.43"
 chrono-tz = "0.10.4"
 ical = "0.11.0"
 parking_lot = "0.12.5"
+postgres = "0.19.12"
+r2d2 = "0.8.10"
+r2d2_postgres = "0.18.2"
 reqwest = { version = "0.13.2", default-features = false, features = ["rustls"] }
-rusqlite = { version = "0.37.0", features = ["bundled"] }
 rivet_core = { path = "../../rivet-core" }
 rivet_gui_shared = { path = "../../rivet-gui-shared" }
 serde = { version = "1.0.228", features = ["derive"] }

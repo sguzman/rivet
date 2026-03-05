@@ -1,5 +1,8 @@
 # Rivet Dictionary Roadmap
 
+> Status: superseded for backend storage by [dictionary-postgres-migration.md](/win/linux/Code/rust/rivet/docs/roadmaps/dictionary-postgres-migration.md).  
+> This roadmap tracks feature surface; storage/backend migration now follows the Postgres roadmap.
+
 ## 0. Scope and Outcome
 
 - [x] Add a new `Dictionary` workspace tab to Rivet.

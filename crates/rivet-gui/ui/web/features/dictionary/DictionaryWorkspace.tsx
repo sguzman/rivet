@@ -141,7 +141,10 @@ export function DictionaryWorkspace() {
   }, [dictionaryEntry]);
 
   const dictionaryEnabled = runtimeConfig?.dictionary?.enabled ?? true;
-  const dbPath = runtimeConfig?.dictionary?.sqlite_path ?? "wiktionary.sqlite";
+  const postgres = runtimeConfig?.dictionary?.postgres;
+  const backendTarget = postgres
+    ? `${postgres.host ?? "127.0.0.1"}:${postgres.port ?? 5432}/${postgres.database ?? "data"}.${postgres.schema ?? "dictionary"}`
+    : "postgres://127.0.0.1:5432/data.dictionary";
   const searchMode = String(runtimeConfig?.dictionary?.search_mode ?? "prefix").trim().toLowerCase();
   const hasResults = dictionaryResults.length > 0;
   const displayLanguage = dictionaryLanguage ?? "__all__";
@@ -298,7 +301,7 @@ export function DictionaryWorkspace() {
         <Stack spacing={1.25} className="h-full min-h-0">
           <Typography variant="h6">Dictionary</Typography>
           <Typography variant="caption" color="text.secondary">
-            db: {dbPath}
+            backend: {backendTarget}
           </Typography>
           <Typography variant="caption" color="text.secondary">
             mode: {searchMode}

@@ -47,11 +47,22 @@ export interface RivetRuntimeConfig {
   };
   dictionary?: {
     enabled?: boolean;
-    sqlite_path?: string;
     default_language?: string;
     max_results?: number;
     search_mode?: "exact" | "prefix" | "fuzzy" | "fts" | string;
     hide_when_unavailable?: boolean;
+    postgres?: {
+      host?: string;
+      port?: number;
+      user?: string;
+      password?: string;
+      database?: string;
+      schema?: string;
+      sslmode?: "disable" | string;
+      connect_timeout_secs?: number;
+      max_connection_retries?: number;
+      retry_backoff_ms?: number;
+    };
   };
   calendar?: {
     version?: number;

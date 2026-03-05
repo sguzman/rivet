@@ -87,7 +87,7 @@ All commands support an optional `request_id` argument for correlation logging.
 - Response:
   - `string[]` language identifiers present in dictionary DB.
 - Errors:
-  - string message when dictionary config/DB/schema is missing or invalid.
+  - string message when dictionary config/Postgres connection/schema is missing or invalid.
 
 ### `dictionary_search`
 
@@ -105,7 +105,7 @@ All commands support an optional `request_id` argument for correlation logging.
   - `warnings: string[]`
   - `warnings` may include fallback details, for example morphology fallback candidates or FTS fallback to fuzzy mode.
 - Errors:
-  - string message for dictionary lookup or schema mismatch failures.
+  - string message for dictionary lookup, Postgres connection, or schema mismatch failures.
 
 ### `dictionary_entry`
 
@@ -127,6 +127,10 @@ All commands support an optional `request_id` argument for correlation logging.
     - `source_table: string`
 - Errors:
   - string message for lookup validation/query failures.
+
+Backend note:
+
+- Dictionary commands are Postgres-backed (schema configured under `[dictionary.postgres]` in `rivet.toml`).
 
 ### `external_calendar_sync`
 

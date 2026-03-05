@@ -1191,10 +1191,21 @@ async function invokeCommand<R>(command: string, args?: unknown): Promise<R> {
           },
           dictionary: {
             enabled: true,
-            sqlite_path: "/win/linux/data/wiktionary/wiktionary.sqlite",
             default_language: "en",
             max_results: 100,
-            search_mode: "prefix"
+            search_mode: "prefix",
+            postgres: {
+              host: "127.0.0.1",
+              port: 5432,
+              user: "admin",
+              password: "admin",
+              database: "data",
+              schema: "dictionary",
+              sslmode: "disable",
+              connect_timeout_secs: 10,
+              max_connection_retries: 5,
+              retry_backoff_ms: 750
+            }
           }
         } as R;
       }

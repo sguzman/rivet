@@ -19,9 +19,14 @@ const defaultSlice = {
   runtimeConfig: {
     dictionary: {
       enabled: true,
-      sqlite_path: "/win/linux/data/wiktionary/wiktionary.sqlite",
       search_mode: "prefix",
-      max_results: 100
+      max_results: 100,
+      postgres: {
+        host: "127.0.0.1",
+        port: 5432,
+        database: "data",
+        schema: "dictionary"
+      }
     }
   },
   dictionaryLanguages: ["en", "es"],
@@ -91,7 +96,7 @@ describe("DictionaryWorkspace", () => {
     render(<DictionaryWorkspace />);
 
     expect(screen.getByText("Dictionary")).toBeTruthy();
-    expect(screen.getByText("db: /win/linux/data/wiktionary/wiktionary.sqlite")).toBeTruthy();
+    expect(screen.getByText("backend: 127.0.0.1:5432/data.dictionary")).toBeTruthy();
     expect(screen.getByText("Definitions")).toBeTruthy();
     expect(screen.getByText("Pronunciation (IPA)")).toBeTruthy();
     expect(screen.getByText("Synonyms")).toBeTruthy();

@@ -348,11 +348,22 @@ export const RivetRuntimeConfigSchema = z.object({
   }).passthrough().optional(),
   dictionary: z.object({
     enabled: z.boolean().optional(),
-    sqlite_path: z.string().optional(),
     default_language: z.string().optional(),
     max_results: z.number().int().optional(),
     search_mode: z.string().optional(),
-    hide_when_unavailable: z.boolean().optional()
+    hide_when_unavailable: z.boolean().optional(),
+    postgres: z.object({
+      host: z.string().optional(),
+      port: z.number().int().optional(),
+      user: z.string().optional(),
+      password: z.string().optional(),
+      database: z.string().optional(),
+      schema: z.string().optional(),
+      sslmode: z.string().optional(),
+      connect_timeout_secs: z.number().int().optional(),
+      max_connection_retries: z.number().int().optional(),
+      retry_backoff_ms: z.number().int().optional()
+    }).optional()
   }).passthrough().optional(),
   calendar: z.object({
     version: z.number().int().optional(),

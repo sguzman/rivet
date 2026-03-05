@@ -244,12 +244,23 @@ default_logs_rel = "logs"
 source_file = "crates/rivet-gui/ui/assets/tags.toml"
 schema_version = 1
 
-[dictionary] # ACTIVE (dictionary tab + sqlite-backed lookup)
+[dictionary] # ACTIVE (dictionary tab + postgres-backed lookup)
 enabled = true
-sqlite_path = "/win/linux/data/wiktionary/wiktionary.sqlite"
 default_language = "en"
 max_results = 100
-search_mode = "prefix" # exact | prefix | fuzzy
+search_mode = "prefix" # exact | prefix | fuzzy | fts
+
+[dictionary.postgres] # ACTIVE
+host = "127.0.0.1"
+port = 5432
+user = "admin"
+password = "admin"
+database = "data"
+schema = "dictionary"
+sslmode = "disable"
+connect_timeout_secs = 10
+max_connection_retries = 5
+retry_backoff_ms = 750
 
 [integration.legacy] # DOCUMENTATION-ONLY
 # These are still tolerated as migration compatibility:
