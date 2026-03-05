@@ -291,7 +291,7 @@ export function MapWorkspace() {
           throw new Error("Map container is not available");
         }
 
-        const style = createMartinStyle(selectedSource.id, selectedSource.tilejson_url, tilejson);
+        const style = createMartinStyle(selectedSource.id, tilejson);
         logger.info(
           "map.source.apply",
           `source=${selectedSource.id} vector_layers=${tilejson.vector_layers.length} minzoom=${tilejson.minzoom} maxzoom=${tilejson.maxzoom}`

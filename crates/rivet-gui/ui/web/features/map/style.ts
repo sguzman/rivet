@@ -45,7 +45,7 @@ function vectorLayersForSource(sourceId: string, tilejson: MartinTileJson): Laye
   return layers;
 }
 
-export function createMartinStyle(sourceId: string, tilejsonUrl: string, tilejson: MartinTileJson): StyleSpecification {
+export function createMartinStyle(sourceId: string, tilejson: MartinTileJson): StyleSpecification {
   const background: LayerSpecification = {
     id: "rivet-map-background",
     type: "background",
@@ -64,7 +64,7 @@ export function createMartinStyle(sourceId: string, tilejsonUrl: string, tilejso
   if (tilejson.vector_layers.length > 0) {
     style.sources[sourceId] = {
       type: "vector",
-      url: tilejsonUrl,
+      tiles: tilejson.tiles,
       minzoom: tilejson.minzoom,
       maxzoom: tilejson.maxzoom
     };
