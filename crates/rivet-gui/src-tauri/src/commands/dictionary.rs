@@ -1,5 +1,6 @@
 use std::time::Instant;
 
+use deunicode::deunicode;
 use postgres::{Client, NoTls};
 use r2d2::Pool;
 use r2d2_postgres::PostgresConnectionManager;
@@ -135,7 +136,23 @@ fn normalized_language(value: Option<String>) -> Option<String> {
 }
 
 fn normalize_for_search(value: &str) -> String {
-  value.trim().to_ascii_lowercase()
+  canonicalize_lookup_term(value)
+}
+
+fn canonicalize_lookup_term(value: &str) -> String {
+  let transliterated = deunicode(value);
+  let mut out = String::with_capacity(transliterated.len());
+  let mut prev_is_space = false;
+  for ch in transliterated.chars() {
+    if ch.is_ascii_alphanumeric() {
+      out.push(ch.to_ascii_lowercase());
+      prev_is_space = false;
+    } else if !prev_is_space {
+      out.push(' ');
+      prev_is_space = true;
+    }
+  }
+  out.trim().to_string()
 }
 
 fn is_hot_lookup_language(language: &str) -> bool {
@@ -1300,6 +1317,7 @@ pub async fn dictionary_entry(
 #[cfg(test)]
 mod dictionary_tests {
   use super::{
+    canonicalize_lookup_term,
     classify_relation_type,
     dedupe_strings,
     lemma_candidates,
@@ -1340,6 +1358,11 @@ mod dictionary_tests {
   fn lemma_candidates_reduces_inflections() {
     let candidates = lemma_candidates("anchoring");
     assert!(candidates.iter().any(|candidate| candidate == "anchor"));
+  }
+
+  #[test]
+  fn canonicalize_lookup_term_matches_alias_normalization() {
+    assert_eq!(canonicalize_lookup_term(" Café-au-lait "), "cafe au lait");
   }
 
   #[test]

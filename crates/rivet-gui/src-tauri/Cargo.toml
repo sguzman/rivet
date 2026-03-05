@@ -11,6 +11,7 @@ tauri-build = { version = "2.5.5", features = [] }
 anyhow = "1.0.101"
 chrono = "0.4.43"
 chrono-tz = "0.10.4"
+deunicode = "1.6.2"
 ical = "0.11.0"
 parking_lot = "0.12.5"
 postgres = "0.19.12"
