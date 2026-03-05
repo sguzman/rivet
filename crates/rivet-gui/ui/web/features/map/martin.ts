@@ -24,7 +24,16 @@ export interface MartinTileJson {
 }
 
 const DEFAULT_FETCH_TIMEOUT_MS = 8_000;
-const RESERVED_CATALOG_IDS = new Set(["fonts", "font", "sprites", "sprite", "catalog", "health"]);
+const RESERVED_CATALOG_IDS = new Set([
+  "fonts",
+  "font",
+  "sprites",
+  "sprite",
+  "styles",
+  "style",
+  "catalog",
+  "health"
+]);
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
