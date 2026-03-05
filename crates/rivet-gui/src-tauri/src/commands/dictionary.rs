@@ -743,68 +743,6 @@ fn run_search_hits(
   Ok(out)
 }
 
-fn run_search_count(
-  client: &mut Client,
-  schema: &str,
-  mode: &str,
-  query: &str,
-  language: &Option<String>,
-) -> anyhow::Result<i64> {
-  let sql = format!(
-    "WITH title_hits AS (
-       SELECT p.id AS page_id,
-              p.title AS word,
-              d.language AS language
-       FROM {schema}.pages p
-       JOIN {schema}.definitions d ON d.page_id = p.id
-       WHERE (
-              ($1 = 'exact' AND LOWER(p.title) = LOWER($2))
-           OR ($1 = 'prefix' AND p.title ILIKE $3)
-           OR ($1 = 'fuzzy' AND (
-                 p.title ILIKE $4 OR EXISTS (
-                   SELECT 1
-                   FROM {schema}.definitions d3
-                   WHERE d3.page_id = p.id
-                     AND d3.language = d.language
-                     AND d3.definition_text ILIKE $4
-                 )
-               ))
-             )
-         AND ($5::TEXT IS NULL OR LOWER(d.language) = LOWER($5::TEXT))
-       GROUP BY p.id, p.title, d.language
-     ),
-     alias_hits AS (
-       SELECT la.page_id AS page_id,
-              la.alias AS word,
-              COALESCE(la.language, d.language) AS language
-       FROM {schema}.lemma_aliases la
-       JOIN {schema}.definitions d ON d.page_id = la.page_id
-       WHERE (
-              ($1 = 'exact' AND LOWER(la.alias) = LOWER($2))
-           OR ($1 = 'prefix' AND la.alias ILIKE $3)
-           OR ($1 = 'fuzzy' AND (
-                 la.alias ILIKE $4
-               ))
-             )
-         AND ($5::TEXT IS NULL OR LOWER(COALESCE(la.language, d.language)) = LOWER($5::TEXT))
-       GROUP BY la.page_id, la.alias, COALESCE(la.language, d.language)
-     ),
-     merged AS (
-       SELECT page_id, word, language FROM title_hits
-       UNION
-       SELECT page_id, word, language FROM alias_hits
-     )
-     SELECT COUNT(1) FROM merged",
-    schema = quote_ident(schema),
-  );
-
-  let exact = query.to_string();
-  let prefix = format!("{query}%");
-  let fuzzy = format!("%{query}%");
-  let total = client.query_one(&sql, &[&mode, &exact, &prefix, &fuzzy, language])?.get::<_, i64>(0);
-  Ok(total)
-}
-
 fn run_fts_hits(
   client: &mut Client,
   schema: &str,
@@ -899,34 +837,33 @@ fn dictionary_search_native(
     requested_mode
   };
   let limit = args.limit.unwrap_or(settings.max_results).clamp(1, MAX_SEARCH_LIMIT);
+  let fetch_limit = limit.saturating_add(1).clamp(1, MAX_SEARCH_LIMIT);
 
   let list_started = Instant::now();
   let mut rows = if effective_mode == "fts" {
     match detect_fts_table(client, &settings.postgres.schema)? {
-      Some(table) => match run_fts_hits(client, &settings.postgres.schema, &table, query, &language, limit) {
+      Some(table) => match run_fts_hits(client, &settings.postgres.schema, &table, query, &language, fetch_limit) {
         Ok(payload) => payload,
         Err(err) => {
           warnings.push(format!("fts query unavailable ({err}); falling back to fuzzy search"));
-          run_search_hits(client, &settings.postgres.schema, "fuzzy", query, &language, limit)?
+          run_search_hits(client, &settings.postgres.schema, "fuzzy", query, &language, fetch_limit)?
         }
       },
       None => {
         warnings.push("fts mode requested but no page_fts table found; falling back to fuzzy search".to_string());
-        run_search_hits(client, &settings.postgres.schema, "fuzzy", query, &language, limit)?
+        run_search_hits(client, &settings.postgres.schema, "fuzzy", query, &language, fetch_limit)?
       }
     }
   } else {
-    run_search_hits(client, &settings.postgres.schema, &effective_mode, query, &language, limit)?
+    run_search_hits(client, &settings.postgres.schema, &effective_mode, query, &language, fetch_limit)?
   };
   log_if_slow("search.list", list_started, request_id, "dictionary search list query");
 
-  let count_started = Instant::now();
-  let mut total = if effective_mode == "fts" {
-    rows.len() as i64
-  } else {
-    run_search_count(client, &settings.postgres.schema, &effective_mode, query, &language)?
-  };
-  log_if_slow("search.count", count_started, request_id, "dictionary search count query");
+  let truncated = rows.len() > limit as usize;
+  if truncated {
+    rows.truncate(limit as usize);
+  }
+  let mut total = rows.len() as i64 + if truncated { 1 } else { 0 };
 
   if rows.is_empty() {
     let candidates = lemma_candidates(query);
@@ -968,29 +905,29 @@ fn dictionary_search_native(
     }
   }
 
-  let enrich_started = Instant::now();
   let mut hits = Vec::<DictionarySearchHit>::new();
   for row in rows {
-    let relation = relation_buckets(client, &settings.postgres.schema, row.page_id, &row.language)?;
     hits.push(DictionarySearchHit {
       id: Some(row.page_id),
       word: row.word,
       language: Some(row.language),
-      part_of_speech: relation.part_of_speech.first().cloned(),
-      pronunciation: relation.pronunciation.first().cloned(),
+      part_of_speech: None,
+      pronunciation: None,
       summary: row.summary,
       source_table: "postgres.pages/definitions/lemma_aliases".to_string(),
       matched_by_prefix: effective_mode == "prefix",
     });
   }
-  log_if_slow("search.enrich", enrich_started, request_id, "dictionary hit enrichment");
+  if truncated {
+    warnings.push("results truncated to configured limit; refine query for faster and more precise matches".to_string());
+  }
 
   Ok(DictionarySearchResult {
     query: query.to_string(),
     language,
     hits,
     total: total.max(0) as u64,
-    truncated: total.max(0) as u64 > limit as u64,
+    truncated,
     warnings,
   })
 }
