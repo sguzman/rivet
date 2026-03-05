@@ -157,3 +157,9 @@ export function useDictionaryWorkspaceSlice() {
     selectDictionaryHit: state.selectDictionaryHit
   })));
 }
+
+export function useMapWorkspaceSlice() {
+  return useAppStore(useShallow((state) => ({
+    runtimeConfig: state.runtimeConfig
+  })));
+}

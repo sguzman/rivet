@@ -119,7 +119,7 @@ function saveThemeMode(mode: ThemeMode): void {
 
 function loadWorkspaceTab(): WorkspaceTab {
   const raw = readStorageString(WORKSPACE_TAB_STORAGE_KEY);
-  if (raw === "kanban" || raw === "calendar" || raw === "dictionary" || raw === "contacts") {
+  if (raw === "kanban" || raw === "calendar" || raw === "dictionary" || raw === "map" || raw === "contacts") {
     return raw;
   }
   return "tasks";

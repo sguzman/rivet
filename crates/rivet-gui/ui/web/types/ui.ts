@@ -1,6 +1,6 @@
 import type { ExternalCalendarSource, TaskDto, TaskStatus } from "./core";
 
-export type WorkspaceTab = "tasks" | "kanban" | "calendar" | "dictionary" | "contacts";
+export type WorkspaceTab = "tasks" | "kanban" | "calendar" | "dictionary" | "map" | "contacts";
 export type ThemeMode = "day" | "night";
 export type StatusFilter = "all" | TaskStatus;
 export type PriorityFilter = "all" | "low" | "medium" | "high" | "none";

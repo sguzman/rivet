@@ -343,8 +343,19 @@ export const RivetRuntimeConfigSchema = z.object({
     }).passthrough().optional(),
     features: z.object({
       contacts: z.boolean().optional(),
-      dictionary: z.boolean().optional()
+      dictionary: z.boolean().optional(),
+      map: z.boolean().optional()
     }).passthrough().optional()
+  }).passthrough().optional(),
+  map: z.object({
+    enabled: z.boolean().optional(),
+    martin_base_url: z.string().optional(),
+    default_source: z.string().optional(),
+    default_center: z.array(z.number()).length(2).optional(),
+    default_zoom: z.number().optional(),
+    min_zoom: z.number().optional(),
+    max_zoom: z.number().optional(),
+    hide_when_unavailable: z.boolean().optional()
   }).passthrough().optional(),
   dictionary: z.object({
     enabled: z.boolean().optional(),

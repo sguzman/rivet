@@ -43,7 +43,18 @@ export interface RivetRuntimeConfig {
     features?: {
       contacts?: boolean;
       dictionary?: boolean;
+      map?: boolean;
     };
+  };
+  map?: {
+    enabled?: boolean;
+    martin_base_url?: string;
+    default_source?: string;
+    default_center?: number[];
+    default_zoom?: number;
+    min_zoom?: number;
+    max_zoom?: number;
+    hide_when_unavailable?: boolean;
   };
   dictionary?: {
     enabled?: boolean;

@@ -285,6 +285,8 @@ describe("useAppStore modal and save regressions", () => {
     expect(useAppStore.getState().activeTab).toBe("calendar");
     current.setActiveTab("dictionary");
     expect(useAppStore.getState().activeTab).toBe("dictionary");
+    current.setActiveTab("map");
+    expect(useAppStore.getState().activeTab).toBe("map");
     current.setActiveTab("contacts");
     expect(useAppStore.getState().activeTab).toBe("contacts");
   });

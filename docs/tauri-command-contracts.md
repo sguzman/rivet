@@ -172,6 +172,15 @@ Backend note:
   - no `args`
 - Response:
   - JSON object parsed from `rivet.toml`.
+  - Includes map runtime block when configured:
+    - `map.enabled: boolean`
+    - `map.martin_base_url: string`
+    - `map.default_source: string`
+    - `map.default_center: [number, number]`
+    - `map.default_zoom: number`
+    - `map.min_zoom: number`
+    - `map.max_zoom: number`
+    - `map.hide_when_unavailable: boolean`
 - Errors:
   - string message when file is missing or unreadable.
 

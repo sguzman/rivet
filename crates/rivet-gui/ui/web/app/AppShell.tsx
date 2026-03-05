@@ -21,6 +21,7 @@ import { CalendarWorkspace } from "../features/calendar/CalendarWorkspace";
 import { ContactsWorkspace } from "../features/contacts/ContactsWorkspace";
 import { DictionaryWorkspace } from "../features/dictionary/DictionaryWorkspace";
 import { KanbanWorkspace } from "../features/kanban/KanbanWorkspace";
+import { MapWorkspace } from "../features/map/MapWorkspace";
 import { TasksWorkspace } from "../features/tasks/TasksWorkspace";
 import { logger } from "../lib/logger";
 import { useDiagnosticsSlice, useSettingsSlice, useShellSlice } from "../store/slices";
@@ -29,6 +30,7 @@ const TasksWorkspaceMemo = memo(TasksWorkspace);
 const KanbanWorkspaceMemo = memo(KanbanWorkspace);
 const CalendarWorkspaceMemo = memo(CalendarWorkspace);
 const DictionaryWorkspaceMemo = memo(DictionaryWorkspace);
+const MapWorkspaceMemo = memo(MapWorkspace);
 const ContactsWorkspaceMemo = memo(ContactsWorkspace);
 
 export function AppShell() {
@@ -74,12 +76,14 @@ export function AppShell() {
     kanban: boolean;
     calendar: boolean;
     dictionary: boolean;
+    map: boolean;
     contacts: boolean;
   }>({
     tasks: true,
     kanban: false,
     calendar: false,
     dictionary: false,
+    map: false,
     contacts: false
   });
 
@@ -96,6 +100,10 @@ export function AppShell() {
   const dictionaryAvailable = dictionaryLanguages.length > 0;
   const dictionaryFeatureEnabled = (runtimeConfig?.ui?.features?.dictionary ?? true)
     && (!dictionaryHideWhenUnavailable || dictionaryAvailable);
+  const mapFeatureEnabled = (runtimeConfig?.ui?.features?.map ?? true)
+    && (runtimeConfig?.map?.enabled ?? true);
+  const mapBaseUrl = String(runtimeConfig?.map?.martin_base_url ?? "http://127.0.0.1:3002").trim();
+  const mapHideWhenUnavailable = runtimeConfig?.map?.hide_when_unavailable ?? false;
   const themeIconMode = themeFollowSystem ? systemThemeMode : themeMode;
   const onProfilerRender = useCallback<ProfilerOnRenderCallback>(
     (id, phase, actualDuration, baseDuration) => {
@@ -126,6 +134,13 @@ export function AppShell() {
   }, [activeTab]);
 
   useEffect(() => {
+    logger.info(
+      "map.config.effective",
+      `enabled=${mapFeatureEnabled} base_url=${mapBaseUrl} hide_when_unavailable=${mapHideWhenUnavailable}`
+    );
+  }, [mapBaseUrl, mapFeatureEnabled, mapHideWhenUnavailable]);
+
+  useEffect(() => {
     const openSplit = () => {
       setMountedTabs((previous) => ({ ...previous, dictionary: true, tasks: true }));
       setActiveTab("dictionary");
@@ -151,8 +166,12 @@ export function AppShell() {
     }
     if (!dictionaryFeatureEnabled && activeTab === "dictionary") {
       setActiveTab("tasks");
+      return;
     }
-  }, [activeTab, contactsFeatureEnabled, dictionaryFeatureEnabled, setActiveTab]);
+    if (!mapFeatureEnabled && activeTab === "map") {
+      setActiveTab("tasks");
+    }
+  }, [activeTab, contactsFeatureEnabled, dictionaryFeatureEnabled, mapFeatureEnabled, setActiveTab]);
 
   useEffect(() => {
     scanDueNotifications();
@@ -214,6 +233,14 @@ export function AppShell() {
         return;
       }
       if (isMeta && key === "5") {
+        if (!mapFeatureEnabled) {
+          return;
+        }
+        event.preventDefault();
+        setActiveTab("map");
+        return;
+      }
+      if (isMeta && key === "6") {
         if (!contactsFeatureEnabled) {
           return;
         }
@@ -231,7 +258,7 @@ export function AppShell() {
 
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [activeTab, closeSettings, contactsFeatureEnabled, dictionaryFeatureEnabled, openAddTaskDialog, openSettings, setActiveTab, settingsOpen]);
+  }, [activeTab, closeSettings, contactsFeatureEnabled, dictionaryFeatureEnabled, mapFeatureEnabled, openAddTaskDialog, openSettings, setActiveTab, settingsOpen]);
 
   return (
     <div className="flex h-screen min-h-screen flex-col overflow-hidden">
@@ -243,7 +270,7 @@ export function AppShell() {
           </Typography>
           <Tabs
             value={activeTab}
-            onChange={(_, value: string) => setActiveTab(value as "tasks" | "kanban" | "calendar" | "dictionary" | "contacts")}
+            onChange={(_, value: string) => setActiveTab(value as "tasks" | "kanban" | "calendar" | "dictionary" | "map" | "contacts")}
             textColor="primary"
             indicatorColor="primary"
           >
@@ -251,6 +278,7 @@ export function AppShell() {
             <Tab value="kanban" label="Kanban" />
             <Tab value="calendar" label="Calendar" />
             {dictionaryFeatureEnabled ? <Tab value="dictionary" label="Dictionary" /> : null}
+            {mapFeatureEnabled ? <Tab value="map" label="Map" /> : null}
             {contactsFeatureEnabled ? <Tab value="contacts" label="Contacts" /> : null}
           </Tabs>
           <div className="ml-auto" />
@@ -337,6 +365,13 @@ export function AppShell() {
               ) : (
                 <DictionaryWorkspaceMemo />
               )}
+            </Profiler>
+          </div>
+        ) : null}
+        {mapFeatureEnabled && mountedTabs.map ? (
+          <div className={activeTab === "map" ? "h-full" : "hidden h-full"} aria-hidden={activeTab !== "map"}>
+            <Profiler id="map.workspace" onRender={onProfilerRender}>
+              <MapWorkspaceMemo />
             </Profiler>
           </div>
         ) : null}
