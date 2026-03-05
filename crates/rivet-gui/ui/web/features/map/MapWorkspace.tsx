@@ -103,6 +103,9 @@ export function MapWorkspace() {
   const [viewportText, setViewportText] = useState<string>("-");
   const [refreshToken, setRefreshToken] = useState(0);
 
+  const initialCenterRef = useRef<[number, number]>(mapViewportCenter ?? defaultCenter);
+  const initialZoomRef = useRef<number>(mapViewportZoom ?? defaultZoom);
+
   const selectedSource = useMemo(
     () => sources.find((entry) => entry.id === selectedSourceId) ?? null,
     [selectedSourceId, sources]
@@ -152,8 +155,8 @@ export function MapWorkspace() {
       "map.init.start",
       `host=${mapHost} default_center=${defaultCenter[0].toFixed(4)},${defaultCenter[1].toFixed(4)} default_zoom=${defaultZoom}`
     );
-    const initialCenter = mapViewportCenter ?? defaultCenter;
-    const initialZoom = mapViewportZoom ?? defaultZoom;
+    const initialCenter = initialCenterRef.current;
+    const initialZoom = initialZoomRef.current;
     if (typeof maxParallelImageRequests === "number" && Number.isFinite(maxParallelImageRequests) && maxParallelImageRequests > 0) {
       maplibregl.setMaxParallelImageRequests(Math.round(maxParallelImageRequests));
       logger.info("map.request.limit", `max_parallel_image_requests=${maplibregl.getMaxParallelImageRequests()}`);
@@ -247,7 +250,7 @@ export function MapWorkspace() {
 
     mapRef.current = map;
     return map;
-  }, [cancelPendingTileRequestsWhileZooming, defaultCenter, defaultZoom, mapHost, mapViewportCenter, mapViewportZoom, maxParallelImageRequests, maxZoom, minZoom, resetTileStats, scheduleTileStatsSync, setMapLastError, setMapViewport, updateViewportText]);
+  }, [cancelPendingTileRequestsWhileZooming, defaultCenter, defaultZoom, mapHost, maxParallelImageRequests, maxZoom, minZoom, resetTileStats, scheduleTileStatsSync, setMapLastError, setMapViewport, updateViewportText]);
 
   const loadCatalog = useCallback(async () => {
     setStatus("loading");
