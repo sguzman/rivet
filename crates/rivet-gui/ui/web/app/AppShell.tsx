@@ -3,14 +3,26 @@ import type { ProfilerOnRenderCallback } from "react";
 
 import AddIcon from "@mui/icons-material/Add";
 import BugReportIcon from "@mui/icons-material/BugReport";
+import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
+import ChecklistIcon from "@mui/icons-material/Checklist";
+import ContactsIcon from "@mui/icons-material/Contacts";
 import DarkModeIcon from "@mui/icons-material/DarkMode";
 import LightModeIcon from "@mui/icons-material/LightMode";
+import MapIcon from "@mui/icons-material/Map";
+import MenuBookIcon from "@mui/icons-material/MenuBook";
+import MenuIcon from "@mui/icons-material/Menu";
 import SettingsIcon from "@mui/icons-material/Settings";
+import ViewKanbanIcon from "@mui/icons-material/ViewKanban";
 import AppBar from "@mui/material/AppBar";
 import Button from "@mui/material/Button";
+import Divider from "@mui/material/Divider";
+import Drawer from "@mui/material/Drawer";
+import IconButton from "@mui/material/IconButton";
+import List from "@mui/material/List";
+import ListItemButton from "@mui/material/ListItemButton";
+import ListItemIcon from "@mui/material/ListItemIcon";
+import ListItemText from "@mui/material/ListItemText";
 import Stack from "@mui/material/Stack";
-import Tab from "@mui/material/Tab";
-import Tabs from "@mui/material/Tabs";
 import Toolbar from "@mui/material/Toolbar";
 import Typography from "@mui/material/Typography";
 
@@ -71,6 +83,7 @@ export function AppShell() {
 
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [dictionaryTaskSplitOpen, setDictionaryTaskSplitOpen] = useState(false);
+  const [tabDrawerOpen, setTabDrawerOpen] = useState(false);
   const [mountedTabs, setMountedTabs] = useState<{
     tasks: boolean;
     kanban: boolean;
@@ -105,6 +118,16 @@ export function AppShell() {
   const mapBaseUrl = String(runtimeConfig?.map?.martin_base_url ?? "http://127.0.0.1:3002").trim();
   const mapHideWhenUnavailable = runtimeConfig?.map?.hide_when_unavailable ?? false;
   const themeIconMode = themeFollowSystem ? systemThemeMode : themeMode;
+  const tabItems = [
+    { value: "tasks", label: "Tasks", icon: <ChecklistIcon fontSize="small" />, enabled: true },
+    { value: "kanban", label: "Kanban", icon: <ViewKanbanIcon fontSize="small" />, enabled: true },
+    { value: "calendar", label: "Calendar", icon: <CalendarMonthIcon fontSize="small" />, enabled: true },
+    { value: "dictionary", label: "Dictionary", icon: <MenuBookIcon fontSize="small" />, enabled: dictionaryFeatureEnabled },
+    { value: "map", label: "Map", icon: <MapIcon fontSize="small" />, enabled: mapFeatureEnabled },
+    { value: "contacts", label: "Contacts", icon: <ContactsIcon fontSize="small" />, enabled: contactsFeatureEnabled }
+  ] as const;
+  const visibleTabItems = tabItems.filter((item) => item.enabled);
+  const activeTabLabel = visibleTabItems.find((item) => item.value === activeTab)?.label ?? activeTab;
   const onProfilerRender = useCallback<ProfilerOnRenderCallback>(
     (id, phase, actualDuration, baseDuration) => {
       if (!isDevMode) {
@@ -264,23 +287,21 @@ export function AppShell() {
     <div className="flex h-screen min-h-screen flex-col overflow-hidden">
       <AppBar position="static" elevation={0} color="transparent" className="!border-b !border-solid !border-current/10 !backdrop-blur">
         <Toolbar variant="dense" className="!min-h-[40px] !gap-3">
+          <IconButton
+            size="small"
+            edge="start"
+            aria-label="open feature drawer"
+            onClick={() => setTabDrawerOpen(true)}
+          >
+            <MenuIcon fontSize="small" />
+          </IconButton>
           <img src="/assets/icons/mascot-square.png" alt="Rivet mascot" className="h-5 w-5 rounded-sm border border-current/20" />
           <Typography variant="subtitle1" className="min-w-[72px]">
             Rivet
           </Typography>
-          <Tabs
-            value={activeTab}
-            onChange={(_, value: string) => setActiveTab(value as "tasks" | "kanban" | "calendar" | "dictionary" | "map" | "contacts")}
-            textColor="primary"
-            indicatorColor="primary"
-          >
-            <Tab value="tasks" label="Tasks" />
-            <Tab value="kanban" label="Kanban" />
-            <Tab value="calendar" label="Calendar" />
-            {dictionaryFeatureEnabled ? <Tab value="dictionary" label="Dictionary" /> : null}
-            {mapFeatureEnabled ? <Tab value="map" label="Map" /> : null}
-            {contactsFeatureEnabled ? <Tab value="contacts" label="Contacts" /> : null}
-          </Tabs>
+          <Typography variant="caption" color="text.secondary">
+            view: {activeTabLabel}
+          </Typography>
           <div className="ml-auto" />
           <Stack direction="row" spacing={1} alignItems="center">
             <Typography variant="caption" color="text.secondary">
@@ -383,6 +404,31 @@ export function AppShell() {
           </div>
         ) : null}
       </main>
+
+      <Drawer anchor="left" open={tabDrawerOpen} onClose={() => setTabDrawerOpen(false)}>
+        <div className="w-[280px] max-w-[80vw]">
+          <div className="px-4 py-3">
+            <Typography variant="subtitle1">Feature Tabs</Typography>
+            <Typography variant="caption" color="text.secondary">Select a workspace</Typography>
+          </div>
+          <Divider />
+          <List>
+            {visibleTabItems.map((item) => (
+              <ListItemButton
+                key={item.value}
+                selected={activeTab === item.value}
+                onClick={() => {
+                  setActiveTab(item.value);
+                  setTabDrawerOpen(false);
+                }}
+              >
+                <ListItemIcon>{item.icon}</ListItemIcon>
+                <ListItemText primary={item.label} />
+              </ListItemButton>
+            ))}
+          </List>
+        </div>
+      </Drawer>
 
       <AddTaskDialog
         open={addTaskDialogOpen}
