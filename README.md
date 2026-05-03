@@ -1,198 +1,62 @@
 # Rivet
 
-Rivet is a Rust-first Taskwarrior port with two layers:
+Rivet is a Rust-first Taskwarrior port with both a CLI-compatible core and a desktop GUI built on the same task model.
 
-- A CLI-compatible core (`task`) focused on Taskwarrior-style workflows.
-- A desktop GUI layer built with Rust + TypeScript/React + Tailwind + Material UI + Tauri on top of the same core data model.
+## Intent
 
-## Mascot
+Recreate serious Taskwarrior workflows in Rust while preserving CLI muscle memory and opening the door to a richer desktop experience on top of the same engine.
 
-![Rivet Mascot](branding/mascot.png)
+## Ambition
 
-Branding assets live under `branding/`. The app, taskbar, and platform icons are generated from
-`branding/mascot-square.png` into `crates/rivet-gui/src-tauri/icons/`, and web favicons are in
-`crates/rivet-gui/ui/assets/icons/`.
+The parity matrix, GUI workspace members, and roadmap make the long-term ambition explicit: build a robust Rust-native Taskwarrior successor with strong compatibility guarantees and a modern GUI layer.
 
-See `ROADMAP.md` for the full milestone plan toward comprehensive parity.
-See `PARITY_MATRIX.md` for the current command/feature parity status against Taskwarrior `3.4.2`.
-Machine-readable parity data is tracked in `tests/parity_map.json` for CI/reporting tooling.
+## Current Status
 
-## Workspace Layout
+The workspace already implements a large command surface, parity tooling, shared GUI types, frontend/backend integration, and extensive docs. This is one of the more mature repos in the workspace collection.
 
-- `crates/rivet-core`: task engine, parsing, datastore, filters, renderer, command dispatch.
-- `crates/rivet-cli`: `task` binary.
-- `crates/rivet-parity`: parity harness that compares Rivet results to Taskwarrior.
-- `crates/rivet-gui-shared`: shared DTOs for GUI frontend/backend.
-- `crates/rivet-gui/src-tauri`: Tauri backend wired to `rivet-core`.
-- `crates/rivet-gui/ui`: React frontend shell (Vite + TypeScript + Tailwind + MUI).
+## Core Capabilities Or Focus Areas
 
-## Implemented CLI Commands
+- Taskwarrior-style CLI core in Rust.
+- Dedicated parity harness for behavioral comparison.
+- Shared types between core and GUI layers.
+- Tauri backend plus React frontend for the desktop UI.
+- Rich docs around parity, roadmap, and branding.
 
-- `add`
-- `append`
-- `prepend`
-- `list`
-- `next`
-- `info`
-- `modify`
-- `start`
-- `stop`
-- `annotate`
-- `denotate`
-- `duplicate`
-- `log`
-- `done`
-- `delete`
-- `undo`
-- `export`
-- `import`
-- `projects`
-- `tags`
-- `context`
-- `contexts`
-- custom report commands via `report.<name>.*`
-- `_commands`
-- `_show`
-- `_unique`
+## Project Layout
 
-## Core Behavior
+- `crates/rivet-core/`: Taskwarrior-style engine, parser, datastore, filters, reports, and command dispatch.
+- `crates/rivet-cli/`: CLI binary surface for the `task`-style workflow.
+- `crates/rivet-parity/`: compatibility harness for comparing Rivet against Taskwarrior.
+- `crates/rivet-gui-shared/`: shared DTOs and contracts between frontend and backend.
+- `crates/rivet-gui/src-tauri/`: desktop backend for the Tauri-based GUI layer.
+- `branding/`: branding, mascot, and visual identity assets.
+- `crates/`: workspace member crates grouped by subsystem.
+- `docs/`: project documentation, reference material, and roadmap notes.
+- `tests/`: automated tests, fixtures, or parity scenarios.
+- `Cargo.toml`: crate or workspace manifest and the first place to check for package structure.
 
-- Taskwarrior-style argument parsing (`task <filter> <command> <args>`).
-- `taskrc` loading with `include` support.
-- Runtime `rc.*` overrides (`--rc` and positional `rc.foo=bar`).
-- `TASKRC=/dev/null` behavior.
-- Data storage in JSONL files:
-  - `pending.data`
-  - `completed.data`
-- Field support for:
-  - `project`, `tags`, `priority`, `due`, `scheduled`, `wait`, `depends`.
-- Date expression support:
-  - `now`, `today`, `tomorrow`, `yesterday`, `+Nd`, `+Nh`, `+Nm`, RFC3339, `YYYY-MM-DD`, `YYYY-MM-DDTHH:MM`, Taskwarrior export format.
-- Boolean filter grammar support:
-  - `and` / `or` / implicit `and` with parentheses grouping.
-- Virtual tag support:
-  - `+PENDING`, `+WAITING`, `+COMPLETED`, `+DELETED`, `+ACTIVE`, `+READY`, `+BLOCKED`, `+UNBLOCKED`, `+DUE`, `+OVERDUE`, `+TODAY`, `+TOMORROW`.
-- Configurable report engine support:
-  - `report.<name>.columns`, `report.<name>.labels`, `report.<name>.sort`, `report.<name>.filter`, `report.<name>.limit`.
-  - dynamic report command resolution with abbreviations.
-- Colorized tabular rendering in terminal output.
+## Setup And Requirements
 
-## Logging (Tracing)
+- Rust toolchain.
+- Node.js and `pnpm` for GUI work.
+- Tauri prerequisites if running the desktop application.
 
-Tracing is wired across CLI parsing, config resolution, datastore operations, filtering, command dispatch, parity execution, and GUI backend.
-
-Examples:
+## Build / Run / Test Commands
 
 ```bash
-RUST_LOG=rivet_core=debug task add "debug me" project:rivet +trace due:tomorrow
-RUST_LOG=trace task +urgent list
-```
-
-## Build and Test
-
-### Core / CLI / Parity
-
-```bash
-cargo build
-cargo test
-```
-
-### GUI Shared + Frontend + Backend checks
-
-```bash
-cargo check -p rivet_gui_shared
-cargo check -p rivet_gui_tauri
-pnpm ui:check
-pnpm ui:lint
-pnpm ui:test
-pnpm ui:build
-```
-
-## Parity Harness
-
-A scenario-based parity harness is included at `crates/rivet-parity`.
-
-Default scenario:
-
-- `crates/rivet-parity/scenarios/basic_flow.json`
-- `crates/rivet-parity/scenarios/lifecycle_delete.json`
-- `crates/rivet-parity/scenarios/waiting_and_modify.json`
-- `crates/rivet-parity/scenarios/append_prepend.json`
-- `crates/rivet-parity/scenarios/start_stop.json`
-- `crates/rivet-parity/scenarios/annotate_denotate.json`
-- `crates/rivet-parity/scenarios/duplicate_undo.json`
-- `crates/rivet-parity/scenarios/log_command.json`
-- `crates/rivet-parity/scenarios/context_activation.json`
-- `crates/rivet-parity/scenarios/boolean_filters.json`
-- `crates/rivet-parity/scenarios/cross_status_modify.json`
-- `crates/rivet-parity/scenarios/virtual_tags.json`
-- `crates/rivet-parity/scenarios/report_focus.json`
-
-Run candidate-only:
-
-```bash
-cargo run -p rivet_parity -- --skip-reference
-```
-
-Run against Taskwarrior if installed:
-
-```bash
-cargo run -p rivet_parity -- \
-  --candidate-bin target/debug/task \
-  --reference-bin /usr/bin/task
-```
-
-Run all included scenarios explicitly:
-
-```bash
-cargo run -p rivet_parity -- \
-  --candidate-bin target/debug/task \
-  --reference-bin task \
-  --scenario crates/rivet-parity/scenarios/basic_flow.json \
-  --scenario crates/rivet-parity/scenarios/lifecycle_delete.json \
-  --scenario crates/rivet-parity/scenarios/waiting_and_modify.json \
-  --scenario crates/rivet-parity/scenarios/append_prepend.json \
-  --scenario crates/rivet-parity/scenarios/start_stop.json \
-  --scenario crates/rivet-parity/scenarios/annotate_denotate.json \
-  --scenario crates/rivet-parity/scenarios/duplicate_undo.json \
-  --scenario crates/rivet-parity/scenarios/log_command.json \
-  --scenario crates/rivet-parity/scenarios/context_activation.json \
-  --scenario crates/rivet-parity/scenarios/boolean_filters.json \
-  --scenario crates/rivet-parity/scenarios/cross_status_modify.json \
-  --scenario crates/rivet-parity/scenarios/virtual_tags.json \
-  --scenario crates/rivet-parity/scenarios/report_focus.json
-```
-
-The harness reports per-scenario bucket parity (`pending`, `completed`, `deleted`) and an overall score using Jaccard similarity over canonicalized exported tasks.
-
-## GUI Development
-
-Prerequisites:
-
-```bash
-cargo install tauri-cli
+cargo build --workspace
+cargo test --workspace
 pnpm install
+pnpm ui:build
+cargo tauri dev --manifest-path crates/rivet-gui/src-tauri/Cargo.toml
 ```
 
-Run desktop app:
+## Notes, Limitations, Or Known Gaps
 
-```bash
-cd crates/rivet-gui/src-tauri
-cargo tauri dev
-```
+- CLI parity is a core contract and should be treated carefully when evolving internals.
+- The GUI is an additional product surface, not a replacement for the command-line compatibility work.
 
-Frontend styling lives at:
+## Next Steps Or Roadmap Hints
 
-- `crates/rivet-gui/ui/assets/app.css`
-
-Current GUI capabilities:
-
-- Tasks workspace with search/facet filtering, add/edit/done/delete, and bulk filtered actions.
-- Kanban workspace with board CRUD, drag/drop lane movement, and density toggle.
-- Calendar workspace with year/quarter/month/week/day views, markers, and period task list.
-- External calendar sources with add/edit/delete, sync, and ICS import.
-- Settings + diagnostics panels for due notifications and command-failure visibility.
-
-## Notes
-
-This is a comprehensive port foundation with extensive instrumentation and a parity measurement workflow. Full Taskwarrior parity (all reports, all grammar/operators, recurrence engine, sync/hooks, undo model) can be layered onto the existing architecture incrementally.
+- Continue using the parity matrix and harness as the guardrail for CLI expansion.
+- Keep GUI-specific behavior cleanly layered on top of the shared task model.
